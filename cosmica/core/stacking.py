@@ -241,6 +241,44 @@ def normalize_stack_linear_fit(stack: np.ndarray) -> np.ndarray:
     return normalize_stack(stack, NormalizationMethod.ADDITIVE_SCALING)
 
 
+def _compute_frame_norm_factors(
+    paths: "list",
+    method: NormalizationMethod,
+    sample_size: int = 256,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-frame scale/shift from center crops — mirrors ``normalize_stack()``."""
+    n = len(paths)
+    scales = np.ones(n, dtype=np.float32)
+    shifts = np.zeros(n, dtype=np.float32)
+    if n < 2 or method == NormalizationMethod.NONE:
+        return scales, shifts
+
+    flats = np.stack([_sample_frame_crop(p, sample_size).ravel() for p in paths])
+    ref_med = float(np.median(flats[0]))
+    frame_meds = np.median(flats, axis=1)
+
+    if method == NormalizationMethod.ADDITIVE:
+        shifts = (ref_med - frame_meds).astype(np.float32)
+        return scales, shifts
+
+    if method == NormalizationMethod.MULTIPLICATIVE:
+        safe_meds = np.where(np.abs(frame_meds) > 1e-8, frame_meds, 1.0)
+        scales = (ref_med / safe_meds).astype(np.float32)
+        return scales, shifts
+
+    ref_mad = float(np.median(np.abs(flats[0] - ref_med))) * 1.4826
+    frame_mads = np.median(np.abs(flats - frame_meds[:, None]), axis=1) * 1.4826
+
+    if ref_mad < 1e-6:
+        shifts = (ref_med - frame_meds).astype(np.float32)
+        return scales, shifts
+
+    safe_mads = np.maximum(frame_mads, 1e-8)
+    scales = (ref_mad / safe_mads).astype(np.float32)
+    shifts = (ref_med - scales * frame_meds).astype(np.float32)
+    return scales, shifts
+
+
 # ---------------------------------------------------------------------------
 # Pixel Rejection Helpers
 # ---------------------------------------------------------------------------
@@ -875,7 +913,7 @@ def align_frames(
     if gpu_available:
         del t_ref
         gc.collect()
-        torch.cuda.empty_cache()
+        get_device_manager().empty_cache()
 
     progress(1.0, f"Alignment complete: {n} frames")
     return [img for img in aligned if img is not None]
@@ -1216,7 +1254,7 @@ def align_from_paths(
     del ref_img
     gc.collect()
     if gpu_available:
-        torch.cuda.empty_cache()
+        get_device_manager().empty_cache()
 
     result = [p for p in out_paths if p is not None]
     progress(1.0, f"Path-based alignment complete: {len(result)}/{n} frames saved")
@@ -1348,9 +1386,11 @@ def _load_fits_tile(path: "Path", y0: int, y1: int) -> np.ndarray:
     raise ValueError(f"No image data in {path}")
 
 
-def _sample_frame_background(path: "Path", sample_size: int = 256) -> float:
-    """Estimate frame background by sampling the center of a FITS file."""
+def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
+    """Return a normalized float32 center crop from a FITS file."""
     from astropy.io import fits as _fits
+
+    from cosmica.core.image_io import _normalize_fits_data
 
     with _fits.open(str(path), memmap=True) as hdul:
         for hdu in hdul:
@@ -1360,19 +1400,27 @@ def _sample_frame_background(path: "Path", sample_size: int = 256) -> float:
                     h, w = d.shape
                     y0 = max(0, h // 2 - sample_size // 2)
                     x0 = max(0, w // 2 - sample_size // 2)
-                    crop = np.array(d[y0:y0 + sample_size, x0:x0 + sample_size], dtype=np.float32)
+                    crop = np.array(
+                        d[y0 : y0 + sample_size, x0 : x0 + sample_size], dtype=np.float32
+                    )
                 elif d.ndim == 3:
                     _, h, w = d.shape
                     y0 = max(0, h // 2 - sample_size // 2)
                     x0 = max(0, w // 2 - sample_size // 2)
-                    crop = np.array(d[0, y0:y0 + sample_size, x0:x0 + sample_size], dtype=np.float32)
+                    crop = np.array(
+                        d[0, y0 : y0 + sample_size, x0 : x0 + sample_size], dtype=np.float32
+                    )
                 else:
-                    return 0.0
+                    return np.zeros((sample_size, sample_size), dtype=np.float32)
                 if np.issubdtype(hdu.data.dtype, np.integer):
-                    info = np.iinfo(hdu.data.dtype)
-                    crop /= float(info.max)
-                return float(np.median(crop))
-    return 0.0
+                    crop = crop.astype(hdu.data.dtype)
+                return _normalize_fits_data(crop)
+    return np.zeros((sample_size, sample_size), dtype=np.float32)
+
+
+def _sample_frame_background(path: "Path", sample_size: int = 256) -> float:
+    """Estimate frame background by sampling the center of a FITS file."""
+    return float(np.median(_sample_frame_crop(path, sample_size)))
 
 
 def _get_fits_shape(path: "Path") -> tuple:
@@ -1455,21 +1503,16 @@ def stack_from_paths(
         n, ref_shape, color_desc,
     )
 
-    # 2. Compute per-frame normalization shifts from center crop
+    # 2. Per-frame normalization (same logic as normalize_stack on full frames)
+    scales = np.ones(n, dtype=np.float32)
     shifts = np.zeros(n, dtype=np.float32)
     if params.normalization != NormalizationMethod.NONE:
         progress(0.02, "Computing normalization factors…")
-        medians = []
-        for i, p in enumerate(paths):
-            medians.append(_sample_frame_background(p))
-        ref_med = medians[0]
-        for i, m in enumerate(medians):
-            if params.normalization in (
-                NormalizationMethod.ADDITIVE, NormalizationMethod.ADDITIVE_SCALING
-            ):
-                shifts[i] = ref_med - m
-            # MULTIPLICATIVE: handled as scale; skip for now (additive is most robust)
-        log.debug("Normalization shifts: min=%.4f max=%.4f", shifts.min(), shifts.max())
+        scales, shifts = _compute_frame_norm_factors(paths, params.normalization)
+        log.debug(
+            "Normalization scales: [%.4f, %.4f] shifts: [%.4f, %.4f]",
+            scales.min(), scales.max(), shifts.min(), shifts.max(),
+        )
 
     # 3. Compute tile height so that (N × n_channels × tile_h × W × 4) ≤ ~350 MB RAM
     # GPU path moves each tile to VRAM after assembly, so RAM budget is per-tile only
@@ -1513,15 +1556,9 @@ def stack_from_paths(
         # Load tile from each file — disk → RAM one frame at a time
         tile_frames = []
         for i, p in enumerate(paths):
-            try:
-                tile = _load_fits_tile(p, y0, y1)
-                tile = np.clip(tile + shifts[i], 0, 1)
-                tile_frames.append(tile)
-            except Exception as exc:
-                log.warning("Could not load tile from %s: %s — skipping", p, exc)
-
-        if not tile_frames:
-            continue
+            tile = _load_fits_tile(p, y0, y1)
+            tile = tile * scales[i] + shifts[i]
+            tile_frames.append(tile)
 
         # Stack → (N, [C,] tile_h, W)
         tile_stack = np.array(tile_frames, dtype=np.float32)
@@ -1601,7 +1638,7 @@ def stack_from_paths(
     # Release GPU memory back to OS; PyTorch caches it otherwise
     if use_gpu:
         gc.collect()
-        torch.cuda.empty_cache()
+        dm.empty_cache()
 
     # Load header from first file for metadata
     ref_img = load_image(str(paths[0]))

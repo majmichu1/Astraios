@@ -11,9 +11,12 @@ from cosmica.core.stacking import (
     RejectionMethod,
     StackingParams,
     StackResult,
+    _gpu_min_max,
+    _gpu_percentile_clip,
     align_from_paths,
     normalize_stack,
     normalize_stack_linear_fit,
+    stack_from_paths,
     stack_images,
 )
 
@@ -309,3 +312,48 @@ class TestAlignFromPaths:
         )
         result = align_from_paths(paths, out_dir, params=params)
         assert len(result) == 4
+
+
+class TestStackFromPaths:
+    """stack_from_paths — tiled path with normalization parity."""
+
+    def _write_fits(self, tmp_path, name: str, data: np.ndarray):
+        from astropy.io import fits
+
+        path = tmp_path / name
+        fits.PrimaryHDU(data.astype(np.float32)).writeto(str(path), overwrite=True)
+        return path
+
+    def test_stack_from_paths_matches_stack_frames_normalization(self, tmp_path):
+        """Tiled stack should match in-memory stack after normalization."""
+        rng = np.random.default_rng(42)
+        base = rng.random((40, 50)).astype(np.float32) * 0.2 + 0.05
+        frames = []
+        for i, (offset, scale) in enumerate(
+            [(0.02, 1.0), (0.0, 1.15), (0.04, 0.92), (0.06, 1.08), (0.01, 0.95)]
+        ):
+            frames.append(base * scale + offset)
+
+        paths = [self._write_fits(tmp_path, f"light_{i}.fits", f) for i, f in enumerate(frames)]
+        images = [ImageData(data=f.copy()) for f in frames]
+        params = StackingParams(
+            rejection=RejectionMethod.NONE,
+            normalization=NormalizationMethod.ADDITIVE_SCALING,
+            use_gpu=False,
+        )
+        mem = stack_images(images, params=params, align=False)
+        tiled = stack_from_paths(paths, params=params)
+        np.testing.assert_allclose(tiled.image.data, mem.image.data, rtol=0.05, atol=0.02)
+
+    def test_stack_from_paths_multiplicative(self, tmp_path):
+        """Multiplicative normalization scales frames with different medians."""
+        base = np.full((30, 30), 0.2, dtype=np.float32)
+        frames = [base * s for s in [0.8, 1.0, 1.2, 1.4]]
+        paths = [self._write_fits(tmp_path, f"m_{i}.fits", f) for i, f in enumerate(frames)]
+        params = StackingParams(
+            rejection=RejectionMethod.NONE,
+            normalization=NormalizationMethod.MULTIPLICATIVE,
+            use_gpu=False,
+        )
+        result = stack_from_paths(paths, params=params)
+        assert abs(np.median(result.image.data) - 0.2) < 0.05
