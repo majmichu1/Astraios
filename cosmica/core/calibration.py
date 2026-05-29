@@ -155,7 +155,7 @@ def _create_master(
     else:
         master_data = np.median(stack, axis=0)
 
-    master_data = np.clip(master_data, 0, 1).astype(np.float32)
+    master_data = master_data.astype(np.float32)
 
     progress(1.0, f"Master {label} complete")
     log.info("Master %s created: %s", label, master_data.shape)
@@ -169,6 +169,45 @@ def _create_master(
     master.header["NCOMBINE"] = n
 
     return CalibrationResult(master=master, n_frames=n, method=method)
+
+
+def _read_exptime(header: dict) -> float | None:
+    """Read exposure time from FITS header (seconds)."""
+    for key in ("EXPTIME", "EXPOSURE"):
+        val = header.get(key)
+        if val is not None:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _scaled_master_dark(
+    master_dark: ImageData,
+    light_header: dict,
+) -> np.ndarray:
+    """Scale master dark to match light exposure when EXPTIME is available."""
+    dark_data = master_dark.data
+    light_exp = _read_exptime(light_header)
+    dark_exp = _read_exptime(master_dark.header)
+    if light_exp is not None and dark_exp is not None and dark_exp > 0:
+        return dark_data * (light_exp / dark_exp)
+    if light_exp is not None and dark_exp is None:
+        log.warning("Master dark missing EXPTIME; subtracting unscaled dark")
+    light_temp = light_header.get("CCD-TEMP")
+    dark_temp = master_dark.header.get("CCD-TEMP")
+    if light_temp is not None and dark_temp is not None:
+        try:
+            if abs(float(light_temp) - float(dark_temp)) > 2.0:
+                log.warning(
+                    "CCD-TEMP differs by >2°C (light=%s, dark=%s); dark scaling is exposure-only",
+                    light_temp,
+                    dark_temp,
+                )
+        except (TypeError, ValueError):
+            pass
+    return dark_data
 
 
 def calibrate_light(
@@ -205,7 +244,8 @@ def _calibrate_light_gpu(
         t_data = t_data - t_bias
 
     if master_dark is not None and master_dark.data.shape == light.data.shape:
-        t_dark = dm.from_numpy(master_dark.data)
+        dark_scaled = _scaled_master_dark(master_dark, light.header)
+        t_dark = dm.from_numpy(dark_scaled)
         t_data = t_data - t_dark
 
     if master_flat is not None and master_flat.data.shape == light.data.shape:
@@ -213,7 +253,7 @@ def _calibrate_light_gpu(
         t_flat_safe = torch.where(t_flat > 0.001, t_flat, torch.tensor(1.0, device=t_flat.device))
         t_data = t_data / t_flat_safe
 
-    data = torch.clamp(t_data, 0.0, 1.0).cpu().numpy().astype(np.float32)
+    data = t_data.cpu().numpy().astype(np.float32)
     return ImageData(
         data=data,
         header=light.header.copy(),
@@ -235,14 +275,14 @@ def _calibrate_light_cpu(
         data -= master_bias.data
 
     if master_dark is not None and master_dark.data.shape == data.shape:
-        data -= master_dark.data
+        data -= _scaled_master_dark(master_dark, light.header)
 
     if master_flat is not None and master_flat.data.shape == data.shape:
         flat = master_flat.data
         flat_safe = np.where(flat > 0.001, flat, 1.0)
         data /= flat_safe
 
-    data = np.clip(data, 0, 1).astype(np.float32)
+    data = data.astype(np.float32)
 
     return ImageData(
         data=data,

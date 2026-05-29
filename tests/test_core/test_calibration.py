@@ -104,3 +104,22 @@ class TestCalibration:
         light = ImageData(data=np.full((50, 60), 0.5, dtype=np.float32))
         result = calibrate_light(light)
         np.testing.assert_allclose(result.data, light.data, atol=1e-6)
+
+    def test_calibrate_light_scales_dark_by_exposure(self):
+        light = ImageData(
+            data=np.full((50, 60), 0.5, dtype=np.float32),
+            header={"EXPTIME": 120.0},
+        )
+        dark = ImageData(
+            data=np.full((50, 60), 0.06, dtype=np.float32),
+            header={"EXPTIME": 60.0},
+        )
+        result = calibrate_light(light, master_dark=dark)
+        expected = 0.5 - 0.06 * (120.0 / 60.0)
+        assert abs(np.median(result.data) - expected) < 0.01
+
+    def test_calibrate_preserves_linear_negative(self):
+        light = ImageData(data=np.full((50, 60), 0.02, dtype=np.float32))
+        bias = ImageData(data=np.full((50, 60), 0.05, dtype=np.float32))
+        result = calibrate_light(light, master_bias=bias)
+        assert np.median(result.data) < 0

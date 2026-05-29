@@ -185,6 +185,17 @@ def auto_stretch_for_display_ref(img: np.ndarray, ref: np.ndarray) -> np.ndarray
     return result
 
 
+def _normalize_fits_tile(tile: np.ndarray, header: dict | None = None) -> np.ndarray:
+    """Normalize a FITS tile slice to float32 (optionally apply BZERO/BSCALE)."""
+    data = np.asarray(tile)
+    if header is not None and np.issubdtype(data.dtype, np.integer):
+        if "BZERO" in header or "BSCALE" in header:
+            bzero = float(header.get("BZERO", 0.0))
+            bscale = float(header.get("BSCALE", 1.0))
+            data = data.astype(np.float64) * bscale + bzero
+    return _normalize_fits_data(data.astype(np.float32, copy=False))
+
+
 def _normalize_fits_data(data: np.ndarray) -> np.ndarray:
     """Normalize FITS data to float32 in [0, 1]."""
     if data.dtype.kind == "u":
@@ -219,7 +230,7 @@ def load_fits(path: Path, debayer: bool = True) -> ImageData:
         data = img_hdu.data.copy()
         header = dict(img_hdu.header)
 
-    data = _normalize_fits_data(data)
+    data = _normalize_fits_tile(data, header)
 
     # Handle axes: FITS stores data as (NAXIS3, NAXIS2, NAXIS1) for color
     if data.ndim == 2:
@@ -624,7 +635,7 @@ def _array_to_pil_16(data: np.ndarray) -> Image.Image:
 
     if data_u16.ndim == 2:
         # Mono
-        return Image.fromarray(data_u16, mode="I;16")
+        return Image.fromarray(data_u16)
     elif data_u16.shape[2] == 2:
         # Grayscale + alpha -> save as RGBA with G in all channels
         gray = data_u16[:, :, 0]

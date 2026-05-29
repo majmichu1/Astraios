@@ -1348,22 +1348,12 @@ def _gpu_min_max(
     if n_reject * 2 >= n:
         n_reject = max(1, (n - 1) // 2)
 
-    sorted_idx = stack.argsort(dim=0)
-    mask = torch.zeros_like(stack, dtype=torch.bool)
-    spatial = stack.shape[1:]
-    grid = torch.meshgrid(
-        *[torch.arange(s, device=stack.device) for s in spatial],
-        indexing="ij",
-    )
-    for k in range(n_reject):
-        lo_f = sorted_idx[k]
-        hi_f = sorted_idx[n - 1 - k]
-        mask[(lo_f,) + grid] = True
-        mask[(hi_f,) + grid] = True
-
-    kept = stack.masked_fill(mask, float("nan"))
-    result = torch.nanmean(kept, dim=0)
-    n_rejected = int(mask.sum().item())
+    sorted_s, _ = stack.sort(dim=0)
+    kept = sorted_s[n_reject: n - n_reject]
+    if kept.shape[0] == 0:
+        kept = sorted_s
+    result = kept.mean(dim=0)
+    n_rejected = 2 * n_reject * int(stack[0].numel())
     return result, n_rejected
 
 
@@ -1372,38 +1362,43 @@ def _gpu_min_max(
 # ---------------------------------------------------------------------------
 
 
+def _open_fits_for_tiles(path: "Path"):
+    """Open FITS for tile reads; disable memmap when BZERO/BSCALE are present."""
+    from astropy.io import fits as _fits
+
+    hdr = _fits.getheader(str(path), ext=0)
+    use_memmap = "BZERO" not in hdr and "BSCALE" not in hdr
+    return _fits.open(str(path), memmap=use_memmap)
+
+
 def _load_fits_tile(path: "Path", y0: int, y1: int) -> np.ndarray:
     """Load a horizontal tile [y0:y1, :] from a FITS file via memmap.
 
     Returns float32 array of shape (C, tile_h, w) or (tile_h, w).
     Only the requested rows are read from disk.
     """
-    from astropy.io import fits as _fits
-
     from cosmica.core.image_io import _normalize_fits_tile
 
-    with _fits.open(str(path), memmap=True) as hdul:
+    with _open_fits_for_tiles(path) as hdul:
         for hdu in hdul:
             if hdu.data is not None:
                 d = hdu.data
                 header = dict(hdu.header)
                 if d.ndim == 2:
-                    tile = np.array(d[y0:y1, :], dtype=np.float32)
+                    tile = np.array(d[y0:y1, :])
                 elif d.ndim == 3:
-                    tile = np.array(d[:, y0:y1, :], dtype=np.float32)
+                    tile = np.array(d[:, y0:y1, :])
                 else:
-                    tile = np.array(d, dtype=np.float32)
+                    tile = np.array(d)
                 return _normalize_fits_tile(tile, header)
     raise ValueError(f"No image data in {path}")
 
 
 def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
     """Return a normalized float32 center crop from a FITS file."""
-    from astropy.io import fits as _fits
-
     from cosmica.core.image_io import _normalize_fits_tile
 
-    with _fits.open(str(path), memmap=True) as hdul:
+    with _open_fits_for_tiles(path) as hdul:
         for hdu in hdul:
             if hdu.data is not None:
                 d = hdu.data
@@ -1412,16 +1407,12 @@ def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
                     h, w = d.shape
                     y0 = max(0, h // 2 - sample_size // 2)
                     x0 = max(0, w // 2 - sample_size // 2)
-                    crop = np.array(
-                        d[y0 : y0 + sample_size, x0 : x0 + sample_size], dtype=np.float32
-                    )
+                    crop = np.array(d[y0 : y0 + sample_size, x0 : x0 + sample_size])
                 elif d.ndim == 3:
                     _, h, w = d.shape
                     y0 = max(0, h // 2 - sample_size // 2)
                     x0 = max(0, w // 2 - sample_size // 2)
-                    crop = np.array(
-                        d[0, y0 : y0 + sample_size, x0 : x0 + sample_size], dtype=np.float32
-                    )
+                    crop = np.array(d[0, y0 : y0 + sample_size, x0 : x0 + sample_size])
                 else:
                     return np.zeros((sample_size, sample_size), dtype=np.float32)
                 return _normalize_fits_tile(crop, header)

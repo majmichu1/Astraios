@@ -125,6 +125,21 @@ class TestFitsIO:
         assert img.frame_type == FrameType.DARK
 
 
+class TestNormalizeFitsTile:
+    def test_fits_tile_normalization_matches_full_load(self, tmp_path):
+        from cosmica.core.stacking import _load_fits_tile
+
+        raw = np.random.randint(100, 60000, (40, 50), dtype=np.uint16)
+        hdu = fits.PrimaryHDU(raw)
+        hdu.header["BZERO"] = 32768
+        path = tmp_path / "uint16_bzero.fits"
+        hdu.writeto(str(path), overwrite=True)
+
+        full = load_fits(path)
+        tile = _load_fits_tile(path, 0, 40)
+        np.testing.assert_allclose(tile, full.data, rtol=1e-5, atol=1e-5)
+
+
 class TestAutoStretch:
     def test_stretch_range(self):
         img = np.random.random((50, 60, 3)).astype(np.float32) * 0.01
