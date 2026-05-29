@@ -95,14 +95,26 @@ def run_starnet(
             message="StarNet binary not found. Install StarNet++ and ensure it's in PATH.",
         )
 
+    original = image.copy()
+    process_data = image
+    lum: np.ndarray | None = None
+    if image.ndim == 3:
+        if image.shape[0] >= 3:
+            lum = (
+                0.2126 * image[0] + 0.7152 * image[1] + 0.0722 * image[2]
+            ).astype(np.float32)
+        else:
+            lum = image[0].astype(np.float32)
+        process_data = lum
+
     try:
         with tempfile.TemporaryDirectory(prefix="cosmica_starnet_") as tmpdir:
             tmpdir = Path(tmpdir)
             input_path = tmpdir / "input.fits"
             output_path = tmpdir / "starless.fits"
 
-            # Save input as FITS
-            img_data = ImageData(data=image, header={})
+            # Save input as FITS (mono luminance for color images)
+            img_data = ImageData(data=process_data, header={})
             save_fits(img_data, input_path)
 
             # Run StarNet subprocess
@@ -132,15 +144,40 @@ def run_starnet(
 
             # Load result
             starless_img = load_image(str(output_path))
-            starless = starless_img.data
+            starless_mono = starless_img.data
+            if starless_mono.ndim == 3:
+                starless_mono = starless_mono[0]
 
-            # Compute stars-only if requested
+            if lum is not None:
+                if starless_mono.shape != lum.shape:
+                    return StarNetResult(
+                        starless=original,
+                        success=False,
+                        message=(
+                            f"StarNet output shape {starless_mono.shape} "
+                            f"does not match input {lum.shape}"
+                        ),
+                    )
+                star_residual = lum - starless_mono
+                if original.ndim == 3:
+                    starless = original - star_residual
+                else:
+                    starless = starless_mono
+            else:
+                starless = starless_mono
+
             stars_only = None
             if extract_stars:
-                stars_only = np.clip(image - starless, 0, 1).astype(np.float32)
+                if starless.shape != original.shape:
+                    return StarNetResult(
+                        starless=original,
+                        success=False,
+                        message="Starless image shape does not match input",
+                    )
+                stars_only = np.clip(original - starless, 0, 1).astype(np.float32)
 
             return StarNetResult(
-                starless=starless,
+                starless=starless.astype(np.float32),
                 stars_only=stars_only,
                 success=True,
                 message="StarNet processing complete",

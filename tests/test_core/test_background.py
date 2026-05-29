@@ -44,8 +44,9 @@ class TestBackgroundExtraction:
         assert corrected.shape == data.shape
         assert bg_model.shape == data.shape
 
-    def test_output_range(self):
+    def test_preserves_linear_range(self):
         image = np.random.random((100, 120)).astype(np.float32) * 0.5
         corrected, _ = extract_background(image)
-        assert corrected.min() >= 0
-        assert corrected.max() <= 1
+        # Linear subtraction may yield small negatives; display stretch clips later
+        assert np.isfinite(corrected).all()
+        assert corrected.max() <= image.max() + 0.05

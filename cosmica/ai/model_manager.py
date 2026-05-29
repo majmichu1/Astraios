@@ -119,6 +119,9 @@ class ModelManager:
 
     def is_available(self, model_type: ModelType) -> bool:
         """Check if a model is available (bundled or downloaded)."""
+        info = MODEL_REGISTRY.get(model_type)
+        if info is not None and not info.sha256:
+            return False
         return self.get_model_path(model_type).exists()
 
     def needs_download(self, model_type: ModelType) -> bool:

@@ -306,7 +306,7 @@ def _evaluate_polynomial_gpu(h: int, w: int, coeffs: np.ndarray, order: int) -> 
 
 @torch.no_grad()
 def _subtract_and_floor_gpu(channel: np.ndarray, bg_model: np.ndarray) -> np.ndarray:
-    """Subtract background model, shift floor to ~0, clip to [0,1] — GPU if available."""
+    """Subtract background model only — preserve linear data for stretch/export."""
     try:
         import torch
         from cosmica.core.device_manager import get_device_manager
@@ -314,19 +314,10 @@ def _subtract_and_floor_gpu(channel: np.ndarray, bg_model: np.ndarray) -> np.nda
 
         t = torch.from_numpy(channel).to(device=device, dtype=torch.float32)
         m = torch.from_numpy(bg_model).to(device=device, dtype=torch.float32)
-        corrected = t - m
-        # Use a 1-in-100 subsample for the floor percentile — statistically identical
-        flat = corrected.flatten()[::100]
-        c_min = torch.quantile(flat, 0.001)
-        corrected = (corrected - c_min).clamp(0.0, 1.0)
-        return corrected.cpu().numpy()
+        return (t - m).cpu().numpy().astype(np.float32)
 
     except Exception:
-        corrected = channel - bg_model
-        flat_sample = corrected.ravel()[::100]
-        c_min = float(np.percentile(flat_sample, 0.1))
-        corrected -= c_min
-        return np.clip(corrected, 0, 1).astype(np.float32)
+        return (channel - bg_model).astype(np.float32)
 
 
 @torch.no_grad()

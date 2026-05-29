@@ -20,7 +20,6 @@ from typing import Callable
 import numpy as np
 import torch
 
-from cosmica.ai.inference.tiled import tiled_inference
 from cosmica.ai.model_manager import ModelType, get_model_manager
 from cosmica.ai.models.unet import UNet
 from cosmica.core.device_manager import get_device_manager
@@ -185,7 +184,7 @@ def _jinvariant_channel(
 
             # Free tile memory explicitly
             del t, result_t
-            torch.cuda.empty_cache()
+            get_device_manager().empty_cache()
 
     return (output / weight).clip(0, 1)
 
