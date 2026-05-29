@@ -32,6 +32,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+import numpy as np
+
 import cosmica
 from cosmica.core.abe import abe_extract
 from cosmica.core.background import extract_background
@@ -437,15 +439,15 @@ class MainWindow(QMainWindow):
         # ── File menu ─────────────────────────────────────────────────────────
         file_menu = menu.addMenu("&File")
 
-        new_proj = QAction("&New Project...", self)
-        new_proj.setShortcut("Ctrl+N")
-        new_proj.triggered.connect(self._new_project)
-        file_menu.addAction(new_proj)
+        self._new_proj_act = QAction("&New Project...", self)
+        self._new_proj_act.setShortcut("Ctrl+N")
+        self._new_proj_act.triggered.connect(self._new_project)
+        file_menu.addAction(self._new_proj_act)
 
-        open_proj = QAction("&Open Project...", self)
-        open_proj.setShortcut("Ctrl+O")
-        open_proj.triggered.connect(self._open_project)
-        file_menu.addAction(open_proj)
+        self._open_proj_act = QAction("&Open Project...", self)
+        self._open_proj_act.setShortcut("Ctrl+O")
+        self._open_proj_act.triggered.connect(self._open_project)
+        file_menu.addAction(self._open_proj_act)
 
         save_proj = QAction("&Save Project", self)
         save_proj.setShortcut("Ctrl+S")
@@ -459,10 +461,10 @@ class MainWindow(QMainWindow):
 
         file_menu.addSeparator()
 
-        open_img = QAction("Open &Image...", self)
-        open_img.setShortcut("Ctrl+Shift+I")
-        open_img.triggered.connect(self._open_image)
-        file_menu.addAction(open_img)
+        self._open_img_act = QAction("Open &Image...", self)
+        self._open_img_act.setShortcut("Ctrl+Shift+I")
+        self._open_img_act.triggered.connect(self._open_image)
+        file_menu.addAction(self._open_img_act)
 
         import_lights = QAction("Import &Lights...", self)
         import_lights.triggered.connect(self._on_import_lights)
@@ -1802,13 +1804,31 @@ class MainWindow(QMainWindow):
 
     # ---------- Worker management ----------
 
+    def _set_processing_locked(self, locked: bool) -> None:
+        """Disable destructive UI while a background worker runs."""
+        self._new_proj_act.setEnabled(not locked)
+        self._open_proj_act.setEnabled(not locked)
+        self._open_img_act.setEnabled(not locked)
+        if locked:
+            self._undo_act.setEnabled(False)
+            self._redo_act.setEnabled(False)
+            if hasattr(self, "_tb_undo_btn"):
+                self._tb_undo_btn.setEnabled(False)
+        else:
+            self._update_undo_actions()
+
     def _start_worker(self, func, *args, on_done=None, **kwargs):
         if self._worker is not None and self._worker.isRunning():
             self._log_panel.log("A processing task is already running", "warning")
             return
 
+        safe_args = tuple(
+            a.copy() if isinstance(a, np.ndarray) else a for a in args
+        )
+
         from PyQt6.QtCore import Qt as _Qt
-        self._worker = ProcessingWorker(func, *args, **kwargs)
+        self._worker = ProcessingWorker(func, *safe_args, **kwargs)
+        self._set_processing_locked(True)
         # QueuedConnection ensures slots run in the GUI thread even when signals
         # are emitted from the worker thread (prevents QTextEdit segfaults).
         self._worker.progress.connect(
@@ -1853,11 +1873,22 @@ class MainWindow(QMainWindow):
         self._worker.finished.connect(
             lambda _=None: self._reset_tb_progress(), _Qt.ConnectionType.QueuedConnection
         )
+        self._worker.finished.connect(
+            lambda _=None: self._set_processing_locked(False),
+            _Qt.ConnectionType.QueuedConnection,
+        )
         self._worker.cancelled.connect(
             lambda: self._reset_tb_progress(), _Qt.ConnectionType.QueuedConnection
         )
+        self._worker.cancelled.connect(
+            lambda: self._set_processing_locked(False), _Qt.ConnectionType.QueuedConnection
+        )
         self._worker.error.connect(
             lambda _=None: self._reset_tb_progress(), _Qt.ConnectionType.QueuedConnection
+        )
+        self._worker.error.connect(
+            lambda _=None: self._set_processing_locked(False),
+            _Qt.ConnectionType.QueuedConnection,
         )
         self._log_panel.set_cancel_visible(True)
         self._log_panel.cancel_requested.connect(self._worker.cancel, _Qt.ConnectionType.UniqueConnection)
@@ -2207,9 +2238,7 @@ class MainWindow(QMainWindow):
             self._save_project()
         try:
             import gc as _gc; _gc.collect()
-            import torch as _torch
-            if _torch.cuda.is_available():
-                _torch.cuda.empty_cache()
+            get_device_manager().empty_cache()
         except Exception:
             pass
 
@@ -2249,9 +2278,7 @@ class MainWindow(QMainWindow):
         del aligned_lights
         import gc as _gc; _gc.collect()
         try:
-            import torch as _torch
-            if _torch.cuda.is_available():
-                _torch.cuda.empty_cache()
+            get_device_manager().empty_cache()
         except Exception:
             pass
 
@@ -2425,9 +2452,7 @@ class MainWindow(QMainWindow):
         # Flush GPU allocator — alignment tensors accumulate during stack+align
         try:
             import gc as _gc; _gc.collect()
-            import torch as _torch
-            if _torch.cuda.is_available():
-                _torch.cuda.empty_cache()
+            get_device_manager().empty_cache()
         except Exception:
             pass
         self._log_panel.log(
