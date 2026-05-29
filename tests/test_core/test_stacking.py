@@ -357,3 +357,54 @@ class TestStackFromPaths:
         )
         result = stack_from_paths(paths, params=params)
         assert abs(np.median(result.image.data) - 0.2) < 0.05
+
+    def test_stack_from_paths_winsorized_uses_winsorization(self, tmp_path):
+        """Winsorized tiled stack rejects hot pixels like in-memory path."""
+        data = np.full((20, 20), 0.3, dtype=np.float32)
+        frames = [data.copy() for _ in range(20)]
+        bad = data.copy()
+        bad[10, 10] = 5.0
+        frames[5] = bad
+        paths = [self._write_fits(tmp_path, f"w_{i}.fits", f) for i, f in enumerate(frames)]
+        params = StackingParams(
+            rejection=RejectionMethod.WINSORIZED_SIGMA,
+            kappa_high=2.5,
+            use_gpu=False,
+        )
+        result = stack_from_paths(paths, params=params)
+        assert abs(result.image.data[10, 10] - 0.3) < 0.2
+        assert result.total_rejected > 0
+
+    def test_stack_from_paths_fails_on_missing_tile(self, tmp_path):
+        """Corrupt FITS must fail fast instead of silently dropping frames."""
+        good = np.full((20, 20), 0.3, dtype=np.float32)
+        paths = [
+            self._write_fits(tmp_path, "good0.fits", good),
+            tmp_path / "missing.fits",
+            self._write_fits(tmp_path, "good2.fits", good),
+        ]
+        params = StackingParams(
+            rejection=RejectionMethod.NONE,
+            normalization=NormalizationMethod.NONE,
+            use_gpu=False,
+        )
+        with pytest.raises(RuntimeError, match="Failed to read tile"):
+            stack_from_paths(paths, params=params)
+
+
+class TestGpuRejectionHelpers:
+    def test_gpu_percentile_clip_rejects_outliers(self):
+        import torch
+
+        stack = torch.full((10, 4, 4), 0.3)
+        stack[9, 2, 2] = 5.0
+        result, n_rej = _gpu_percentile_clip(stack, 5.0, 5.0)
+        assert n_rej > 0
+        assert abs(float(result[2, 2]) - 0.3) < 0.1
+
+    def test_gpu_min_max_counts_rejected(self):
+        import torch
+
+        stack = torch.linspace(0, 1, 6).view(6, 1, 1).expand(6, 2, 2)
+        _, n_rej = _gpu_min_max(stack, 1)
+        assert n_rej == 8

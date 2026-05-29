@@ -1328,8 +1328,7 @@ def _gpu_percentile_clip(
     pct_low: float,
     pct_high: float,
 ) -> tuple[torch.Tensor, int]:
-    """Percentile clip on GPU. Clamps each pixel's value range."""
-    n = stack.shape[0]
+    """Percentile clip on GPU — reject out-of-range pixels, mean survivors."""
     lo = torch.quantile(stack, pct_low / 100.0, dim=0)
     hi = torch.quantile(stack, 1.0 - pct_high / 100.0, dim=0)
     mask = (stack >= lo.unsqueeze(0)) & (stack <= hi.unsqueeze(0))
@@ -1346,12 +1345,25 @@ def _gpu_min_max(
 ) -> tuple[torch.Tensor, int]:
     """Min/Max rejection on GPU — reject n_reject lowest and highest per pixel."""
     n = stack.shape[0]
-    sorted_s, _ = stack.sort(dim=0)
-    kept = sorted_s[n_reject: n - n_reject]
-    if kept.shape[0] == 0:
-        kept = sorted_s
-    result = kept.mean(dim=0)
-    n_rejected = 2 * n_reject * int(stack[0].numel())
+    if n_reject * 2 >= n:
+        n_reject = max(1, (n - 1) // 2)
+
+    sorted_idx = stack.argsort(dim=0)
+    mask = torch.zeros_like(stack, dtype=torch.bool)
+    spatial = stack.shape[1:]
+    grid = torch.meshgrid(
+        *[torch.arange(s, device=stack.device) for s in spatial],
+        indexing="ij",
+    )
+    for k in range(n_reject):
+        lo_f = sorted_idx[k]
+        hi_f = sorted_idx[n - 1 - k]
+        mask[(lo_f,) + grid] = True
+        mask[(hi_f,) + grid] = True
+
+    kept = stack.masked_fill(mask, float("nan"))
+    result = torch.nanmean(kept, dim=0)
+    n_rejected = int(mask.sum().item())
     return result, n_rejected
 
 
@@ -1368,21 +1380,20 @@ def _load_fits_tile(path: "Path", y0: int, y1: int) -> np.ndarray:
     """
     from astropy.io import fits as _fits
 
+    from cosmica.core.image_io import _normalize_fits_tile
+
     with _fits.open(str(path), memmap=True) as hdul:
         for hdu in hdul:
             if hdu.data is not None:
                 d = hdu.data
+                header = dict(hdu.header)
                 if d.ndim == 2:
                     tile = np.array(d[y0:y1, :], dtype=np.float32)
                 elif d.ndim == 3:
                     tile = np.array(d[:, y0:y1, :], dtype=np.float32)
                 else:
                     tile = np.array(d, dtype=np.float32)
-                # Normalize to [0,1] if integer
-                if np.issubdtype(hdu.data.dtype, np.integer):
-                    info = np.iinfo(hdu.data.dtype)
-                    tile /= float(info.max)
-                return tile
+                return _normalize_fits_tile(tile, header)
     raise ValueError(f"No image data in {path}")
 
 
@@ -1390,12 +1401,13 @@ def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
     """Return a normalized float32 center crop from a FITS file."""
     from astropy.io import fits as _fits
 
-    from cosmica.core.image_io import _normalize_fits_data
+    from cosmica.core.image_io import _normalize_fits_tile
 
     with _fits.open(str(path), memmap=True) as hdul:
         for hdu in hdul:
             if hdu.data is not None:
                 d = hdu.data
+                header = dict(hdu.header)
                 if d.ndim == 2:
                     h, w = d.shape
                     y0 = max(0, h // 2 - sample_size // 2)
@@ -1412,9 +1424,7 @@ def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
                     )
                 else:
                     return np.zeros((sample_size, sample_size), dtype=np.float32)
-                if np.issubdtype(hdu.data.dtype, np.integer):
-                    crop = crop.astype(hdu.data.dtype)
-                return _normalize_fits_data(crop)
+                return _normalize_fits_tile(crop, header)
     return np.zeros((sample_size, sample_size), dtype=np.float32)
 
 
@@ -1538,12 +1548,17 @@ def stack_from_paths(
     _tile_weights_np: np.ndarray | None = None
     _tile_weights_t: "torch.Tensor | None" = None
     if params.frame_weights is not None:
+        if len(params.frame_weights) != n:
+            raise ValueError(
+                f"frame_weights length {len(params.frame_weights)} != number of frames {n}"
+            )
         _tile_weights_np = np.asarray(params.frame_weights, dtype=np.float32)
         _tile_weights_np = _tile_weights_np / _tile_weights_np.sum()
         if use_gpu:
             _tile_weights_t = torch.from_numpy(_tile_weights_np).to(dm.device)
 
     # 5. Process tiles
+    _logged_cpu_rejection = False
     for tile_idx in range(n_tiles):
         y0 = tile_idx * tile_h
         y1 = min(y0 + tile_h, h)
@@ -1556,7 +1571,10 @@ def stack_from_paths(
         # Load tile from each file — disk → RAM one frame at a time
         tile_frames = []
         for i, p in enumerate(paths):
-            tile = _load_fits_tile(p, y0, y1)
+            try:
+                tile = _load_fits_tile(p, y0, y1)
+            except Exception as exc:
+                raise RuntimeError(f"Failed to read tile from frame {i}: {p}") from exc
             tile = tile * scales[i] + shifts[i]
             tile_frames.append(tile)
 
@@ -1564,18 +1582,19 @@ def stack_from_paths(
         tile_stack = np.array(tile_frames, dtype=np.float32)
         del tile_frames
 
-        if use_gpu and params.rejection in (
-            RejectionMethod.SIGMA_CLIP, RejectionMethod.WINSORIZED_SIGMA,
-            RejectionMethod.LINEAR_FIT, RejectionMethod.PERCENTILE_CLIP,
-            RejectionMethod.MIN_MAX, RejectionMethod.NONE,
-        ):
+        gpu_rejections = {
+            RejectionMethod.SIGMA_CLIP,
+            RejectionMethod.LINEAR_FIT,
+            RejectionMethod.PERCENTILE_CLIP,
+            RejectionMethod.MIN_MAX,
+            RejectionMethod.NONE,
+        }
+        if use_gpu and params.rejection in gpu_rejections:
             # GPU path: move tile to VRAM, do rejection+integration on GPU
             t = torch.from_numpy(tile_stack).to(dm.device)
             del tile_stack
 
             if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
-                result_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
-            elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
                 result_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 result_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
@@ -1597,7 +1616,13 @@ def stack_from_paths(
             if use_gpu and tile_idx % 10 == 9:
                 dm.empty_cache()
         else:
-            # CPU fallback (ESD and others not yet on GPU)
+            if params.rejection == RejectionMethod.WINSORIZED_SIGMA and not _logged_cpu_rejection:
+                log.info("Tiled stack: winsorized sigma rejection on CPU")
+                _logged_cpu_rejection = True
+            elif params.rejection == RejectionMethod.ESD and not _logged_cpu_rejection:
+                log.info("Tiled stack: ESD rejection on CPU")
+                _logged_cpu_rejection = True
+            # CPU fallback (winsorized, ESD, and when GPU disabled)
             if params.rejection == RejectionMethod.SIGMA_CLIP:
                 masked = _reject_sigma_clip(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
