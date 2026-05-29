@@ -1,5 +1,6 @@
 """Tests for GPU star detection and alignment."""
 
+import cv2
 import numpy as np
 import pytest
 import torch
@@ -114,7 +115,26 @@ class TestWarpImageGPU:
         img = torch.arange(100.0).reshape(10, 10)
         identity = np.array([[1, 0, 0], [0, 1, 0]], dtype=np.float32)
         warped = warp_image_gpu(img, identity)
-        np.testing.assert_allclose(warped, img, atol=5.0)
+        np.testing.assert_allclose(warped, img, atol=1e-3)
+
+    def test_warp_matches_opencv_on_large_rectangular(self):
+        cv2 = pytest.importorskip("cv2")
+        h, w = 4000, 6000
+        rng = np.random.default_rng(0)
+        img_np = rng.random((h, w)).astype(np.float32)
+        angle = np.deg2rad(7.0)
+        tx, ty = 12.5, -8.0
+        center = (w / 2, h / 2)
+        m_cv = cv2.getRotationMatrix2D(center, np.rad2deg(angle), 1.0)
+        m_cv[0, 2] += tx
+        m_cv[1, 2] += ty
+        m_cv = m_cv.astype(np.float32)
+
+        ocv = cv2.warpAffine(img_np, m_cv, (w, h), flags=cv2.INTER_CUBIC)
+        # warp_image_gpu expects output→input (same matrix OpenCV warpAffine uses)
+        m_inv = np.linalg.inv(np.vstack([m_cv, [0, 0, 1]]))[:2].astype(np.float32)
+        gpu = warp_image_gpu(torch.from_numpy(img_np), m_inv, mode="bicubic").numpy()
+        np.testing.assert_allclose(gpu, ocv, rtol=0.05, atol=0.05)
 
     def test_different_from_original_with_shift(self):
         img = torch.arange(100.0).reshape(10, 10).float()
