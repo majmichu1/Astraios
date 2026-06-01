@@ -7,141 +7,152 @@
 [![Tests](https://github.com/majmichu1/cosmica/actions/workflows/ci.yml/badge.svg)](https://github.com/majmichu1/cosmica/actions)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-donate-yellow)](https://buymeacoffee.com/majmichu)
 
-
-
 <img width="2559" height="1600" alt="obraz" src="https://github.com/user-attachments/assets/a688865b-476d-4139-9cfc-4efbe89435a7" />
 
+## Download
 
+You don't need to install Python to use Cosmica. Download the standalone, ready-to-use versions (the AppImage is a portable CPU-only version; for full NVIDIA GPU acceleration, install via Poetry):
 
+- **Windows:** [Download .exe (v0.1.9)](https://github.com/majmichu1/Cosmica/releases/latest)
+- **Linux:** [Download .AppImage (v0.1.9)](https://github.com/majmichu1/Cosmica/releases/latest)
 
-## 📥 Download (Alpha Release)
-You don't need to install Python to use Cosmica. Download the standalone, ready-to-use versions (The AppImage is a portable **CPU-only** version. For full NVIDIA GPU acceleration, please install via Poetry):
+Bug reports and feedback are welcome in the Issues tab.
 
-* **Windows:** [Download .exe (v0.1.9-alpha)](https://github.com/majmichu1/Cosmica/releases/latest)
-* **Linux:** [Download .AppImage (v0.1.9-alpha)](https://github.com/majmichu1/Cosmica/releases/latest)
+## Why Cosmica?
 
-*(Note: This is an Alpha release. Bug reports and feedback are welcome in the Issues tab!)*
-
-
-
-## 🆚 Why Cosmica?
 Cosmica is built as a modern workflow tool from calibration to export, featuring out-of-the-box AI integration.
 
-| | Cosmica | Siril | PixInsight |
+| Feature | Cosmica | Siril | PixInsight |
 |---|---|---|---|
-| **Price** | Free (GPL v3) | Free | €230+ |
-| **GPU Acceleration** | ✅ Full PyTorch | ⚠️ Partial | ⚠️ Partial |
-| **AI Denoise / Sharpen** | ✅ Built-in | ❌ | ✅ Extra cost |
-| **Multi-Session Stacking** | ✅ | ❌ | ✅ |
-| **Spatially-Varying Deconvolution** | ✅ | ❌ | ✅ |
-| **Plate Solve + PCC** | ✅ ASTAP / Astrometry.net | ⚠️ Basic | ✅ |
-| **Scripting** | Python console | Python | JavaScript |
-| **Star Removal** | ✅ StarNet | ❌ | ✅ |
+| Price | Free (GPL v3) | Free | EUR 230+ |
+| GPU Acceleration | Full PyTorch | Partial | Partial |
+| AI Denoise / Sharpen | Built-in | No | Extra cost |
+| Multi-Session Stacking | Yes | No | Yes |
+| Spatially-Varying Deconvolution | Yes | No | Yes |
+| Plate Solve + PCC | ASTAP / astrometry.net | Basic | Yes |
+| Scripting | Python console | Python | JavaScript |
+| Star Removal | StarNet v2 + morphological | No | Yes |
+| Processing Graph (DAG) | Yes | No | Yes |
+| Batch Preprocessing | Yes (full pipeline) | Yes | Yes |
+| Live Stacking | Yes | No | No |
+| EZ Processing Scripts | Yes | Yes | No |
+| Plugin System | Yes | No | Yes |
+| Non-Destructive Workflow | Yes (undo/redo graph) | No | No |
 
+## Features
 
-
-## ✨ Features
-
-### Acquisition & Pre-Processing
-- **Calibration** — Master dark / flat / bias creation with batch light frame calibration
-- **Alignment** — Star-based registration (1-pass, 2-pass refinement, triangle matching), FFT phase-correlation, and comet nucleus tracking
-- **Stacking** — Sigma-clip, winsorized sigma, linear fit, percentile clip, ESD, and min/max rejection
-- **Drizzle Integration** — 2× / 3× scale-up for undersampled data
-- **Multi-Session Stacking** — Combine data from multiple nights with per-session adaptive weighting
-- **Subframe Selector** — Automatic frame scoring by FWHM, eccentricity, SNR, background, and star count
-- **Debayer** — RGGB, BGGR, GRBG, GBRG with VNG and other methods; auto-detection from FITS header
+### Acquisition and Pre-Processing
+- **Calibration** -- Master dark, flat, and bias creation with batch light frame calibration
+- **Batch Preprocessing** -- Full PixInsight-style pipeline: folder scan, auto-matching by EXPTIME/FILTER/BINNING/CCD-TEMP, master calibration frame creation, calibration, cosmetic correction, registration, and stacking
+- **Alignment** -- Star-based registration (1-pass, 2-pass refinement, triangle matching), FFT phase-correlation, and comet nucleus tracking
+- **Stacking** -- Sigma-clip, winsorized sigma, linear fit, percentile clip, ESD, and min/max rejection; GPU-accelerated normalization
+- **Drizzle Integration** -- 2x / 3x scale-up for undersampled data, GPU-accelerated
+- **Multi-Session Stacking** -- Combine data from multiple nights with per-session adaptive weighting
+- **Subframe Selector** -- Automatic frame scoring by FWHM, eccentricity, SNR, background, and star count
+- **Debayer** -- RGGB, BGGR, GRBG, GBRG with VNG and other methods; auto-detection from FITS headers
 
 ### AI-Powered Tools
 Local AI models download automatically on first use. No cloud required.
 
-- **AI Denoise** — Noise2Self U-Net trained on real astro images
-- **AI Sharpen** — Neural deconvolution for recovering fine detail
-- **Star Removal** — StarNet-based starless image generation
+- **AI Denoise** -- Noise2Self U-Net trained on real astro images
+- **AI Sharpen** -- Neural deconvolution for recovering fine detail
+- **Star Removal** -- StarNet v2 network and morphological algorithm (works immediately, no model needed)
+- **Super-Resolution** -- Upscale images with AI detail enhancement
+- **CosmicClarity** -- Suite of pre-trained models for denoise, sharpen, satellite removal, and dark star enhancement
+- **MureDenoise** -- Noise estimation using MURE (MUlti-Resolution Estimator) for optimal dark subtraction
 
 ### Detail Enhancement
-- **Deconvolution** — Richardson-Lucy with optional total-variation regularization and deringing protection
-- **Spatially-Varying Deconvolution** — Per-zone PSF measurement and blending for field curvature / coma correction
-- **Wavelet Sharpening** — Multi-scale contrast enhancement
-- **MLT (Multiscale Linear Transform)** — Selective noise reduction per frequency band
-- **Local Contrast Enhancement** — GPU-accelerated CLAHE
-- **Unsharp Mask** — Standard and advanced masking
-- **Median Filter** — Impulse noise removal
+- **Deconvolution** -- Richardson-Lucy with optional total-variation regularization and deringing protection
+- **Spatially-Varying Deconvolution** -- Per-zone PSF measurement and blending for field curvature / coma correction
+- **TGV Denoise** -- Total generalized variation (edge-preserving, non-AI) with Neumann boundary conditions
+- **Wavelet Processing** -- Multi-scale decomposition, sharpening, and noise reduction via a trous algorithm
+- **Local Contrast Enhancement** -- GPU-accelerated CLAHE
+- **Unsharp Mask** -- Standard and advanced masking
+- **Median Filter** -- Impulse noise removal
 
-### Color & Calibration
-- **Photometric Color Calibration (PCC)** — Plate solve then match against Gaia DR3
-- **SPCC** — Spectrophotometric calibration with filter response curves
-- **Background Extraction** — Polynomial surface fitting, ABE (RBF-based), and dynamic sample placement
-- **Background Neutralization** — Robust color balancing from background samples
-- **Color Calibration** — Statistical and catalog-based correction
-- **SCNR** — Green noise reduction for narrowband and OSC images
-- **Color Adjustment** — Saturation, hue shift, vibrance
-- **Curves** — Per-channel curve editor with histogram overlay
-- **Histogram Transform** — Black point, midtone, white point with live preview
+### Color and Calibration
+- **Photometric Color Calibration (PCC)** -- Plate solve then match against Gaia DR3
+- **SPCC** -- Spectrophotometric calibration with filter response curves
+- **Background Extraction** -- Polynomial surface fitting, ABE (RBF-based), and DBE with per-pixel rejection
+- **Background Neutralization** -- Robust color balancing from background samples
+- **Color Calibration** -- Statistical and catalog-based correction
+- **SCNR** -- Green noise reduction for narrowband and OSC images
+- **Color Adjustment** -- Saturation, hue shift, vibrance
+- **Curves** -- Per-channel curve editor with histogram overlay
+- **Histogram Transform** -- Black point, midtone, white point with live preview
+- **Generalized Hyperbolic Stretch (GHS)** -- Non-linear stretch preserving color
+- **Arcsinh Stretch** -- Brightness-preserving stretch for deep-sky data
+- **PixelMath** -- Full expression evaluator with syntax highlighting, expression history, per-channel apply, function reference, and create-new-image option
 
-### Narrowband & Composition
-- **Narrowband Combine** — HOO, SHO, and custom palette mappings
-- **LRGB Combine** — Luminance-weighted RGB merging
-- **Channel Combine** — Custom channel mapping dialog
-- **Continuum Subtraction** — Remove broadband contamination from narrowband filters
-- **HDR Composition** — Multi-exposure blending
+### Narrowband and Composition
+- **Narrowband Combine** -- HOO, SHO, and custom palette mappings
+- **LRGB Combine** -- Luminance-weighted RGB merging
+- **Channel Combine** -- Custom channel mapping dialog
+- **Continuum Subtraction** -- Remove broadband contamination from narrowband filters
+- **HDR Composition** -- Multi-exposure blending using Mertens fusion
 
-### Corrections & Utilities
-- **Cosmetic Correction** — Hot, cold, and dead pixel repair
-- **Banding Reduction** — Horizontal and vertical pattern removal
-- **Chromatic Aberration Correction** — Auto-detect and manual shift
-- **Vignette Correction** — Model-based flat-field emulation
-- **Star Reduction** — Shrink star bloat without star removal
-- **Morphology** — Dilate, erode, open, close for star masks
-- **TGV Denoise** — Total generalized variation (non-AI, edge-preserving)
-- **PSF Measurement** — Interactive FWHM, ellipticity, and angle from detected stars
+### Corrections and Utilities
+- **Cosmetic Correction** -- Hot, cold, and dead pixel repair
+- **Banding Reduction** -- Horizontal and vertical pattern removal
+- **Chromatic Aberration Correction** -- Auto-detect and manual shift
+- **Lens Distortion Correction** -- Radial distortion model with auto-estimation from star positions
+- **Vignette Correction** -- Model-based flat-field emulation
+- **Local Normalization** -- Background-matched frame normalization for mosaic and stacking
+- **Star Reduction** -- Shrink star bloat without star removal
+- **Morphology** -- Dilate, erode, open, close for star masks
+- **PSF Measurement** -- Interactive FWHM, ellipticity, and angle from detected stars
+- **Statistics** -- Per-channel min, max, mean, median, std, MAD, SNR, linearity detection, clipping detection
+- **Noise Generation** -- Synthetic noise injection for testing and augmentation
 
-### Plate Solving & Annotation
-- **Plate Solve** — ASTAP and astrometry.net with auto-fallback
-- **WCS Overlay** — Catalog star positions drawn on the image
-- **DSO Annotation** — Automatic deep-sky object labels from solved coordinates
+### Plate Solving and Annotation
+- **Plate Solve** -- ASTAP and astrometry.net with auto-fallback and API key management
+- **WCS Overlay** -- Catalog star positions drawn on the image
+- **DSO Annotation** -- Automatic deep-sky object labels from solved coordinates
+- **Constellation Overlay** -- Constellation lines rendered from WCS solution
 
-### Workflow & UI
-- **Modern Dark Theme** — GitHub-inspired green accent, designed for long nights
-- **4-Panel Layout** — Project tree | Canvas + Histogram | Tools | Log
-- **Split Before/After Preview** — Draggable divider with live preview on every tool
-- **Blink Comparator** — A/B frame comparison at variable FPS
-- **Interactive Histogram** — Log scale, per-channel stats, clip indicators
-- **Curve Editor** — Per-channel control points with histogram backdrop
-- **Macro Recorder** — Record and playback processing steps
-- **Python Console** — Embedded scripting dock with live image access
-- **Batch Processing** — Unattended folder processing
-- **Smart Processor** — One-click automated workflow
-- **Equipment Profiles** — Camera / telescope metadata for plate-scale calculations
-- **Undo / Redo** — Full history stack with display-reference matching
-- **Presets** — Save and recall tool settings
+### Workflow and UI
+- **Modern Dark Theme** -- Clean dark interface, designed for long nights
+- **Processing Graph** -- Non-destructive DAG (directed acyclic graph) that records every operation; auto-refreshing history dialog
+- **EZ Script Suite** -- One-click processing presets (OSC Quick Processing, Narrowband, Deep Sky Minimal, Luminance, Full Processing with ABE, Starless Processing)
+- **4-Panel Layout** -- Project tree / Canvas + Histogram / Tools / Log
+- **Split Before/After Preview** -- Draggable divider with live preview on every tool
+- **Live Stacking** -- Real-time frame accumulation with adaptive normalization
+- **Blink Comparator** -- A/B frame comparison at variable FPS
+- **Interactive Histogram** -- Log scale, per-channel stats, clip indicators
+- **Curve Editor** -- Per-channel control points with histogram backdrop
+- **Macro Recorder** -- Record and playback processing steps
+- **Python Console** -- Embedded scripting dock with live image access
+- **Batch Processing** -- Unattended folder processing
+- **Smart Processor** -- One-click automated workflow with quality checks
+- **Equipment Profiles** -- Camera, telescope, and filter metadata for plate-scale calculations
+- **ICC Color Management** -- Display profile-aware color rendering
+- **Undo / Redo** -- Full history stack with display-reference matching
+- **Presets** -- Save and recall tool settings
+- **Plugin System** -- Extend Cosmica with Python plugins loaded from cosmica/plugins/
 
 ### File Support
 - **Read:** FITS, XISF, TIFF, PNG, JPEG (auto-debayer for OSC)
 - **Write:** FITS, XISF, TIFF (8/16-bit), PNG (8/16-bit), JPEG
 
-
-
-## 🚀 Getting Started (For Developers)
+## Getting Started (For Developers)
 
 ### Prerequisites
-- Python 3.11–3.14
-- [Poetry](https://python-poetry.org/) (dependency management)
+- Python 3.11-3.14
+- Poetry (dependency management)
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone [https://github.com/majmichu1/cosmica.git](https://github.com/majmichu1/cosmica.git)
+git clone https://github.com/majmichu1/cosmica.git
 cd cosmica
 
-# Install dependencies
-poetry install
+# Install with dev dependencies
+poetry install --with dev
 
 # Run the application
 poetry run cosmica
-# or
-poetry run python -m cosmica
-````
+```
 
 ### Building Standalone Binary
 
@@ -150,14 +161,13 @@ poetry install --with build
 poetry run pyinstaller build/cosmica.spec
 ```
 
-
-
-## 🧪 Development
+## Development
 
 ### Run Tests
 
 ```bash
-poetry run pytest   # 729+ tests
+poetry run pytest          # 859+ tests
+poetry run pytest --ignore=tests/test_ui/   # core + AI tests only (no display needed)
 ```
 
 ### Run Linter
@@ -172,9 +182,7 @@ poetry run ruff check .
 poetry run mypy cosmica
 ```
 
-
-
-## 🤖 AI Model Training
+## AI Model Training
 
 Cosmica includes self-supervised AI training scripts. You can train your own denoise model on your astro images:
 
@@ -187,48 +195,36 @@ cp /path/to/your/*.fits astro_data/
 poetry run python scripts/train_denoise_model.py --input astro_data --epochs 30
 ```
 
-The model uses **Noise2Self** — a self-supervised approach that learns to denoise from noisy images alone, without needing clean reference images.
+The model uses Noise2Self -- a self-supervised approach that learns to denoise from noisy images alone, without needing clean reference images.
 
+## Architecture
 
+```
+cosmica/
+├── __main__.py          # Entry point
+├── core/                # 66 image processing modules (GPU-accelerated)
+├── ai/                  # AI inference, training, model management
+├── ui/                  # PyQt6 interface (dialogs, panels, widgets)
+├── licensing/           # License key (Lemon Squeezy + Gumroad)
+├── updater/             # Auto-update via GitHub Releases
+├── plugins/             # Plugin system (built-in + user)
+├── resources/           # Static SVG icons
+└── scripts/             # Training and utility scripts
+```
 
-## 🤝 Contributing
+Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/`, `tests/test_ui/`, and `tests/test_licensing/`.
 
-Contributions are welcome\! Please read our [Contributing Guide](https://www.google.com/search?q=CONTRIBUTING.md) for details on how to get started.
-
-
-
-## 📄 License
+## License
 
 This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
 
 The GPL v3 is required because Cosmica uses PyQt6, which is licensed under GPL v3 for open-source use.
 
+## Acknowledgments
 
-
-## ☕ Support
-
-If you find Cosmica useful and would like to support the project:
-
-[](https://buymeacoffee.com/majmichu)
-
-Every contribution helps keep this project free and open source\!
-
-
-
-## 🙏 Acknowledgments
-
-  - [PyQt6](https://www.riverbankcomputing.com/software/pyqt/) — User interface framework
-  - [PyTorch](https://pytorch.org/) — GPU-accelerated computation
-  - [Astropy](https://www.astropy.org/) — FITS file I/O
-  - [Noise2Self](https://github.com/czbioinfo-scripps/Noise2Void) — Self-supervised denoising
-  - All the open-source astronomical software that inspired this project
-
-
-
-## 📊 Stats
-
-  - **42** core processing modules
-  - **729+** tests
-  - **7.7M** parameters in the AI denoise model
-  - **181k+** training patches from real astro images
-
+- PyQt6 -- User interface framework
+- PyTorch -- GPU-accelerated computation
+- Astropy -- FITS file I/O and astronomical calculations
+- Noise2Self -- Self-supervised denoising foundation
+- StarNet -- Star removal network architecture
+- All the open-source astronomical software that inspired this project
