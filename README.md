@@ -34,8 +34,8 @@ Cosmica is built as a modern workflow tool from calibration to export, featuring
 | Star Removal | StarNet v2 + morphological | No | Yes |
 | Processing Graph (DAG) | Yes | No | Yes |
 | Batch Preprocessing | Yes (full pipeline) | Yes | Yes |
-| Live Stacking | Yes | No | No |
-| EZ Processing Scripts | Yes | Yes | No |
+| Live Stacking | Yes | Experimental | No |
+| EZ Processing Scripts | Yes | Yes (preprocessing) | No |
 | Plugin System | Yes | No | Yes |
 | Non-Destructive Workflow | Yes (undo/redo graph) | No | No |
 
