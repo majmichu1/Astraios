@@ -49,7 +49,7 @@ def ai_sharpen(
     data : ndarray
         Image data, shape (H, W) or (C, H, W), float32 in [0, 1].
     model : nn.Module, optional
-        Trained U-Net model. If None, creates a default (untrained) model.
+        Trained U-Net model. If None, falls back to traditional Richardson-Lucy.
     params : AISharpenParams, optional
         Processing parameters.
     mask : Mask, optional

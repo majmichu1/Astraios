@@ -42,6 +42,14 @@ htmlcov/
 *.tar.gz
 *.zip
 
+# JS/Node (opencode tooling — not part of Cosmica)
+node_modules/
+package.json
+package-lock.json
+
+# Agent config — local settings only
+.opencode/
+
 # Secrets (never commit these)
 .env
 *.env.*

@@ -81,7 +81,7 @@ def _scnr_gpu(
         ratio = torch.where(lum_after > 1e-10, lum_before / lum_after, torch.tensor(1.0, device=t.device))
         t = torch.stack([r * ratio, corrected_g * ratio, b * ratio], dim=0)
         if image.shape[0] > 3:
-            t = torch.cat([t, t[3:]], dim=0)
+            t = torch.cat([t, dm.from_numpy(image[3:])], dim=0)
     else:
         t = torch.stack([r, corrected_g, b], dim=0)
         if image.shape[0] > 3:

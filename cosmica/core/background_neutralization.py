@@ -31,7 +31,7 @@ class BackgroundNeutralizationParams:
 
     percentile: float = 2.0    # darkest X% used to estimate sky background
     amount: float = 1.0        # blend strength (0 = no change, 1 = full correction)
-    protect_bright: float = 0.5  # ignore pixels above this fraction of max when sampling
+    protect_bright: float = 0.5  # ignore pixels above this fraction of the maximum value when sampling
 
 
 def background_neutralization(
@@ -72,7 +72,7 @@ def background_neutralization(
         """
         flat = channel.ravel()
         if params.protect_bright < 1.0:
-            cap = float(np.percentile(flat, params.protect_bright * 100.0))
+            cap = float(flat.max() * params.protect_bright)
             flat = flat[flat < cap]
         if flat.size == 0:
             return 0.0

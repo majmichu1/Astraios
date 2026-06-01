@@ -8,6 +8,7 @@ type_code: G=Galaxy, N=Nebula, OC=Open Cluster, GC=Globular Cluster,
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
 
 
@@ -70,7 +71,6 @@ _RAW = [
     ("NGC 884",   35.602,  57.133,  30.0, "OC"),  # χ Persei
     ("NGC 1499",  60.492,  36.374, 160.0, "EN"),  # California Nebula
     ("NGC 1502",  61.081,  62.333,  20.0, "OC"),
-    ("NGC 1502", 61.081,   62.333,  20.0, "OC"),
     ("NGC 1976",  83.822,  -5.391,  85.0, "EN"),  # = M42
     ("NGC 2024",  85.424,  -1.912,  30.0, "EN"),  # Flame Nebula
     ("NGC 2070", 84.676,  -69.101, 40.0,  "EN"),  # Tarantula Nebula

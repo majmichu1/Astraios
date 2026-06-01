@@ -16,7 +16,7 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
-# Whitelisted binary operators
+# Whitelisted binary operators (numpy version)
 _BINOPS = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -42,7 +42,7 @@ _CMPOPS = {
     ast.NotEq: operator.ne,
 }
 
-# Whitelisted functions that operate on arrays
+# Whitelisted functions that operate on arrays (numpy version)
 _FUNCTIONS = {
     "min": np.minimum,
     "max": np.maximum,
@@ -59,6 +59,32 @@ _FUNCTIONS = {
     "cos": np.cos,
     "pow": np.power,
 }
+
+# GPU versions (torch)
+_TORCH_FUNCTIONS = None
+
+def _get_torch_functions():
+    global _TORCH_FUNCTIONS
+    if _TORCH_FUNCTIONS is not None:
+        return _TORCH_FUNCTIONS
+    import torch
+    _TORCH_FUNCTIONS = {
+        "min": torch.minimum,
+        "max": torch.maximum,
+        "abs": torch.abs,
+        "sqrt": torch.sqrt,
+        "log": torch.log,
+        "log10": torch.log10,
+        "exp": torch.exp,
+        "clip": torch.clamp,
+        "normalize": lambda x: (x - torch.min(x)) / max(torch.max(x) - torch.min(x), 1e-10),
+        "mean": torch.mean,
+        "median": lambda x: torch.median(x).values if x.numel() > 0 else torch.tensor(0.0),
+        "sin": torch.sin,
+        "cos": torch.cos,
+        "pow": torch.pow,
+    }
+    return _TORCH_FUNCTIONS
 
 # Constants
 _CONSTANTS = {
@@ -91,7 +117,7 @@ def evaluate(
     expression: str,
     variables: dict[str, np.ndarray],
 ) -> np.ndarray:
-    """Evaluate a pixel math expression.
+    """Evaluate a pixel math expression (GPU-accelerated when available).
 
     Parameters
     ----------
@@ -108,11 +134,6 @@ def evaluate(
     -------
     ndarray
         Result of evaluation.
-
-    Raises
-    ------
-    PixelMathError
-        If expression is invalid or unsafe.
     """
     try:
         tree = ast.parse(expression, mode="eval")
@@ -120,18 +141,39 @@ def evaluate(
     except SyntaxError as e:
         raise PixelMathError(f"Syntax error: {e.msg}") from e
 
+    from cosmica.core.device_manager import get_device_manager
+    dm = get_device_manager()
+
+    use_gpu = dm.is_gpu
     env = {}
     env.update(_CONSTANTS)
-    env.update(variables)
 
-    result = _eval_node(tree.body, env)
-
-    if isinstance(result, (int, float)):
-        # Scalar result — broadcast to match first variable shape
-        for v in variables.values():
-            if isinstance(v, np.ndarray):
-                result = np.full_like(v, result)
-                break
+    if use_gpu:
+        import torch as _torch
+        for k, v in variables.items():
+            env[k] = dm.from_numpy(v.astype(np.float32, copy=False)) if isinstance(v, np.ndarray) else v
+        global _FUNCTIONS
+        saved_funcs = _FUNCTIONS
+        try:
+            _FUNCTIONS = _get_torch_functions()
+            result = _eval_node(tree.body, env)
+        finally:
+            _FUNCTIONS = saved_funcs
+        if isinstance(result, (int, float)):
+            for v in variables.values():
+                if isinstance(v, np.ndarray):
+                    result = np.full_like(v, float(result))
+                    break
+        elif isinstance(result, _torch.Tensor):
+            result = result.cpu().numpy()
+    else:
+        env.update(variables)
+        result = _eval_node(tree.body, env)
+        if isinstance(result, (int, float)):
+            for v in variables.values():
+                if isinstance(v, np.ndarray):
+                    result = np.full_like(v, result)
+                    break
 
     return np.clip(result, 0, 1).astype(np.float32)
 

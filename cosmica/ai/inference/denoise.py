@@ -65,13 +65,17 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
         if not path.exists():
             continue
         try:
-            raw = torch.load(path, map_location="cpu", weights_only=False)
+            raw = torch.load(path, map_location="cpu", weights_only=True)
             if isinstance(raw, dict) and "model_state_dict" in raw:
                 cfg = raw.get("config", {})
                 bf = cfg.get("base_features", 32)
                 depth = cfg.get("depth", 4)
                 model = UNet(in_channels=1, out_channels=1, base_features=bf, depth=depth)
-                model.load_state_dict(raw["model_state_dict"])
+                state_dict = raw["model_state_dict"]
+                # Strip DenoiseUNet wrapper prefix if present
+                if all(k.startswith("unet.") for k in state_dict):
+                    state_dict = {k.removeprefix("unet."): v for k, v in state_dict.items()}
+                model.load_state_dict(state_dict)
                 log.info("Loaded AI denoise model: %s (val_loss=%.3e)", path.name, raw.get("val_loss", float("nan")))
             else:
                 # Plain state dict (v1 format, depth=3)
@@ -89,7 +93,7 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
         mm = get_model_manager()
         model_path = mm.get_cache_path(ModelType.DENOISE)
         if model_path and model_path.exists():
-            raw = torch.load(model_path, map_location="cpu", weights_only=False)
+            raw = torch.load(model_path, map_location="cpu", weights_only=True)
             model = UNet(in_channels=1, out_channels=1, base_features=32, depth=4)
             state = raw["model_state_dict"] if isinstance(raw, dict) else raw
             model.load_state_dict(state)
@@ -184,7 +188,9 @@ def _jinvariant_channel(
 
             # Free tile memory explicitly
             del t, result_t
-            get_device_manager().empty_cache()
+
+    # Free GPU cache once after all tiles
+    get_device_manager().empty_cache()
 
     return (output / weight).clip(0, 1)
 

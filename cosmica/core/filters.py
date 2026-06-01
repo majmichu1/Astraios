@@ -48,6 +48,7 @@ class UnsharpMaskParams:
 
 def _make_gaussian_kernel_1d(sigma: float, device: torch.device) -> torch.Tensor:
     """Create a 1D Gaussian kernel for separable convolution."""
+    sigma = max(sigma, 0.5)
     ksize = int(np.ceil(sigma * 3)) * 2 + 1
     ksize = max(ksize, 3)
     x = torch.arange(ksize, dtype=torch.float32, device=device) - ksize // 2

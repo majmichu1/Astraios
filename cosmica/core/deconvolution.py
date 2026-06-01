@@ -12,6 +12,7 @@ from typing import Callable
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 
 from cosmica.core.device_manager import get_device_manager
 from cosmica.core.masks import Mask, apply_mask
@@ -20,6 +21,10 @@ from cosmica.core.star_detection import Star, detect_stars
 log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]
+
+# Sobel kernels for edge-aware deringing
+_SOBEL_X = torch.tensor([[[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]]], dtype=torch.float32).view(1, 1, 3, 3)
+_SOBEL_Y = torch.tensor([[[-1, -2, -1], [0, 0, 0], [1, 2, 1]]], dtype=torch.float32).view(1, 1, 3, 3)
 
 
 def _noop_progress(fraction: float, message: str) -> None:
@@ -215,28 +220,35 @@ def _rl_channel(
             estimate = estimate * correction
             estimate = torch.clamp(estimate, 0, 1)
 
-    # Deringing: detect pixels where RL introduced oscillations (undershoots/overshoots
-    # relative to the local neighborhood of the original) and blend them back.
+    # Deringing: blend result back toward the original near edges and where
+    # ringing oscillations are detected.  The `deringing_amount` slider always
+    # has a visible effect because it also targets high-contrast edges (the
+    # most likely ringing locations), not just pixels that already ring.
     with torch.no_grad():
-        if params.deringing:
-            import torch.nn.functional as F  # noqa: PLC0415
-
-            # Local neighborhood max/min of original captures the expected signal range
+        if params.deringing and params.deringing_amount > 0:
             ks = 9
             pad = ks // 2
             orig_4d = t_img.unsqueeze(0).unsqueeze(0)
+
+            # ── Edge mask ─────────────────────────────────────────────
+            # Sobel-like edge response ensures the slider works even when
+            # RL converges cleanly (no oscillations).
+            edge_x = torch.abs(F.conv2d(orig_4d, _SOBEL_X.to(t_img.device), padding=1))
+            edge_y = torch.abs(F.conv2d(orig_4d, _SOBEL_Y.to(t_img.device), padding=1))
+            edge_mask = torch.clamp(edge_x + edge_y, 0, 1).squeeze()
+
+            # ── Ringing detection mask ────────────────────────────────
             local_max = F.max_pool2d(orig_4d, kernel_size=ks, stride=1, padding=pad).squeeze()
             local_min = -F.max_pool2d(-orig_4d, kernel_size=ks, stride=1, padding=pad).squeeze()
-
-            # Where result overshoots or undershoots the original neighborhood → ringing
             overshoot = torch.clamp(estimate - local_max, 0, 1)
             undershoot = torch.clamp(local_min - estimate, 0, 1)
-            artifact_mask = torch.clamp(overshoot + undershoot, 0, 1)
-
-            # Dilate mask so blending covers the full ring width, not just its tip
-            artifact_mask = F.max_pool2d(
-                artifact_mask.unsqueeze(0).unsqueeze(0), kernel_size=7, stride=1, padding=3
+            ringing_mask = torch.clamp(overshoot + undershoot, 0, 1)
+            ringing_mask = F.max_pool2d(
+                ringing_mask.unsqueeze(0).unsqueeze(0), kernel_size=7, stride=1, padding=3
             ).squeeze()
+
+            # ── Composite mask ────────────────────────────────────────
+            artifact_mask = torch.clamp(ringing_mask + edge_mask * 0.3, 0, 1)
 
             blend = artifact_mask * params.deringing_amount
             estimate = estimate * (1 - blend) + t_img * blend

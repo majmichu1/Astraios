@@ -41,7 +41,12 @@ def extract_patches_from_file(path: Path, patch_size: int = PATCH_SIZE,
             return None
     except Exception: return None
 
-    if data.ndim == 3: data = data[0]
+    # For 3D data: FITS cubes use first plane, RGB images use luminance
+    if data.ndim == 3:
+        if data.shape[2] in (3, 4):  # RGB/RGBA from PIL (H, W, C)
+            data = data.mean(axis=2)
+        else:  # FITS cube (C, H, W) or single plane
+            data = data[0]
 
     h, w = data.shape
     if h < patch_size or w < patch_size: return None
@@ -80,13 +85,13 @@ def prepare_dataset_strict_split(input_dir: Path, output_dir: Path):
     3. Save to train.dat and val.dat.
     """
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # 1. Get and Shuffle files
     fits_files = list(input_dir.glob("*.fits")) + list(input_dir.glob("*.fts"))
     fits_files += list(input_dir.glob("*.fit")) + list(input_dir.glob("*.FTS"))
     fits_files = [f for f in fits_files if f.exists()]
     random.shuffle(fits_files)
-    
+
     if not fits_files:
         log.error("No FITS files found in %s", input_dir)
         return
@@ -95,7 +100,7 @@ def prepare_dataset_strict_split(input_dir: Path, output_dir: Path):
     split_idx = int(0.8 * len(fits_files))
     train_files = fits_files[:split_idx]
     val_files = fits_files[split_idx:]
-    
+
     log.info("TOTAL files: %d", len(fits_files))
     log.info("TRAIN files: %d (80%%)", len(train_files))
     log.info("VAL files:   %d (20%%)", len(val_files))
@@ -113,29 +118,29 @@ def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
     # First pass: count patches to size memmap
     total_patches = 0
     temp_patches = [] # Store temporarily as lists of arrays (memory heavy but safe for counting)
-    
+
     # Better approach: dynamic resizing memmap or just list append then concat
     # Since we have plenty of RAM, let's collect them.
     # If OOM, we switch to memmap append mode.
     # With 6000 files * 50 patches, we have 300k patches. 300k * 256*256*4 bytes = ~75GB.
     # That might OOM 32GB RAM.
     # We MUST use memmap append or fixed size.
-    
+
     # Let's use the fixed size estimate from before: ~50 patches/file.
     # 6000 files * 0.8 = 4800 files * 50 = 240,000 patches.
     # Estimate conservatively.
-    
-    est_patches = len(file_list) * 55 
+
+    est_patches = len(file_list) * 55
     fp = np.memmap(save_path, dtype=np.float32, mode='w+',
                    shape=(est_patches, PATCH_SIZE, PATCH_SIZE))
-    
+
     idx = 0
     files_ok = 0
-    
+
     for f in file_list:
         result = extract_patches_from_file(f)
         if result is None: continue
-        
+
         n = len(result)
         if idx + n > est_patches:
             # Resize
@@ -149,18 +154,18 @@ def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
             fp[:est_patches] = old_data[:est_patches]
             del old_data
             est_patches = new_est
-            # We lost 'idx' position if we just re-opened. 
+            # We lost 'idx' position if we just re-opened.
             # Wait, idx is index. We just need to write at idx.
             # But re-opening wipes data? mode='w+' wipes.
             # Correct logic: close, rename, open new, copy.
             # Too complex.
-            pass 
+            pass
             # Let's just rely on 55 estimate. 50 is max. 55 is plenty of slack.
-        
+
         fp[idx:idx+n] = result
         idx += n
         files_ok += 1
-        
+
         if files_ok % 200 == 0:
             fp.flush()
             log.info(f"{set_name}: Processed {files_ok}/{len(file_list)} files -> {idx} patches")
@@ -170,11 +175,11 @@ def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
     actual_size = idx
     fp.flush()
     del fp
-    
+
     # Trim file? Not strictly necessary for reading, just track actual_size in metadata
     meta_path = save_path.parent / f"{set_name.lower()}_meta.txt"
     with open(meta_path, 'w') as f: f.write(str(actual_size))
-    
+
     log.info(f"{set_name} DONE. Total patches: {actual_size}. Saved to {save_path}")
 
 if __name__ == "__main__":
@@ -184,5 +189,5 @@ if __name__ == "__main__":
     parser.add_argument("--input", type=Path, default=Path("./astro_data"))
     parser.add_argument("--output", type=Path, default=Path("./training_data"))
     args = parser.parse_args()
-    
+
     prepare_dataset_strict_split(args.input, args.output)

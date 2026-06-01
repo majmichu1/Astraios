@@ -23,7 +23,7 @@ Workflow
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
@@ -109,7 +109,7 @@ def _expected_channel_flux(T_K: float, lam_nm: np.ndarray, trans: np.ndarray) ->
     """Integrate (blackbody × filter transmission) over wavelength."""
     bb = _blackbody_flux(lam_nm, T_K)
     integrand = bb * trans
-    return float(np.trapz(integrand, lam_nm))
+    return float(np.trapezoid(integrand, lam_nm))
 
 
 # ── SPCC params ───────────────────────────────────────────────────────────────

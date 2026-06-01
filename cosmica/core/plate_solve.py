@@ -113,7 +113,9 @@ def plate_solve_astap(
 
     ASTAP: https://www.hnsky.org/astap.htm  (free, GPL)
     """
-    import shutil, subprocess, tempfile
+    import shutil
+    import subprocess
+    import tempfile
     from pathlib import Path
 
     if params is None:
@@ -123,9 +125,12 @@ def plate_solve_astap(
     binary = (
         shutil.which("astap_cli")
         or shutil.which("astap")
-        or "/usr/bin/astap"
-        or "/usr/local/bin/astap"
     )
+    if binary is None:
+        for p in ("/usr/bin/astap", "/usr/local/bin/astap"):
+            if Path(p).exists():
+                binary = p
+                break
     if binary is None or not Path(binary).exists():
         log.warning("ASTAP not found on PATH — install ASTAP for offline plate solving")
         return PlateSolveResult(success=False)
@@ -251,7 +256,11 @@ def plate_solve_astrometry_net(
 
     Requires an internet connection and an API key from nova.astrometry.net.
     """
-    import time, urllib.request, urllib.parse, json, tempfile
+    import json
+    import tempfile
+    import time
+    import urllib.parse
+    import urllib.request
     from pathlib import Path
 
     if params is None:
@@ -265,8 +274,6 @@ def plate_solve_astrometry_net(
 
     def _api(endpoint, data=None, files=None):
         url = BASE + endpoint
-        if files:
-            import multipart  # noqa — not available, use urllib.request manually
         if data:
             body = ("request-json=" + urllib.parse.quote(json.dumps(data))).encode()
             req = urllib.request.Request(url, data=body)
@@ -293,21 +300,25 @@ def plate_solve_astrometry_net(
         except ImportError:
             return PlateSolveResult(success=False)
 
-        with tempfile.NamedTemporaryFile(suffix=".fits", delete=False) as tf:
-            tmp_path = tf.name
-        if image.ndim == 3:
-            mono = image.mean(axis=0)
-        else:
-            mono = image
-        mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
-        _fits.PrimaryHDU(mono_u16).writeto(tmp_path, overwrite=True)
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".fits", delete=False) as tf:
+                tmp_path = tf.name
+            if image.ndim == 3:
+                mono = image.mean(axis=0)
+            else:
+                mono = image
+            mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
+            _fits.PrimaryHDU(mono_u16).writeto(tmp_path, overwrite=True)
 
-        # Use multipart form upload via urllib
-        import mimetypes, uuid
-        boundary = uuid.uuid4().hex
-        with open(tmp_path, "rb") as f:
-            file_data = f.read()
-        Path(tmp_path).unlink(missing_ok=True)
+            # Use multipart form upload via urllib
+            import uuid
+            boundary = uuid.uuid4().hex
+            with open(tmp_path, "rb") as f:
+                file_data = f.read()
+        except Exception:
+            raise
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
 
         meta = {"session": session}
         if params.ra_hint is not None:
@@ -394,6 +405,12 @@ def plate_solve_astrometry_net(
             pixel_scale=scale, rotation=rotation, wcs_header=wcs_dict,
         )
 
+    except urllib.request.HTTPError as e:
+        if e.code == 429:
+            log.warning("astrometry.net rate limited (429). Wait ~1 hour and try again.")
+        else:
+            log.warning("astrometry.net HTTP %d: %s", e.code, e.reason)
+        return PlateSolveResult(success=False)
     except Exception as e:
         log.warning("astrometry.net solve error: %s", e)
         return PlateSolveResult(success=False)

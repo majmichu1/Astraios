@@ -115,7 +115,7 @@ def _create_master(
 
     # For median, we need all frames in memory — use CPU if necessary
     # Stack all frames
-    stack = np.empty((n, *shape), dtype=np.float32)
+    stack = np.zeros((n, *shape), dtype=np.float32)
     stack[0] = first.data
 
     for i in range(1, n):

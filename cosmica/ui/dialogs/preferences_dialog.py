@@ -305,7 +305,19 @@ class PreferencesDialog(QDialog):
 
     def _restore_defaults(self):
         """Reset all settings to defaults."""
-        self._settings.clear()
+        keys_to_remove = [
+            "processing/use_gpu", "processing/tiled_processing",
+            "processing/tile_size", "processing/tile_overlap", "processing/max_threads",
+            "paths/default_import_dir", "paths/default_export_dir", "paths/model_cache_dir",
+            "ai/auto_download_models", "ai/model_quality",
+            "appearance/split_preview_max", "appearance/histogram_log_scale",
+            "appearance/pixel_readout_format",
+            "platesolver/auto_solve", "platesolver/astrometry_net_path",
+            "platesolver/astrometry_api_key",
+            "updates/check_on_startup",
+        ]
+        for key in keys_to_remove:
+            self._settings.remove(key)
         self._settings.sync()
         self._load_settings()
 
@@ -337,7 +349,7 @@ class PreferencesDialog(QDialog):
 
         self._settings.setValue("platesolver/auto_solve", self._auto_solve.isChecked())
         self._settings.setValue("platesolver/astrometry_net_path", self._astrometry_path.text())
-        self._settings.setValue("platesolver/astrometry_api_key", self._astrometry_api_key.text())
+        self._settings.setValue("platesolver/astrometry_api_key", self._astrometry_api_key.text().strip())
 
         self._settings.setValue("update/check_on_startup", self._check_update.isChecked())
         self._settings.setValue("update/auto_download", self._auto_download_upd.isChecked())

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -167,8 +166,13 @@ class Project:
         path = Path(path)
         if path.is_dir():
             path = path / PROJECT_FILE
-        with open(path) as f:
-            data = json.load(f)
+        if not path.exists():
+            raise FileNotFoundError(f"Project file not found: {path}")
+        try:
+            with open(path) as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Corrupted project file: {path} — {e}") from e
 
         proj = cls(
             name=data["name"],

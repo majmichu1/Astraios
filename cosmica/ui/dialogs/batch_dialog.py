@@ -20,9 +20,7 @@ from PyQt6.QtWidgets import (
 from cosmica.core.batch import (
     BatchResult,
     Pipeline,
-    PipelineStep,
     batch_process,
-    get_registered_tools,
 )
 
 
@@ -31,6 +29,7 @@ class BatchWorker(QThread):
 
     progress = pyqtSignal(float, str)
     finished = pyqtSignal(object)
+    error_occurred = pyqtSignal(str)
 
     def __init__(self, input_paths, pipeline, output_dir, output_format):
         super().__init__()
@@ -38,18 +37,30 @@ class BatchWorker(QThread):
         self._pipeline = pipeline
         self._output_dir = output_dir
         self._output_format = output_format
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
 
     def run(self):
-        result = batch_process(
-            self._input_paths,
-            self._pipeline,
-            self._output_dir,
-            self._output_format,
-            progress=self._emit_progress,
-        )
-        self.finished.emit(result)
+        try:
+            if self._cancelled:
+                return
+            result = batch_process(
+                self._input_paths,
+                self._pipeline,
+                self._output_dir,
+                self._output_format,
+                progress=self._emit_progress,
+            )
+            if not self._cancelled:
+                self.finished.emit(result)
+        except Exception as e:
+            self.error_occurred.emit(str(e))
 
     def _emit_progress(self, fraction: float, message: str):
+        if self._cancelled:
+            raise InterruptedError("Cancelled")
         self.progress.emit(fraction, message)
 
 
@@ -187,6 +198,9 @@ class BatchDialog(QDialog):
             return
 
         self._run_btn.setEnabled(False)
+        self._run_btn.setText("Cancel")
+        self._run_btn.clicked.disconnect()
+        self._run_btn.clicked.connect(self._cancel)
         self._status.setText("Processing...")
 
         self._worker = BatchWorker(
@@ -197,7 +211,25 @@ class BatchDialog(QDialog):
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
+        self._worker.error_occurred.connect(self._on_error)
+        self._worker.finished.connect(lambda: self._worker.deleteLater())
         self._worker.start()
+
+    def _cancel(self):
+        if self._worker:
+            self._worker.cancel()
+        self._status.setText("Cancelling...")
+        self._run_btn.setEnabled(False)
+        self._run_btn.setText("Run Batch")
+        self._run_btn.clicked.disconnect()
+        self._run_btn.clicked.connect(self._run)
+
+    def _on_error(self, message: str):
+        self._run_btn.setText("Run Batch")
+        self._run_btn.clicked.disconnect()
+        self._run_btn.clicked.connect(self._run)
+        self._progress_bar.setValue(0)
+        self._status.setText(f"Error: {message}")
 
     def _on_progress(self, fraction: float, message: str):
         self._progress_bar.setValue(int(fraction * 100))
@@ -210,5 +242,5 @@ class BatchDialog(QDialog):
             f"Done: {result.n_processed} processed, {result.n_failed} failed"
         )
         if result.errors:
-            for err in result.errors[:5]:
-                self._status.setText(f"{self._status.text()}\n{err}")
+            error_text = "\n".join(str(e) for e in result.errors[:5])
+            self._status.setText(f"{self._status.text()}\n{error_text}")

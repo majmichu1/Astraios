@@ -12,7 +12,7 @@ from concurrent.futures import as_completed as futures_as_completed
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, QPoint, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QColor, QCursor, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,

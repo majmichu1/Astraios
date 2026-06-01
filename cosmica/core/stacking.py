@@ -30,6 +30,7 @@ from cosmica.core.gpu_stars import (
     warp_image_gpu,
 )
 from cosmica.core.image_io import FrameType, ImageData, load_image
+from cosmica.core.local_normalization import LocalNormParams, local_normalize
 from cosmica.core.star_detection import (
     align_image as _cpu_align_image,
 )
@@ -147,6 +148,7 @@ class NormalizationMethod(Enum):
     ADDITIVE = auto()          # shift frames to match reference median
     MULTIPLICATIVE = auto()    # scale frames to match reference median
     ADDITIVE_SCALING = auto()  # Siril default: scale + shift via MAD (robust)
+    LOCAL = auto()             # local background correction via Gaussian-blur ratio
 
 
 @dataclass
@@ -252,6 +254,9 @@ def _compute_frame_norm_factors(
     shifts = np.zeros(n, dtype=np.float32)
     if n < 2 or method == NormalizationMethod.NONE:
         return scales, shifts
+    if method == NormalizationMethod.LOCAL:
+        log.warning("LOCAL normalization not supported in tiled stacking; skipping")
+        return scales, shifts
 
     flats = np.stack([_sample_frame_crop(p, sample_size).ravel() for p in paths])
     ref_med = float(np.median(flats[0]))
@@ -307,7 +312,8 @@ def _reject_winsorized_sigma(
     from scipy.stats.mstats import winsorize
 
     n = stack.shape[0]
-    limit = min(0.40, winsorize_cutoff / max(n, 1))
+    from scipy.stats import norm
+    limit = min(0.40, float(norm.cdf(-winsorize_cutoff)))
     limit = max(0.01, limit)
 
     # Winsorize to get robust mean/std estimates
@@ -383,8 +389,7 @@ def _reject_esd(
         # Critical value (scalar, same for all pixels)
         p = 1.0 - alpha / (2.0 * (n - i + 1))
         t_crit = float(t_dist.ppf(p, max(ni - 2, 1)))
-        denom = (ni - i - 1 + t_crit**2) * (ni - i + 1)
-        lambda_i = (ni - i) * t_crit / (denom**0.5 + 1e-10)
+        lambda_i = t_crit * (ni - 1) / ((ni - 2 + t_crit**2) * ni)**0.5
 
         # Per-pixel stats excluding already-masked values
         vals = np.where(mask, np.nan, stack)
@@ -541,9 +546,9 @@ def _fft_align_frames(
         if gpu_available:
             tgt_tensor = dm.from_numpy(tgt_gray.astype(np.float32))
             row_shift, col_shift = _gpu_fft_shift(ref_tensor, tgt_tensor, upsample_factor)
-            # Apply with GPU warp
+            # Apply with GPU warp (negate shifts — warp_image_gpu expects inverse transform)
             full_tensor = dm.from_numpy(tgt.data.astype(np.float32))
-            mat = np.array([[1, 0, col_shift], [0, 1, row_shift]], dtype=np.float32)
+            mat = np.array([[1, 0, -col_shift], [0, 1, -row_shift]], dtype=np.float32)
             warped_tensor = warp_image_gpu(full_tensor, mat, mode="bicubic")
             shifted_data = dm.to_cpu(warped_tensor).numpy().astype(np.float32)
             if shifted_data.ndim == 3 and shifted_data.shape[0] == 1:
@@ -1109,7 +1114,8 @@ def align_from_paths(
     # ── Align all other frames — prefetch IO hides disk latency ─────────────
     # While the GPU processes frame i, a background thread loads frame i+1.
     # This overlaps IO (slow) with GPU compute, typically 1.5-2× faster.
-    from concurrent.futures import Future, ThreadPoolExecutor as _TPE
+    from concurrent.futures import Future
+    from concurrent.futures import ThreadPoolExecutor as _TPE
 
     non_ref = [i for i in range(n) if i != ref_idx]
     gc_interval = 10  # run gc every N frames instead of every frame
@@ -1280,7 +1286,7 @@ def _write_aligned_fits(img: ImageData, out_path) -> None:
             try:
                 hdr[k] = v
             except Exception:
-                pass
+                log.warning("Could not copy FITS key %s", k)
     hdr["ALIGNED"] = True
     hdu = _fits.PrimaryHDU(data=data.astype(np.float32), header=hdr)
     hdu.writeto(str(out_path), overwrite=True)
@@ -1458,7 +1464,6 @@ def stack_from_paths(
     progress : callable
         Progress callback (fraction, message).
     """
-    from pathlib import Path as _Path
 
     if params is None:
         params = StackingParams()
@@ -1494,9 +1499,9 @@ def stack_from_paths(
                             bayer_pat = _bp
                     break
     except Exception:
-        pass
+        log.warning("Could not read Bayer pattern from FITS header")
 
-    color_desc = f"color (C,H,W)" if is_color else (
+    color_desc = "color (C,H,W)" if is_color else (
         f"OSC Bayer ({bayer_pat})" if bayer_pat else "mono"
     )
     log.info(
@@ -1713,64 +1718,71 @@ def stack_images(
 
     # 3. Normalization
     progress(0.35, "Normalizing background levels...")
-    data_stack = normalize_stack(data_stack, params.normalization)
+    if params.normalization == NormalizationMethod.LOCAL:
+        data_stack = local_normalize(data_stack, params=LocalNormParams())
+    else:
+        data_stack = normalize_stack(data_stack, params.normalization)
 
-    # 4. Rejection
+    # 4. Rejection + Integration (GPU path when available)
     progress(0.50, f"Running {params.rejection.name}...")
 
     total_rejected = 0
     mask = None
+    dm = get_device_manager()
+    use_gpu = dm.is_gpu and params.rejection in (
+        RejectionMethod.SIGMA_CLIP, RejectionMethod.PERCENTILE_CLIP,
+        RejectionMethod.MIN_MAX, RejectionMethod.LINEAR_FIT,
+    )
 
     shape = data_stack.shape
 
-    if params.rejection == RejectionMethod.SIGMA_CLIP:
-        masked_data = _reject_sigma_clip(
-            data_stack, params.kappa_low, params.kappa_high, params.max_iterations
-        )
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
-
-    elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
-        masked_data = _reject_winsorized_sigma(
-            data_stack, params.kappa_low, params.kappa_high,
-            params.max_iterations, params.winsorize_cutoff,
-        )
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
-
-    elif params.rejection == RejectionMethod.LINEAR_FIT:
-        # Linear fit = normalization (already done) + sigma clip
-        masked_data = _reject_sigma_clip(
-            data_stack, params.kappa_low, params.kappa_high, params.max_iterations
-        )
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
-
-    elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-        masked_data = _reject_percentile_clip(
-            data_stack, params.percentile_low, params.percentile_high
-        )
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
-
-    elif params.rejection == RejectionMethod.ESD:
-        masked_data = _reject_esd(data_stack)
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
-
-    elif params.rejection == RejectionMethod.MIN_MAX:
-        masked_data = _reject_min_max(data_stack, params.min_max_reject)
-        mask = _get_mask(masked_data, shape)
-        total_rejected = int(np.sum(mask))
+    if use_gpu:
+        stack_t = dm.from_numpy(data_stack)
+        if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
+            result_t, total_rejected = _gpu_sigma_clip(
+                stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+            )
+        elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
+            result_t, total_rejected = _gpu_percentile_clip(
+                stack_t, params.percentile_low, params.percentile_high
+            )
+        elif params.rejection == RejectionMethod.MIN_MAX:
+            result_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
+        result = result_t.cpu().numpy().astype(np.float32)
+        del stack_t
 
     else:
-        # NONE: no rejection
-        masked_data = np.ma.array(data_stack, mask=False)
+        masked_data = None
+        if params.rejection == RejectionMethod.SIGMA_CLIP:
+            masked_data = _reject_sigma_clip(
+                data_stack, params.kappa_low, params.kappa_high, params.max_iterations
+            )
+        elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
+            masked_data = _reject_winsorized_sigma(
+                data_stack, params.kappa_low, params.kappa_high,
+                params.max_iterations, params.winsorize_cutoff,
+            )
+        elif params.rejection == RejectionMethod.LINEAR_FIT:
+            masked_data = _reject_sigma_clip(
+                data_stack, params.kappa_low, params.kappa_high, params.max_iterations
+            )
+        elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
+            masked_data = _reject_percentile_clip(
+                data_stack, params.percentile_low, params.percentile_high
+            )
+        elif params.rejection == RejectionMethod.ESD:
+            masked_data = _reject_esd(data_stack)
+        elif params.rejection == RejectionMethod.MIN_MAX:
+            masked_data = _reject_min_max(data_stack, params.min_max_reject)
+        else:
+            masked_data = np.ma.array(data_stack, mask=False)
 
-    # 5. Integration
-    progress(0.85, "Integrating frames...")
-    _weights = np.asarray(params.frame_weights, dtype=np.float32) if params.frame_weights else None
-    result = _integrate(masked_data, params.integration, weights=_weights)
+        if masked_data is not None:
+            mask = _get_mask(masked_data, shape)
+            total_rejected = int(np.sum(mask))
+            progress(0.85, "Integrating frames...")
+            _weights = np.asarray(params.frame_weights, dtype=np.float32) if params.frame_weights else None
+            result = _integrate(masked_data, params.integration, weights=_weights)
 
     # 6. Finalize
     result = np.clip(result, 0, 1).astype(np.float32)

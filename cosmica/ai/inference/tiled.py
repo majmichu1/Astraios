@@ -58,22 +58,25 @@ def tiled_inference(
 
     dm = get_device_manager()
     device = dm.device
+    original_device = next(model.parameters()).device
     model = model.to(device)
     h, w = data.shape
 
-    # Compute tile positions
+    # Compute tile positions (deduplicated at generation)
     stride = tile_size - overlap
     tiles = []
+    seen = set()
     for y in range(0, h, stride):
         for x in range(0, w, stride):
             y_end = min(y + tile_size, h)
             x_end = min(x + tile_size, w)
             y_start = max(0, y_end - tile_size)
             x_start = max(0, x_end - tile_size)
-            tiles.append((y_start, x_start, y_end, x_end))
+            key = (y_start, x_start, y_end, x_end)
+            if key not in seen:
+                seen.add(key)
+                tiles.append(key)
 
-    # Remove duplicate tiles
-    tiles = list(set(tiles))
     n_tiles = len(tiles)
     log.debug("Tiled inference: %d tiles of %dx%d with %dpx overlap", n_tiles, tile_size, tile_size, overlap)
 
@@ -118,6 +121,9 @@ def tiled_inference(
     # Normalize
     valid = weight > 0
     output[valid] /= weight[valid]
+
+    # Restore model to original device
+    model = model.to(original_device)
 
     progress(1.0, "Tiled inference complete")
     return np.clip(output, 0, 1).astype(np.float32)

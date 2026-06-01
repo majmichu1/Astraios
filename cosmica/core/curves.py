@@ -73,6 +73,16 @@ class CurvePoints:
         if len(xs) < 2:
             return np.linspace(0, 1, LUT_SIZE, dtype=np.float32)
 
+        # Deduplicate x-values with tolerance to prevent PchipInterpolator crash
+        if len(xs) > 2:
+            keep = [True]
+            for i in range(1, len(xs)):
+                keep.append(abs(xs[i] - xs[i - 1]) > 1e-8)
+            xs = xs[keep]
+            ys = ys[keep]
+            if len(xs) < 2:
+                return np.linspace(0, 1, LUT_SIZE, dtype=np.float32)
+
         # Monotone cubic interpolation (PCHIP)
         interp = PchipInterpolator(xs, ys, extrapolate=False)
         lut_x = np.linspace(0, 1, LUT_SIZE)

@@ -8,8 +8,9 @@ import threading
 import time
 from pathlib import Path
 
+import numpy as np
 from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -31,8 +32,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-import numpy as np
 
 import cosmica
 from cosmica.core.abe import abe_extract
@@ -263,6 +262,7 @@ class ProcessingWorker(QThread):
 
     def cancel(self):
         self._cancel_event.set()
+        self.requestInterruption()
 
     def run(self):
         self._t0 = time.monotonic()
@@ -293,6 +293,42 @@ class ProcessingWorker(QThread):
                     else f"  — ETA {remaining / 60:.1f}min"
                 )
         self.progress.emit(fraction, message + eta_str)
+
+
+class _MsFolderLoader(QThread):
+    """Loads frames for a multi-session folder in the background."""
+
+    progress = pyqtSignal(float, str)
+    finished = pyqtSignal(list)
+    error = pyqtSignal(str)
+
+    def __init__(self, paths: list[str], parent=None):
+        super().__init__(parent)
+        self._paths = paths
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        from pathlib import Path
+
+        from cosmica.core.image_io import load_image
+        loaded = []
+        total = len(self._paths)
+        for i, fpath in enumerate(self._paths):
+            if self._cancelled:
+                return
+            try:
+                img = load_image(fpath)
+                if img is not None:
+                    loaded.append(img)
+            except Exception as exc:
+                self.error.emit(f"Skipped {Path(fpath).name}: {exc}")
+            if total > 1:
+                self.progress.emit((i + 1) / total, f"Loading {Path(fpath).name}")
+        if not self._cancelled:
+            self.finished.emit(loaded)
 
 
 class MainWindow(QMainWindow):
@@ -333,6 +369,10 @@ class MainWindow(QMainWindow):
         # Stretch reference used for the current display — None means use image itself
         self._preview_stretch_ref_cache = None  # np.ndarray | None
 
+        # Processing Graph (non-destructive DAG)
+        self._processing_graph = None
+        self._skip_graph_auto_add = False
+
         # Preview debounce timers
         self._stretch_preview_timer = QTimer()
         self._stretch_preview_timer.setSingleShot(True)
@@ -349,6 +389,7 @@ class MainWindow(QMainWindow):
 
         # WCS overlay data (image-space x, y, magnitude)
         self._wcs_overlay_stars: list[tuple[float, float, float]] = []
+        self._constellation_segments: list[list[tuple[float, float]]] = []
         self._current_wcs: dict = {}   # last solved WCS dict
 
         # Python console dock (lazy init)
@@ -377,6 +418,8 @@ class MainWindow(QMainWindow):
 
         # Register tools for preset system
         load_default_presets()
+        from cosmica.plugins.base import scan_plugins
+        scan_plugins()
 
         self.setAcceptDrops(True)
         self._setup_menu()
@@ -536,7 +579,7 @@ class MainWindow(QMainWindow):
         edit_menu.addAction(stats_act)
 
         fits_hdr = QAction("Edit FITS &Header...", self)
-        fits_hdr.setShortcut("Ctrl+H")
+        fits_hdr.setShortcut("Ctrl+Shift+H")
         fits_hdr.triggered.connect(self._show_fits_header)
         edit_menu.addAction(fits_hdr)
 
@@ -560,6 +603,9 @@ class MainWindow(QMainWindow):
         fit_act.triggered.connect(lambda: self._canvas.fit_to_window())
         view_menu.addAction(fit_act)
         self._fit_act = fit_act
+
+        fit_shortcut = QShortcut(QKeySequence("Ctrl+0"), self)
+        fit_shortcut.activated.connect(lambda: self._canvas.fit_to_window())
 
         zoom100 = QAction("Zoom &100%", self)
         zoom100.setShortcut("1")
@@ -590,6 +636,19 @@ class MainWindow(QMainWindow):
         fullscreen_act.triggered.connect(self._on_fullscreen)
         view_menu.addAction(fullscreen_act)
 
+        view_menu.addSeparator()
+
+        history_act = QAction("&Processing History", self)
+        history_act.setShortcut("Ctrl+H")
+        history_act.triggered.connect(self._show_processing_graph)
+        view_menu.addAction(history_act)
+
+        view_menu.addSeparator()
+
+        color_mgmt_act = QAction("&Color Management...", self)
+        color_mgmt_act.triggered.connect(self._show_color_management)
+        view_menu.addAction(color_mgmt_act)
+
         # ── Tools menu ────────────────────────────────────────────────────────
         tools_menu = menu.addMenu("&Tools")
 
@@ -597,6 +656,11 @@ class MainWindow(QMainWindow):
         smart_act.setShortcut("Ctrl+Shift+P")
         smart_act.triggered.connect(self._show_smart_processor_dialog)
         tools_menu.addAction(smart_act)
+
+        preprocess_act = QAction("&Batch Preprocessing...", self)
+        preprocess_act.setShortcut("Ctrl+Shift+B")
+        preprocess_act.triggered.connect(self._show_batch_preprocess_dialog)
+        tools_menu.addAction(preprocess_act)
 
         batch_act = QAction("&Batch Processing...", self)
         batch_act.setShortcut("Ctrl+B")
@@ -615,6 +679,10 @@ class MainWindow(QMainWindow):
         )
         tools_menu.addAction(blink_act)
 
+        blink_frame_act = QAction("Blin&k Frame Browser...", self)
+        blink_frame_act.triggered.connect(self._show_blink_dialog)
+        tools_menu.addAction(blink_frame_act)
+
         tools_menu.addSeparator()
 
         plate_act = QAction("&Plate Solve...", self)
@@ -628,6 +696,10 @@ class MainWindow(QMainWindow):
         wcs_act = QAction("&WCS Overlay", self)
         wcs_act.triggered.connect(lambda: self._on_toggle_wcs_overlay(True))
         tools_menu.addAction(wcs_act)
+
+        const_act = QAction("&Constellation Lines", self)
+        const_act.triggered.connect(self._on_toggle_constellation_overlay)
+        tools_menu.addAction(const_act)
 
         tools_menu.addSeparator()
 
@@ -648,6 +720,26 @@ class MainWindow(QMainWindow):
         create_mask.triggered.connect(self._show_mask_dialog)
         tools_menu.addAction(create_mask)
 
+        mosaic_act = QAction("&Mosaic Stitching...", self)
+        mosaic_act.triggered.connect(self._show_mosaic_dialog)
+        tools_menu.addAction(mosaic_act)
+
+        tools_menu.addSeparator()
+
+        ez_act = QAction("&EZ Script Suite...", self)
+        ez_act.triggered.connect(self._show_ez_script_dialog)
+        tools_menu.addAction(ez_act)
+
+        tools_menu.addSeparator()
+
+        chmatch_act = QAction("&Channel Match...", self)
+        chmatch_act.triggered.connect(self._show_channel_match_dialog)
+        tools_menu.addAction(chmatch_act)
+
+        lens_act = QAction("&Lens Distortion Correction...", self)
+        lens_act.triggered.connect(self._show_lens_distortion_dialog)
+        tools_menu.addAction(lens_act)
+
         tools_menu.addSeparator()
 
         equip_act = QAction("&Equipment Profile...", self)
@@ -667,6 +759,12 @@ class MainWindow(QMainWindow):
         macro_play = QAction("P&lay Macro", self)
         macro_play.triggered.connect(self._on_play_macro)
         tools_menu.addAction(macro_play)
+
+        tools_menu.addSeparator()
+
+        live_stack_act = QAction("&Live Stack...", self)
+        live_stack_act.triggered.connect(self._show_live_stack_dialog)
+        tools_menu.addAction(live_stack_act)
 
         tools_menu.addSeparator()
 
@@ -713,6 +811,7 @@ class MainWindow(QMainWindow):
         tb.setFloatable(False)
         tb.setObjectName("QuickActionToolbar")
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
+        self._quick_toolbar = tb
 
         def _tbtn(symbol: str, tip: str, shortcut: str = "") -> QToolButton:
             btn = QToolButton()
@@ -730,6 +829,7 @@ class MainWindow(QMainWindow):
         redo_btn = _tbtn("↷", "Redo  Ctrl+Shift+Z")
         redo_btn.clicked.connect(self._redo)
         tb.addWidget(redo_btn)
+        self._tb_redo_btn = redo_btn
 
         tb.addSeparator()
 
@@ -755,11 +855,28 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
-        smart_btn = _tbtn("⚡", "Smart Processor  Ctrl+Shift+P", "Ctrl+Shift+P")
+        const_btn = _tbtn("✦", "Toggle Constellation Lines  C")
+        const_btn.setCheckable(True)
+        const_btn.setObjectName("const_tb_btn")
+        const_btn.toggled.connect(lambda checked: self._on_toggle_constellation_overlay())
+        tb.addWidget(const_btn)
+        self._tb_const_btn = const_btn
+
+        tb.addSeparator()
+
+        history_btn = _tbtn("⧉", "Processing History  Ctrl+H")
+        history_btn.clicked.connect(self._show_processing_graph)
+        tb.addWidget(history_btn)
+
+        smart_btn = _tbtn("⚡", "Smart Processor  Ctrl+Shift+P")
         smart_btn.clicked.connect(self._show_smart_processor_dialog)
         tb.addWidget(smart_btn)
 
-        batch_btn = _tbtn("⊞ Batch", "Batch Processing  Ctrl+B", "Ctrl+B")
+        preprocess_btn = _tbtn("⊞ Preprocess", "Batch Preprocessing  Ctrl+Shift+B")
+        preprocess_btn.clicked.connect(self._show_batch_preprocess_dialog)
+        tb.addWidget(preprocess_btn)
+
+        batch_btn = _tbtn("⊞ Batch", "Batch Processing  Ctrl+B")
         batch_btn.clicked.connect(self._show_batch_dialog)
         tb.addWidget(batch_btn)
 
@@ -1013,6 +1130,10 @@ class MainWindow(QMainWindow):
         self._canvas.redo_requested.connect(self._redo)
         self._canvas.export_requested.connect(self._save_image)
 
+        # Tools panel undo/redo buttons
+        tp.undo_requested.connect(self._undo)
+        tp.redo_requested.connect(self._redo)
+
         # Existing signals
         tp.run_calibration.connect(self._on_run_calibration)
         tp.run_stacking.connect(self._on_run_stacking)
@@ -1052,6 +1173,13 @@ class MainWindow(QMainWindow):
         tp.run_ai_denoise.connect(self._on_run_ai_denoise)
         tp.run_ai_sharpen.connect(self._on_run_ai_sharpen)
         tp.run_starnet.connect(self._on_run_starnet)
+        tp.run_superbias.connect(self._on_run_superbias)
+        tp.open_processing_graph.connect(self._show_processing_graph)
+        tp.open_analysis_fwhm.connect(self._on_analysis_fwhm)
+        tp.open_analysis_tilt.connect(self._on_analysis_tilt)
+        tp.open_analysis_photometry.connect(self._on_analysis_photometry)
+        tp.open_super_resolution.connect(self._on_run_ai_super_resolution)
+        tp.open_batch_preprocess.connect(self._show_batch_preprocess_dialog)
         tp.open_batch_dialog.connect(self._show_batch_dialog)
         tp.start_macro_recording.connect(self._on_start_macro)
         tp.stop_macro_recording.connect(self._on_stop_macro)
@@ -1076,6 +1204,7 @@ class MainWindow(QMainWindow):
         tp.run_background_neutralization.connect(self._on_run_bg_neutralization)
         tp.run_chromatic_aberration.connect(self._on_run_ca)
         tp.show_image_statistics.connect(self._on_show_statistics)
+        tp.edit_fits_header.connect(self._on_edit_fits_header)
         tp.open_star_mask_dialog.connect(self._on_open_star_mask)
         tp.open_subframe_selector.connect(self._on_open_subframe_selector)
         tp.measure_psf.connect(self._on_measure_psf)
@@ -1120,6 +1249,9 @@ class MainWindow(QMainWindow):
         # Smart Processor signals
         tp.open_smart_processor.connect(self._show_smart_processor_dialog)
         tp.open_equipment_dialog.connect(self._show_equipment_dialog)
+        tp.open_ez_scripts.connect(self._show_ez_script_dialog)
+        tp.open_live_stack.connect(self._show_live_stack_dialog)
+        tp.open_mosaic_dialog.connect(self._show_mosaic_dialog)
 
     def _setup_logging(self):
         handler = QtLogHandler(self._log_panel)
@@ -1179,7 +1311,7 @@ class MainWindow(QMainWindow):
             ram_gb = (vm.total - vm.available) / 1024**3
             self._ram_chip_label.setText(f"RAM {ram_gb:.1f} GB")
         except Exception:
-            pass
+            log.debug("Could not update RAM label")
 
         try:
             dm = get_device_manager()
@@ -1296,6 +1428,23 @@ class MainWindow(QMainWindow):
             self._current_image.header.update(dlg.get_header())
             self._log_panel.log("FITS header updated", "success")
 
+    def _show_color_management(self):
+        from cosmica.ui.dialogs.color_settings_dialog import ColorSettingsDialog
+
+        dialog = ColorSettingsDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._log_panel.log(
+                f"Color profile: {dialog.get_working_profile().name}, "
+                f"intent: {dialog._intent_combo.currentText()}",
+                "info",
+            )
+            if dialog.is_soft_proof_enabled():
+                self._log_panel.log(
+                    f"Soft-proof enabled: {dialog.get_soft_proof_profile().name}",
+                    "info",
+                )
+            self._log_panel.log("Color management settings updated", "success")
+
     def _show_preferences(self):
         from cosmica.ui.dialogs.preferences_dialog import PreferencesDialog
 
@@ -1310,7 +1459,7 @@ class MainWindow(QMainWindow):
         # GPU device
         if prefs["processing"]["use_gpu"]:
             dev = get_device_manager()
-            if dev.has_gpu():
+            if dev.is_gpu:
                 self._log_panel.log(f"GPU device: {dev.info.name}", "info")
             else:
                 self._log_panel.log("GPU requested but not available, using CPU", "warning")
@@ -1348,13 +1497,50 @@ class MainWindow(QMainWindow):
         if self._project:
             self._project.add_history("Narrowband Combine", {})
 
+    def _show_mosaic_dialog(self):
+        from cosmica.ui.dialogs.mosaic_dialog import MosaicDialog
+
+        dialog = MosaicDialog(self)
+        dialog.result_ready.connect(self._on_mosaic_result)
+        dialog.exec()
+
+    def _on_mosaic_result(self, result):
+        self._update_current_image(result.data, "Mosaic stitching complete")
+        if self._project:
+            self._project.add_history(
+                "Mosaic Stitch",
+                {"panels": result.n_panels, "output_shape": list(result.output_shape)},
+            )
+
     def _show_pixelmath_dialog(self):
         if self._current_image is None:
             self._log_panel.log("Load an image first", "warning")
             return
         from cosmica.ui.dialogs.pixelmath_dialog import PixelMathDialog
 
-        dialog = PixelMathDialog(self._current_image.data, self)
+        available_images: dict[str, np.ndarray] = {}
+
+        current_data_id = id(self._current_image.data)
+
+        def _add_image(img: ImageData | None, fallback: str):
+            if img is None:
+                return
+            if id(img.data) == current_data_id:
+                return  # already available as T/R/G/B/L
+            name = img.file_path.stem if img.file_path else fallback
+            available_images[name] = img.data
+
+        _add_image(self._master_bias, "master_bias")
+        _add_image(self._master_dark, "master_dark")
+        _add_image(self._master_flat, "master_flat")
+        for i, cal in enumerate(self._calibrated_lights):
+            _add_image(cal, f"calibrated_{i}")
+
+        dialog = PixelMathDialog(
+            self._current_image.data,
+            self,
+            available_images=available_images or None,
+        )
         dialog.result_ready.connect(self._on_pixelmath_result)
         dialog.exec()
 
@@ -1488,10 +1674,49 @@ class MainWindow(QMainWindow):
         QDesktopServices.openUrl(QUrl("https://ko-fi.com/cosmica"))
 
     def _on_plate_solve_from_menu(self):
-        """Trigger plate solve via the tools panel."""
-        tp = self._tools_panel
-        if hasattr(tp, "_on_plate_solve"):
-            tp._on_plate_solve()
+        """Plate-solve the current image (ASTAP → astrometry.net → local)."""
+        if self._current_image is None:
+            self._log_panel.log("No image loaded to plate-solve", "error")
+            return
+
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("Cosmica", "Cosmica")
+        raw = settings.value("platesolver/astrometry_api_key", "")
+        api_key = raw.strip() or None
+
+        image = self._current_image.data
+        params = {"ra_hint": None, "dec_hint": None, "scale_hint": None}
+
+        def _solve_work(img, progress=None):
+            from cosmica.core.plate_solve import plate_solve_auto, PlateSolveParams
+            p = PlateSolveParams()
+            result = plate_solve_auto(img, p, api_key=api_key, progress=progress)
+            return result
+
+        def _on_solve_done(result):
+            if result.success:
+                wcs = result.wcs_header or {}
+                self._current_wcs = wcs
+                self._canvas.set_wcs(wcs)
+                self._project_panel.set_wcs_info(wcs)
+                self._log_panel.log(
+                    f"Plate solve succeeded: RA={result.ra_center:.4f}° "
+                    f"Dec={result.dec_center:.4f}° "
+                    f"scale={result.pixel_scale:.2f}\"/px",
+                    "success",
+                )
+                if self._project and self._current_image.file_path:
+                    frame = self._project.get_frame(str(self._current_image.file_path))
+                    if frame:
+                        frame.wcs = wcs
+                        self._save_project()
+            else:
+                self._log_panel.log(
+                    "Plate solve failed. Install ASTAP (astap_cli) or set an "
+                    "astrometry.net API key in Preferences.", "error"
+                )
+
+        self._start_worker(_solve_work, image, on_done=_on_solve_done)
 
     # ---------- Toolbar / TweaksPanel handlers ----------
 
@@ -1559,6 +1784,10 @@ class MainWindow(QMainWindow):
         def _on_loaded(image):
             self._display_image(image)
             self._log_panel.log(f"Loaded: {Path(path).name} ({image.shape_str})", "info")
+            # Reset processing graph for the new image
+            from cosmica.core.processing_graph import ProcessingGraph
+            self._processing_graph = ProcessingGraph()
+            self._processing_graph.set_base(image.data)
 
         self._start_worker(_load_work, path, on_done=_on_loaded)
 
@@ -1633,8 +1862,17 @@ class MainWindow(QMainWindow):
 
     def _update_undo_actions(self):
         """Update the enabled state and text of undo/redo actions."""
-        self._undo_act.setEnabled(self._undo_stack.can_undo())
-        self._redo_act.setEnabled(self._undo_stack.can_redo())
+        can_undo = self._undo_stack.can_undo()
+        can_redo = self._undo_stack.can_redo()
+        self._undo_act.setEnabled(can_undo)
+        self._redo_act.setEnabled(can_redo)
+        if hasattr(self, "_tb_undo_btn"):
+            self._tb_undo_btn.setEnabled(can_undo)
+        if hasattr(self, "_tb_redo_btn"):
+            self._tb_redo_btn.setEnabled(can_redo)
+        if hasattr(self, "_canvas"):
+            self._canvas._overlay_undo_btn.setVisible(can_undo)
+            self._canvas._overlay_redo_btn.setVisible(can_redo)
         undo_text = self._undo_stack.undo_text()
         redo_text = self._undo_stack.redo_text()
         self._undo_act.setText(f"&Undo ({undo_text})" if undo_text else "&Undo")
@@ -1695,6 +1933,15 @@ class MainWindow(QMainWindow):
         self._undo_stack.set_last_after_display_ref(self._preview_stretch_ref_cache)
         self._log_panel.log(message, "success")
         self._update_image_status()
+
+        # Auto-add to Processing Graph if not triggered by graph itself
+        if not self._skip_graph_auto_add and before is not None:
+            if self._processing_graph is None:
+                from cosmica.core.processing_graph import ProcessingGraph
+                self._processing_graph = ProcessingGraph()
+                self._processing_graph.set_base(before.data)
+            desc = undo_desc if undo_desc else message
+            self._processing_graph.add_node(desc, params={})
 
         if pending_preview is not None:
             # Re-run preview on the newly applied image (updates right side of split)
@@ -1814,13 +2061,24 @@ class MainWindow(QMainWindow):
             self._redo_act.setEnabled(False)
             if hasattr(self, "_tb_undo_btn"):
                 self._tb_undo_btn.setEnabled(False)
+            if hasattr(self, "_tb_redo_btn"):
+                self._tb_redo_btn.setEnabled(False)
+            if hasattr(self, "_canvas"):
+                self._canvas._overlay_undo_btn.setVisible(False)
+                self._canvas._overlay_redo_btn.setVisible(False)
         else:
             self._update_undo_actions()
 
     def _start_worker(self, func, *args, on_done=None, **kwargs):
-        if self._worker is not None and self._worker.isRunning():
-            self._log_panel.log("A processing task is already running", "warning")
-            return
+        if self._worker is not None:
+            if self._worker.isRunning():
+                self._log_panel.log("Cancelling previous task...", "warning")
+                self._worker.cancel()
+                if not self._worker.wait(5000):
+                    self._worker.terminate()
+                    self._worker.wait(1000)
+                    self._log_panel.log("Previous task terminated", "warning")
+            self._worker = None
 
         safe_args = tuple(
             a.copy() if isinstance(a, np.ndarray) else a for a in args
@@ -1877,11 +2135,17 @@ class MainWindow(QMainWindow):
             lambda _=None: self._set_processing_locked(False),
             _Qt.ConnectionType.QueuedConnection,
         )
+        self._worker.finished.connect(
+            lambda _=None: setattr(self, "_worker", None), _Qt.ConnectionType.QueuedConnection
+        )
         self._worker.cancelled.connect(
             lambda: self._reset_tb_progress(), _Qt.ConnectionType.QueuedConnection
         )
         self._worker.cancelled.connect(
             lambda: self._set_processing_locked(False), _Qt.ConnectionType.QueuedConnection
+        )
+        self._worker.cancelled.connect(
+            lambda: setattr(self, "_worker", None), _Qt.ConnectionType.QueuedConnection
         )
         self._worker.error.connect(
             lambda _=None: self._reset_tb_progress(), _Qt.ConnectionType.QueuedConnection
@@ -1889,6 +2153,9 @@ class MainWindow(QMainWindow):
         self._worker.error.connect(
             lambda _=None: self._set_processing_locked(False),
             _Qt.ConnectionType.QueuedConnection,
+        )
+        self._worker.error.connect(
+            lambda _=None: setattr(self, "_worker", None), _Qt.ConnectionType.QueuedConnection
         )
         self._log_panel.set_cancel_visible(True)
         self._log_panel.cancel_requested.connect(self._worker.cancel, _Qt.ConnectionType.UniqueConnection)
@@ -2020,12 +2287,16 @@ class MainWindow(QMainWindow):
             self._project.add_history("Calibration", {"n_lights": n})
             self._save_project()
 
-    def _get_lights_for_stacking(self) -> list[ImageData] | None:
-        """Helper to get lights (calibrated or raw) with a warning dialog."""
-        if self._calibrated_lights:
-            return self._calibrated_lights
+    def _get_raw_light_paths(self) -> list[Path] | None:
+        """Return raw light frame paths after user confirmation.
 
-        # Fallback to raw lights from project
+        Shows a warning dialog about uncalibrated frames on first use.
+        Returns None if cancelled or no lights in project.
+        """
+        if self._calibrated_lights:
+            return [img.file_path for img in self._calibrated_lights
+                    if img.file_path is not None]
+
         if not self._project:
             self._log_panel.log("No project loaded", "error")
             return None
@@ -2057,20 +2328,7 @@ class MainWindow(QMainWindow):
             if cb.isChecked():
                 settings.setValue("stacking/raw_warning_acknowledged", True)
 
-        # Load raw lights
-        lights = []
-        for frame in light_frames:
-            try:
-                lights.append(load_image(frame.path))
-            except Exception as e:
-                log.warning("Failed to load %s: %s", frame.path, e)
-
-        if not lights:
-            self._log_panel.log("Failed to load any raw frames", "error")
-            return None
-
-        self._log_panel.log(f"Loaded {len(lights)} raw light frames (uncalibrated)", "warning")
-        return lights
+        return [f.path for f in light_frames]
 
     def _get_light_paths(self) -> list | None:
         """Return raw light frame paths from project without loading them into RAM.
@@ -2240,7 +2498,7 @@ class MainWindow(QMainWindow):
             import gc as _gc; _gc.collect()
             get_device_manager().empty_cache()
         except Exception:
-            pass
+            log.debug("GPU cache flush failed")
 
     def _on_alignment_done(self, aligned_lights: list):
         """Callback when alignment finishes."""
@@ -2280,7 +2538,7 @@ class MainWindow(QMainWindow):
         try:
             get_device_manager().empty_cache()
         except Exception:
-            pass
+            log.debug("GPU cache flush failed")
 
         if project_dir and aligned_paths:
             # Register aligned frames in the project (REGISTERED section)
@@ -2369,31 +2627,72 @@ class MainWindow(QMainWindow):
                 )
                 return
 
-        lights = self._get_lights_for_stacking()
-        if not lights:
+        light_paths = self._get_raw_light_paths()
+        if light_paths is None:
             return
 
         params = self._tools_panel.get_stacking_params()
         drizzle_enabled, drizzle_params = self._tools_panel.get_drizzle_params()
-        self._log_panel.log("Aligning and stacking frames...", "info")
+        self._log_panel.log(f"Loading and stacking {len(light_paths)} frames…", "info")
 
-        if drizzle_enabled:
-            self._log_panel.log(
-                f"Drizzle {drizzle_params.scale}× enabled (drop={drizzle_params.drop_shrink:.2f})…",
-                "info",
-            )
-            from cosmica.core.drizzle import drizzle_integrate
+        def _load_and_stack_work(paths, stk_params, progress=None):
+            from pathlib import Path
 
-            def _drizzle_work(light_frames, d_params, progress=None):
+            from cosmica.core.image_io import load_image
+            loaded = []
+            total = len(paths)
+            for i, p in enumerate(paths):
+                try:
+                    img = load_image(p)
+                    if img is not None:
+                        loaded.append(img)
+                except Exception as e:
+                    log.warning("Failed to load %s: %s", p, e)
+                if progress and total > 1:
+                    progress((i + 1) / total * 0.3, f"Loading {Path(p).name}")
+            if not loaded:
+                raise RuntimeError("Failed to load any light frames")
+
+            if drizzle_enabled:
                 import numpy as _np
-                arrays = [
-                    f if isinstance(f, _np.ndarray) else f.data
-                    for f in light_frames
-                ]
-                result = drizzle_integrate(arrays, params=d_params, progress=progress)
-                return result
 
-            def _on_drizzle_done(result):
+                from cosmica.core.drizzle import drizzle_integrate
+                arrays = [f if isinstance(f, _np.ndarray) else f.data for f in loaded]
+                if progress:
+                    progress(0.35, "Drizzle integrating…")
+                return drizzle_integrate(
+                    arrays, params=drizzle_params,
+                    progress=lambda f, m: progress(0.35 + f * 0.65, m) if progress else None,
+                )
+            else:
+                from cosmica.core.subframe_selector import score_subframes
+
+                def _prog(f, m):
+                    if progress:
+                        progress(f, m)
+
+                if (
+                    hasattr(stk_params, "integration")
+                    and stk_params.integration == IntegrationMethod.WEIGHTED_AVERAGE
+                ):
+                    paths_list = [str(img.file_path) for img in loaded if img.file_path is not None]
+                    if len(paths_list) == len(loaded):
+                        scores = score_subframes(
+                            paths_list, SubframeSelectorParams(),
+                            progress=lambda f, m: _prog(f * 0.4, m),
+                        )
+                        stk_params.frame_weights = [
+                            max(float(sc.quality_score), 1e-6) for sc in scores
+                        ]
+
+                _prog(0.4, f"Stacking {len(loaded)} frames…")
+                return stack_images(
+                    loaded, stk_params, align=True,
+                    progress=lambda f, m: _prog(0.4 + f * 0.6, m),
+                )
+
+        def _on_load_and_stack_done(result):
+            if drizzle_enabled:
                 import numpy as _np
 
                 from cosmica.core.image_io import ImageData
@@ -2410,40 +2709,12 @@ class MainWindow(QMainWindow):
                         {"n_frames": result.n_frames, "scale": result.output_scale},
                     )
                     self._save_project()
-
-            self._start_worker(_drizzle_work, lights, drizzle_params, on_done=_on_drizzle_done)
-            return
-
-        def _in_memory_stack_work(light_frames, stk_params, progress=None):
-            from cosmica.core.subframe_selector import score_subframes
-
-            def _prog(f, m):
-                if progress:
-                    progress(f, m)
-
-            if (
-                hasattr(stk_params, "integration")
-                and stk_params.integration == IntegrationMethod.WEIGHTED_AVERAGE
-            ):
-                paths = [str(img.file_path) for img in light_frames if img.file_path is not None]
-                if len(paths) == len(light_frames):
-                    scores = score_subframes(
-                        paths, SubframeSelectorParams(),
-                        progress=lambda f, m: _prog(f * 0.4, m),
-                    )
-                    stk_params.frame_weights = [
-                        max(float(sc.quality_score), 1e-6) for sc in scores
-                    ]
-
-            _prog(0.4, f"Stacking {len(light_frames)} frames…")
-            return stack_images(
-                light_frames, stk_params, align=True,
-                progress=lambda f, m: _prog(0.4 + f * 0.6, m),
-            )
+            else:
+                self._on_stacking_done(result)
 
         self._start_worker(
-            _in_memory_stack_work, lights, params,
-            on_done=self._on_stacking_done,
+            _load_and_stack_work, light_paths, params,
+            on_done=_on_load_and_stack_done,
         )
 
     @pyqtSlot(object)
@@ -2454,7 +2725,7 @@ class MainWindow(QMainWindow):
             import gc as _gc; _gc.collect()
             get_device_manager().empty_cache()
         except Exception:
-            pass
+            log.debug("GPU cache flush failed")
         self._log_panel.log(
             f"Stacking complete: {result.n_frames} frames, {result.total_rejected} pixels rejected",
             "success",
@@ -2501,24 +2772,36 @@ class MainWindow(QMainWindow):
         if not ok or not name.strip():
             name = default_name
 
-        # Load frames
-        from cosmica.core.image_io import load_image
-        loaded = []
-        for fpath in sorted(files):
-            try:
-                img = load_image(fpath)
-                if img is not None:
-                    loaded.append(img)
-            except Exception as exc:
-                self._log_panel.log(f"Skipped {Path(fpath).name}: {exc}", "warning")
+        # Load frames in background
+        from PyQt6.QtCore import Qt as _Qt
+        self._ms_pending_name = name.strip()
+        self._ms_folder_loader = _MsFolderLoader(sorted(files))
+        self._ms_folder_loader.progress.connect(
+            self._log_panel.update_progress, _Qt.ConnectionType.QueuedConnection
+        )
+        self._ms_folder_loader.error.connect(
+            lambda msg: self._log_panel.log(msg, "warning"),
+            _Qt.ConnectionType.QueuedConnection,
+        )
+        self._ms_folder_loader.finished.connect(
+            self._on_ms_folder_loaded, _Qt.ConnectionType.QueuedConnection
+        )
+        self._set_processing_locked(True)
+        self._ms_folder_loader.start()
 
+    @pyqtSlot(list)
+    def _on_ms_folder_loaded(self, loaded: list):
+        """Process frames loaded by _MsFolderLoader."""
+        self._set_processing_locked(False)
+        self._log_panel.reset_progress()
+
+        name = self._ms_pending_name
         if not loaded:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.warning(self, "Load failed", "Could not load any frames from the folder.")
             return
 
         from cosmica.core.multi_session import SessionGroup
-        # Estimate total integration time from headers
         total_time = 0.0
         for img in loaded:
             exp = (img.header or {}).get("EXPTIME", (img.header or {}).get("EXPOSURE", None))
@@ -2529,11 +2812,11 @@ class MainWindow(QMainWindow):
                     pass
         session = SessionGroup(
             frames=loaded,
-            name=name.strip(),
+            name=name,
             integration_time=total_time if total_time > 0 else None,
         )
         self._ms_sessions.append(session)
-        self._tools_panel.ms_add_session(name.strip(), len(loaded))
+        self._tools_panel.ms_add_session(name, len(loaded))
         self._log_panel.log(f"Session '{name}': {len(loaded)} frames loaded", "success")
 
     @pyqtSlot()
@@ -2662,7 +2945,7 @@ class MainWindow(QMainWindow):
             c, h, w = data.shape
         longest = max(h, w)
         if longest <= 1024:
-            return data, 1.0
+            return data.copy(), 1.0
         scale = 1024.0 / longest
         new_w, new_h = int(w * scale), int(h * scale)
         if data.ndim == 2:
@@ -2961,12 +3244,26 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_show_statistics(self):
         if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
             return
         from cosmica.ui.dialogs.statistics_dialog import StatisticsDialog
 
         stats = compute_image_statistics(self._current_image.data)
         dialog = StatisticsDialog(stats, self)
         dialog.exec()
+
+    @pyqtSlot()
+    def _on_edit_fits_header(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from cosmica.ui.dialogs.fits_header_dialog import FITSHeaderDialog
+
+        path = getattr(self._current_image, "file_path", None)
+        dlg = FITSHeaderDialog(self._current_image.header, file_path=path, parent=self)
+        if dlg.exec() == FITSHeaderDialog.DialogCode.Accepted:
+            self._current_image.header = dlg.get_header()
+            self._log_panel.log("FITS header updated", "success")
 
     @pyqtSlot()
     def _on_measure_psf(self):
@@ -3162,8 +3459,9 @@ class MainWindow(QMainWindow):
         self._wcs_overlay_stars = overlay
         self._current_wcs = wcs
         self._canvas.set_overlay_stars(overlay)
-        # Auto-populate DSO annotations
+        # Auto-populate DSO and constellation annotations
         self._update_dso_annotations(wcs)
+        self._update_constellation_overlay(wcs)
 
     def _update_dso_annotations(self, wcs: dict):
         """Project DSO catalog entries to image pixel coordinates and push to canvas."""
@@ -3194,11 +3492,57 @@ class MainWindow(QMainWindow):
 
         self._canvas.set_dso_annotations(annotations)
 
+    def _update_constellation_overlay(self, wcs: dict):
+        """Project constellation line segments to image pixel coords."""
+        if not wcs or self._current_image is None:
+            return
+        import numpy as _np
+
+        from cosmica.core.constellations import CONSTELLATION_LINES
+
+        h = self._current_image.data.shape[-2] if self._current_image.data.ndim == 3 else self._current_image.data.shape[0]
+        w = self._current_image.data.shape[-1] if self._current_image.data.ndim == 3 else self._current_image.data.shape[1]
+
+        ra_center = wcs.get("ra_center", 0.0)
+        dec_center = wcs.get("dec_center", 0.0)
+        scale_deg = (wcs.get("scale") or 1.0) / 3600.0
+        cos_dec = _np.cos(_np.radians(dec_center))
+        segments = []
+        for cl in CONSTELLATION_LINES:
+            for seg in cl.segments:
+                projected = []
+                for ra_deg, dec_deg in seg:
+                    dra = (ra_deg - ra_center) * cos_dec
+                    ddec = dec_deg - dec_center
+                    px = w / 2 + dra / max(scale_deg, 1e-10)
+                    py = h / 2 - ddec / max(scale_deg, 1e-10)
+                    if -1000 <= px < w + 1000 and -1000 <= py < h + 1000:
+                        projected.append((float(px), float(py)))
+                if len(projected) >= 2:
+                    segments.append(projected)
+
+        self._constellation_segments = segments
+        self._canvas.set_constellation_lines(segments)
+
     @pyqtSlot()
     def _on_toggle_dso_overlay(self):
         """Toggle DSO annotation overlay visibility on the canvas."""
         current = getattr(self._canvas, '_show_dso_overlay', False)
         self._canvas.set_dso_overlay_visible(not current)
+
+    @pyqtSlot()
+    def _on_toggle_constellation_overlay(self):
+        """Toggle constellation line overlay visibility."""
+        if not self._constellation_segments and hasattr(self, '_current_wcs'):
+            self._update_constellation_overlay(self._current_wcs)
+        current = getattr(self._canvas, '_show_constellation_overlay', False)
+        new_state = not current
+        self._canvas.set_constellation_overlay_visible(new_state)
+        # Sync toolbar button if it exists (block signals to prevent double-toggle)
+        if hasattr(self, "_tb_const_btn"):
+            self._tb_const_btn.blockSignals(True)
+            self._tb_const_btn.setChecked(new_state)
+            self._tb_const_btn.blockSignals(False)
 
     # ── Python console ────────────────────────────────────────────────────────
 
@@ -3265,6 +3609,29 @@ class MainWindow(QMainWindow):
         self._log_panel.log("Star mask generated", "success")
 
     @pyqtSlot()
+    def _show_live_stack_dialog(self):
+        from cosmica.ui.dialogs.live_stack_dialog import LiveStackDialog
+
+        dialog = LiveStackDialog(self)
+        dialog.exec()
+
+    def _show_blink_dialog(self):
+        from cosmica.ui.dialogs.blink_dialog import BlinkDialog
+
+        paths: list[str] = []
+        if self._aligned_paths:
+            paths = [str(p) for p in self._aligned_paths]
+        elif self._project:
+            lights = [e.path for e in self._project.frames_by_type(FrameType.LIGHT) if e.path.exists()]
+            paths = [str(p) for p in lights]
+            aligned = [e.path for e in self._project.frames_by_type(FrameType.ALIGNED) if e.path.exists()]
+            if aligned:
+                paths = [str(p) for p in aligned]
+
+        dialog = BlinkDialog(self, frame_paths=paths or None)
+        dialog.exec()
+
+    @pyqtSlot()
     def _on_open_subframe_selector(self):
         from cosmica.ui.dialogs.subframe_dialog import SubframeDialog
 
@@ -3318,6 +3685,40 @@ class MainWindow(QMainWindow):
         self._project.cache_frame_scores(scores_dict)
         self._save_project()
         self._log_panel.log(f"Cached scores for {len(scores_dict)} frames in project", "info")
+
+    @pyqtSlot()
+    def _show_ez_script_dialog(self):
+        from cosmica.ui.dialogs.ez_script_dialog import EZScriptDialog
+
+        def _provider():
+            return self._current_image.data if self._current_image else None
+
+        dialog = EZScriptDialog(self, image_provider=_provider)
+        dialog.exec()
+        result = dialog.dialog_result()
+        if result is not None:
+            self._update_current_image(result, "EZ Script Suite complete")
+
+    @pyqtSlot()
+    def _show_channel_match_dialog(self):
+        if self._current_image is None:
+            return
+        from cosmica.core.channel_match import ChannelMatchParams, align_channels
+
+        params = ChannelMatchParams()
+        result = align_channels(self._current_image.data, params)
+        self._update_current_image(result, "Channel Match complete")
+
+    @pyqtSlot()
+    def _show_lens_distortion_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("No image loaded", "warning")
+            return
+        from cosmica.core.lens_distortion import LensDistortionParams, correct_distortion
+
+        params = LensDistortionParams()
+        result = correct_distortion(self._current_image.data, params)
+        self._update_current_image(result, "Lens distortion correction applied")
 
     @pyqtSlot()
     def _on_run_background(self):
@@ -3633,7 +4034,8 @@ class MainWindow(QMainWindow):
         # Get astrometry.net key from QSettings
         from PyQt6.QtCore import QSettings
         settings = QSettings("Cosmica", "Cosmica")
-        api_key = settings.value("platesolver/astrometry_api_key", "") or None
+        api_key = settings.value("platesolver/astrometry_api_key", "")
+        api_key = api_key.strip() or None
 
         image_data = self._current_image.data
         file_path = self._current_image.file_path
@@ -4075,17 +4477,28 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             self._log_panel.log("No image loaded", "warning")
             return
-        params = self._tools_panel.get_ai_denoise_params()
-        self._log_panel.log("Running AI Denoise (GPU)...", "info")
 
-        from cosmica.ai.inference.denoise import ai_denoise
-
-        self._start_worker(
-            ai_denoise,
-            self._current_image.data,
-            params=params,
-            on_done=self._on_ai_denoise_done,
-        )
+        backend = self._tools_panel.get_ai_denoise_backend()
+        if "CosmicClarity" in backend:
+            params = self._tools_panel.get_cosmic_clarity_denoise_params()
+            self._log_panel.log("Running AI Denoise (CosmicClarity)...", "info")
+            from cosmica.ai.inference.cosmic_clarity import apply as cc_apply
+            self._start_worker(
+                cc_apply,
+                self._current_image.data,
+                params=params,
+                on_done=self._on_ai_denoise_done,
+            )
+        else:
+            params = self._tools_panel.get_ai_denoise_params()
+            self._log_panel.log("Running AI Denoise (Noise2Self)...", "info")
+            from cosmica.ai.inference.denoise import ai_denoise
+            self._start_worker(
+                ai_denoise,
+                self._current_image.data,
+                params=params,
+                on_done=self._on_ai_denoise_done,
+            )
 
     @pyqtSlot(object)
     def _on_ai_denoise_done(self, result):
@@ -4099,17 +4512,28 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             self._log_panel.log("No image loaded", "warning")
             return
-        params = self._tools_panel.get_ai_sharpen_params()
-        self._log_panel.log("Running AI Sharpen (GPU)...", "info")
 
-        from cosmica.ai.inference.sharpen import ai_sharpen
-
-        self._start_worker(
-            ai_sharpen,
-            self._current_image.data,
-            params=params,
-            on_done=self._on_ai_sharpen_done,
-        )
+        backend = self._tools_panel.get_ai_sharpen_backend()
+        if "CosmicClarity" in backend:
+            params = self._tools_panel.get_cosmic_clarity_sharpen_params()
+            self._log_panel.log("Running AI Sharpen (CosmicClarity)...", "info")
+            from cosmica.ai.inference.cosmic_clarity import apply as cc_apply
+            self._start_worker(
+                cc_apply,
+                self._current_image.data,
+                params=params,
+                on_done=self._on_ai_sharpen_done,
+            )
+        else:
+            params = self._tools_panel.get_ai_sharpen_params()
+            self._log_panel.log("Running AI Sharpen (Richardson-Lucy)...", "info")
+            from cosmica.ai.inference.sharpen import ai_sharpen
+            self._start_worker(
+                ai_sharpen,
+                self._current_image.data,
+                params=params,
+                on_done=self._on_ai_sharpen_done,
+            )
 
     @pyqtSlot(object)
     def _on_ai_sharpen_done(self, result):
@@ -4119,18 +4543,172 @@ class MainWindow(QMainWindow):
         self._macro_recorder.record_step("ai_sharpen")
 
     @pyqtSlot()
+    def _on_run_superbias(self):
+        self._log_panel.log("Creating SuperBias from loaded bias frames...", "info")
+        self._log_panel.log("Load bias frames via Project panel first.", "info")
+
+    def _show_processing_graph(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from cosmica.core.processing_graph import ProcessingGraph
+        from cosmica.ui.dialogs.processing_graph_dialog import ProcessingGraphDialog
+
+        if not hasattr(self, "_processing_graph") or self._processing_graph is None:
+            self._processing_graph = ProcessingGraph()
+            self._processing_graph.set_base(self._current_image.data)
+
+        dialog = ProcessingGraphDialog(self, self._processing_graph)
+        dialog.graph_changed.connect(self._on_processing_graph_changed)
+        dialog.exec()
+
+    def _on_processing_graph_changed(self):
+        if not hasattr(self, "_processing_graph") or self._processing_graph is None:
+            return
+        self._skip_graph_auto_add = True
+        try:
+            result = self._processing_graph.evaluate(
+                process_fn=self._process_graph_step
+            )
+            if result is not None:
+                self._update_current_image(result, "Processing graph updated")
+        finally:
+            self._skip_graph_auto_add = False
+
+    def _process_graph_step(self, process_name: str, params: dict, image):
+        """Execute a single processing graph step."""
+        from cosmica.core.background import extract_background
+        from cosmica.core.denoise import DenoiseParams, denoise
+        from cosmica.core.filters import unsharp_mask
+        from cosmica.core.stretch import arcsinh_stretch
+
+        if process_name == "background":
+            bg = extract_background(image)
+            return image - bg[1]
+        elif process_name == "denoise":
+            return denoise(image, DenoiseParams(**params) if params else None)
+        elif process_name == "stretch":
+            return arcsinh_stretch(image, None)
+        elif process_name == "unsharp_mask":
+            return unsharp_mask(image, None)
+        return image
+
+    def _on_analysis_fwhm(self):
+        if self._current_image is None:
+            return
+        data = self._current_image.data
+
+        def _work(img, progress=None):
+            from cosmica.core.analysis.fwhm_map import compute_fwhm_map
+            return compute_fwhm_map(img)
+
+        def _done(result):
+            self._log_panel.log(
+                f"FWHM map: mean={result.mean_fwhm:.2f}px, std={result.std_fwhm:.2f}px, "
+                f"tilt={'YES' if result.tilt_detected else 'no'} ({result.tilt_angle:.0f}°)",
+                "info",
+            )
+
+        self._start_worker(_work, data, on_done=_done)
+
+    def _on_analysis_tilt(self):
+        if self._current_image is None:
+            return
+        data = self._current_image.data
+
+        def _work(img, progress=None):
+            from cosmica.core.analysis.tilt_analysis import analyze_tilt
+            return analyze_tilt(img)
+
+        def _done(result):
+            self._log_panel.log(
+                f"Tilt analysis: coma={result.coma_detected}, "
+                f"astigmatism={result.astigmatism_detected}, "
+                f"tilt={result.tilt_detected}",
+                "info",
+            )
+            self._log_panel.log(result.summary, "info")
+
+        self._start_worker(_work, data, on_done=_done)
+
+    def _on_analysis_photometry(self):
+        if self._current_image is None:
+            return
+        data = self._current_image.data
+
+        def _work(img, progress=None):
+            from cosmica.core.analysis.aperture_photometry import run_photometry
+            return run_photometry(img)
+
+        def _done(result):
+            self._log_panel.log(
+                f"Photometry: {result.n_sources} sources detected, "
+                f"mean flux={float(np.mean(result.flux)) if result.n_sources else 0:.1f}",
+                "info",
+            )
+
+        self._start_worker(_work, data, on_done=_done)
+
+    def _on_run_ai_super_resolution(self):
+        if self._current_image is None:
+            return
+        scale_text = self._tools_panel._sr_scale.currentText()
+        scale = int(scale_text.replace("×", ""))
+        tile_text = self._tools_panel._sr_tile.currentText()
+        tile = 0 if tile_text == "Full" else int(tile_text)
+
+        self._log_panel.log(f"Upscaling image {scale}× using AI super-resolution...", "info")
+
+        from cosmica.ai.inference.super_resolution import SuperResParams, upscale
+
+        params = SuperResParams(scale=scale, tile_size=tile)
+
+        self._start_worker(
+            lambda data, progress=None: upscale(data, params),
+            self._current_image.data,
+            on_done=lambda result: self._update_current_image(
+                result, f"Super-resolution {scale}× complete"
+            ),
+        )
+
     def _on_run_starnet(self):
         if self._current_image is None:
             return
-        extract = self._tools_panel.starnet_extract_stars
-        self._log_panel.log("Running StarNet star removal (subprocess)...", "info")
+        backend = self._tools_panel._star_removal_path.currentText()
+        threshold = self._tools_panel._star_threshold.value()
 
-        from cosmica.ai.inference.starnet import run_starnet
+        if "StarNet" in backend and backend != "Built-in (starrem2k13)":
+            self._log_panel.log("Running StarNet star removal...", "info")
+            from cosmica.ai.inference.starnet import find_starnet_binary, run_starnet
+
+            starnet_path = find_starnet_binary()
+            if starnet_path is None and "Auto" in backend:
+                self._log_panel.log("StarNet binary not found, trying built-in...", "info")
+                self._run_starrem_builtin(threshold)
+                return
+            elif starnet_path is None:
+                self._log_panel.log(
+                    "StarNet binary not found. Download from starnetastro.com "
+                    "or switch to Built-in backend.", "warning"
+                )
+                return
+
+            self._start_worker(
+                lambda data, progress=None: run_starnet(data, starnet_path=starnet_path),
+                self._current_image.data,
+                on_done=self._on_starnet_done,
+            )
+        else:
+            self._run_starrem_builtin(threshold)
+
+    def _run_starrem_builtin(self, threshold=0.5):
+        self._log_panel.log("Running built-in star removal...", "info")
+        from cosmica.ai.inference.star_removal import remove_stars_builtin
 
         self._start_worker(
-            lambda data, progress=None: run_starnet(data, extract_stars=extract),
+            lambda data, progress=None: remove_stars_builtin(data, threshold),
             self._current_image.data,
-            on_done=self._on_starnet_done,
+            on_done=self._on_starnet_builtin_done,
         )
 
     @pyqtSlot(object)
@@ -4142,6 +4720,18 @@ class MainWindow(QMainWindow):
         if self._project:
             self._project.add_history("StarNet", {})
         self._macro_recorder.record_step("starnet")
+
+    @pyqtSlot(object)
+    def _on_starnet_builtin_done(self, result):
+        self._update_current_image(result, "Star removal complete (built-in)")
+        if self._project:
+            self._project.add_history("star_removal_builtin", {})
+
+    def _show_batch_preprocess_dialog(self):
+        from cosmica.ui.dialogs.batch_preprocess_dialog import BatchPreprocessDialog
+
+        dialog = BatchPreprocessDialog(self)
+        dialog.exec()
 
     def _show_batch_dialog(self):
         from cosmica.ui.dialogs.batch_dialog import BatchDialog
@@ -4308,7 +4898,7 @@ class MainWindow(QMainWindow):
                 )
                 self._tools_panel.reset_blink_toggle()
                 return
-            fps = self._tools_panel._blink_fps_spin.value()
+            fps = max(1, self._tools_panel._blink_fps_spin.value())
             self._blink_index = 0
             self._blink_timer.start(1000 // fps)
             self._log_panel.log(f"Blink Comparator started ({fps} fps)", "info")
@@ -4337,8 +4927,9 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         """Global keyboard shortcuts."""
         from PyQt6.QtCore import Qt as _Qt
-        if event.key() == _Qt.Key.Key_B and not event.isAutoRepeat():
-            # Toggle blink comparator
+        if (event.key() == _Qt.Key.Key_B
+                and not event.isAutoRepeat()
+                and event.modifiers() == _Qt.KeyboardModifier.NoModifier):
             btn = self._tools_panel._blink_toggle_btn
             btn.setChecked(not btn.isChecked())
             return

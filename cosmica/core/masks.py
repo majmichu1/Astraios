@@ -10,7 +10,7 @@ A value of 1.0 means fully processed, 0.0 means fully protected.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 
 import cv2

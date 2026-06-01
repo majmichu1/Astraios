@@ -14,7 +14,7 @@ Reference:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
 import torch
@@ -53,38 +53,66 @@ class TGVParams:
 
 # ── helpers (operate on (B, H, W) tensors for batch-channel processing) ──────
 
+import torch.nn.functional as _F
+
+
 def _grad(u: torch.Tensor) -> torch.Tensor:
-    """Forward-difference gradient → shape (..., H, W, 2)."""
-    dy = torch.roll(u, -1, dims=-2) - u
-    dx = torch.roll(u, -1, dims=-1) - u
+    """Forward-difference gradient → shape (..., H, W, 2).
+
+    Uses Neumann (reflective) boundary: edge differences are zero.
+    """
+    *_, h, w = u.shape
+    u_pad = _F.pad(u, (0, 1, 0, 1), mode="replicate")
+    dy = u_pad[..., 1:, :w] - u
+    dx = u_pad[..., :h, 1:] - u
     return torch.stack([dy, dx], dim=-1)
 
 
 def _div(p: torch.Tensor) -> torch.Tensor:
     """Adjoint of _grad (backward-difference divergence). p: (..., H, W, 2)."""
-    d  = p[..., 0] - torch.roll(p[..., 0], 1, dims=-2)
-    d += p[..., 1] - torch.roll(p[..., 1], 1, dims=-1)
-    return d
+    d0 = torch.zeros_like(p[..., 0])
+    d0[..., :-1, :] = p[..., :-1, 0] - p[..., 1:, 0]
+    d0[..., -1, :] = -p[..., -1, 0]
+    d1 = torch.zeros_like(p[..., 1])
+    d1[..., :, :-1] = p[..., :, :-1, 1] - p[..., :, 1:, 1]
+    d1[..., :, -1] = -p[..., :, -1, 1]
+    return d0 + d1
 
 
 def _sym_grad(p: torch.Tensor) -> torch.Tensor:
     """Symmetrised gradient of vector field p → (..., H, W, 3).
 
     Components: (∂y py, ∂x px, ½(∂x py + ∂y px))
+    Neumann boundaries: edge differences are zero.
     """
-    pyy = torch.roll(p[..., 0], -1, dims=-2) - p[..., 0]
-    pxx = torch.roll(p[..., 1], -1, dims=-1) - p[..., 1]
-    pxy = 0.5 * (torch.roll(p[..., 0], -1, dims=-1) - p[..., 0]
-                 + torch.roll(p[..., 1], -1, dims=-2) - p[..., 1])
+    py = p[..., 0]
+    px = p[..., 1]
+    py_pad = _F.pad(py, (0, 0, 0, 1), mode="replicate")
+    px_pad = _F.pad(px, (0, 1, 0, 0), mode="replicate")
+    pyx_pad = _F.pad(py, (0, 1, 0, 0), mode="replicate")
+    pxy_pad = _F.pad(px, (0, 0, 0, 1), mode="replicate")
+
+    pyy = py_pad[1:, :] - py
+    pxx = px_pad[:, 1:] - px
+    pxy = 0.5 * (pyx_pad[:, 1:] - py + pxy_pad[1:, :] - px)
     return torch.stack([pyy, pxx, pxy], dim=-1)
 
 
 def _div_sym(e: torch.Tensor) -> torch.Tensor:
     """Adjoint of _sym_grad. e: (..., H, W, 3) → (..., H, W, 2)."""
-    d0  = e[..., 0] - torch.roll(e[..., 0], 1, dims=-2)
-    d0 += 0.5 * (e[..., 2] - torch.roll(e[..., 2], 1, dims=-1))
-    d1  = e[..., 1] - torch.roll(e[..., 1], 1, dims=-1)
-    d1 += 0.5 * (e[..., 2] - torch.roll(e[..., 2], 1, dims=-2))
+    e0 = e[..., 0]
+    e1 = e[..., 1]
+    e2 = e[..., 2]
+    d0 = torch.zeros_like(e0)
+    d0[..., :-1, :] = e0[..., :-1, :] - e0[..., 1:, :]
+    d0[..., -1, :] = -e0[..., -1, :]
+    d0[..., :, :-1] += 0.5 * (e2[..., :, :-1] - e2[..., :, 1:])
+    d0[..., :, -1] += -0.5 * e2[..., :, -1]
+    d1 = torch.zeros_like(e1)
+    d1[..., :, :-1] = e1[..., :, :-1] - e1[..., :, 1:]
+    d1[..., :, -1] = -e1[..., :, -1]
+    d1[..., :-1, :] += 0.5 * (e2[..., :-1, :] - e2[..., 1:, :])
+    d1[..., -1, :] += -0.5 * e2[..., -1, :]
     return torch.stack([d0, d1], dim=-1)
 
 

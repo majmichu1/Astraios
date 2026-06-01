@@ -17,8 +17,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cosmica.ai.training.train_n2s import train, export_for_inference
-from cosmica.ai.training.prepare_data import prepare_dataset
+from cosmica.ai.training.train_n2s import train_model, export_for_inference
+from cosmica.ai.training.prepare_data import prepare_dataset, load_dataset
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,7 +48,8 @@ if __name__ == "__main__":
 
     # Prepare data
     log.info("Preparing training data from %s...", args.input)
-    train_patches, val_patches = prepare_dataset(args.input, args.output.parent / "training_data", args.n_patches)
+    memmap_path = prepare_dataset(args.input, args.output.parent / "training_data")
+    train_patches, val_patches = load_dataset(memmap_path, split=0.8)
 
     if len(train_patches) == 0:
         log.error("""
@@ -76,7 +77,7 @@ Place at least 10-50 FITS files in the input directory.
     log.info("Training data: %d train, %d val patches", len(train_patches), len(val_patches))
 
     # Train
-    best_model = train(
+    best_model = train_model(
         train_patches, val_patches,
         output_dir=args.output,
         num_epochs=args.epochs,

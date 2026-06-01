@@ -17,7 +17,6 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QTextEdit,
     QVBoxLayout,
-    QWidget,
 )
 
 from cosmica.ai.smart_processor import (

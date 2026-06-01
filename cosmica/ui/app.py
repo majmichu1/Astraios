@@ -5,13 +5,23 @@ from __future__ import annotations
 import logging
 import sys
 
+from PyQt6.QtCore import QEvent
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QApplication, QSplashScreen
+from PyQt6.QtWidgets import QApplication, QComboBox, QSplashScreen
 
 import cosmica
 from cosmica.ui.theme import DARK_THEME
 
 log = logging.getLogger(__name__)
+
+
+class _CosmicaApp(QApplication):
+    """QApplication subclass that blocks scroll-wheel on all QComboBox instances."""
+
+    def notify(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, QComboBox):
+            return True
+        return super().notify(obj, event)
 
 
 def run_application(argv: list[str] | None = None) -> int:
@@ -26,7 +36,7 @@ def run_application(argv: list[str] | None = None) -> int:
         datefmt="%H:%M:%S",
     )
 
-    app = QApplication(argv)
+    app = _CosmicaApp(argv)
     app.setApplicationName(cosmica.__app_name__)
     app.setApplicationVersion(cosmica.__version__)
     app.setOrganizationName("Cosmica")

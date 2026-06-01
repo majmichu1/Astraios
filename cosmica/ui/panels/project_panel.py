@@ -15,7 +15,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
-    QTabWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -34,7 +33,6 @@ from cosmica.ui.theme import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
-
 
 FRAME_TYPE_LABELS = {
     FrameType.LIGHT: "Light Frames",
@@ -580,8 +578,9 @@ class ProjectPanel(QWidget):
         menu.exec(self.cursor().pos())
 
     def _import_folder_auto(self):
-        from cosmica.core.image_io import _guess_frame_type
         from PyQt6.QtWidgets import QMessageBox
+
+        from cosmica.core.image_io import _guess_frame_type
 
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Auto-Import", "")
         if not folder:

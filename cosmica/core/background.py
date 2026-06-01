@@ -23,6 +23,7 @@ class BackgroundParams:
     box_size: int = 32  # sample box size in pixels
     polynomial_order: int = 3  # polynomial surface degree
     sigma_clip: float = 2.5  # reject bright samples (stars)
+    per_pixel_sigma: float = 2.5  # within-sample pixel rejection (PixInsight Tolerance)
     smoothing: float = 0.5  # Gaussian smoothing of the model (fraction of image size)
     manual_points: list[tuple[int, int]] = field(default_factory=list)  # user-placed sample points
     object_aware: bool = False  # if True, use exclusion_mask to protect target signal
@@ -69,12 +70,12 @@ def _extract_single_channel(
 
     for py, px in sample_points:
         # Object-aware: skip points inside the exclusion mask
-        if params.object_aware and params.exclusion_mask is not None:
-            if 0 <= py < h and 0 <= px < w:
-                if params.exclusion_mask[py, px] > 0.5:
-                    continue
+        if (params.object_aware and params.exclusion_mask is not None
+                and 0 <= py < h and 0 <= px < w
+                and params.exclusion_mask[py, px] > 0.5):
+            continue
 
-        val = _measure_sample(channel, py, px, params.box_size)
+        val = _measure_sample(channel, py, px, params.box_size, params.per_pixel_sigma)
         if val is not None:
             samples_x.append(px)
             samples_y.append(py)
@@ -205,11 +206,18 @@ def _generate_sample_points(
 
 
 def _measure_sample(
-    channel: np.ndarray, cy: int, cx: int, box_size: int
+    channel: np.ndarray, cy: int, cx: int, box_size: int,
+    rejection_sigma: float = 2.5,
 ) -> float | None:
     """Measure the background level in a box centered at (cy, cx).
 
-    Uses the median of the darkest 50% of pixels in the box to avoid stars.
+    Two-stage rejection (similar to PixInsight DBE Tolerance):
+    1. Darkest-fraction heuristic: use only darkest 50% of pixels.
+    2. Per-pixel sigma rejection within the selected pixels: iteratively
+       reject pixels deviating more than rejection_sigma from the median.
+
+    This removes both star contamination and hot/cold pixel outliers
+    within each sample box, producing more robust background estimates.
     """
     h, w = channel.shape
     half = box_size // 2
@@ -222,14 +230,25 @@ def _measure_sample(
     if box.size == 0:
         return None
 
-    # Use the darkest 50% to avoid stars
+    # Stage 1: Darkest 50% to avoid bright stars
     sorted_vals = np.sort(box.ravel())
     n = len(sorted_vals)
     dark_half = sorted_vals[: n // 2]
-    if len(dark_half) == 0:
+    if len(dark_half) < 4:
         return None
 
-    return float(np.median(dark_half))
+    # Stage 2: Per-pixel sigma rejection within darkest half
+    vals = dark_half.astype(np.float64)
+    for _ in range(3):  # up to 3 iterations
+        med = np.median(vals)
+        mad = np.median(np.abs(vals - med))
+        sigma = max(mad * 1.4826, 1e-10)
+        mask = np.abs(vals - med) < rejection_sigma * sigma
+        if mask.sum() < 3:
+            return float(med)
+        vals = vals[mask]
+
+    return float(np.median(vals))
 
 
 def _fit_polynomial_surface(
@@ -253,6 +272,7 @@ def _evaluate_polynomial_gpu(h: int, w: int, coeffs: np.ndarray, order: int) -> 
     """
     try:
         import torch
+
         from cosmica.core.device_manager import get_device_manager
         device = get_device_manager().device
 
@@ -309,6 +329,7 @@ def _subtract_and_floor_gpu(channel: np.ndarray, bg_model: np.ndarray) -> np.nda
     """Subtract background model only — preserve linear data for stretch/export."""
     try:
         import torch
+
         from cosmica.core.device_manager import get_device_manager
         device = get_device_manager().device
 
@@ -327,8 +348,10 @@ def _gaussian_smooth_gpu(model: np.ndarray, sigma: float) -> np.ndarray:
         return model
     try:
         import math
+
         import torch
         import torch.nn.functional as F
+
         from cosmica.core.device_manager import get_device_manager
         device = get_device_manager().device
 

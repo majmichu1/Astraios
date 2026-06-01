@@ -1,7 +1,11 @@
-"""Noise Reduction — NLM and wavelet denoising.
+"""Noise Reduction — wavelet (GPU) and NLM (CPU) denoising.
 
-Uses OpenCV's fastNlMeansDenoising (BSD) for quick NLM
-and PyWavelets (MIT) for wavelet-based denoising.
+Wavelet denoising uses the GPU-accelerated a trous wavelet transform
+from wavelets.py (same algorithm PixInsight uses) with BayesShrink
+thresholding — runs entirely on GPU when available.
+
+NLM (OpenCV) remains CPU-based since OpenCV's fastNlMeansDenoising
+is already optimized native code and GPU NLM would require custom kernels.
 """
 
 from __future__ import annotations
@@ -13,9 +17,11 @@ from typing import Callable
 
 import cv2
 import numpy as np
-import pywt
+import torch
 
+from cosmica.core.device_manager import get_device_manager
 from cosmica.core.masks import Mask, apply_mask
+from cosmica.core.wavelets import wavelet_decompose
 
 log = logging.getLogger(__name__)
 
@@ -27,8 +33,8 @@ def _noop_progress(fraction: float, message: str) -> None:
 
 
 class DenoiseMethod(Enum):
-    NLM = auto()  # Non-local means (OpenCV)
-    WAVELET = auto()  # Wavelet thresholding (PyWavelets)
+    NLM = auto()
+    WAVELET = auto()
 
 
 @dataclass
@@ -36,21 +42,80 @@ class DenoiseParams:
     """Parameters for noise reduction."""
 
     method: DenoiseMethod = DenoiseMethod.WAVELET
-    strength: float = 0.5  # 0-1, overall denoising strength
-    detail_preservation: float = 0.5  # 0-1, how much fine detail to keep
-    chrominance_only: bool = False  # only denoise color, not luminance
+    strength: float = 0.5
+    detail_preservation: float = 0.5
+    chrominance_only: bool = False
     # NLM-specific
-    nlm_h: float = 10.0  # filter strength for NLM
-    nlm_template_size: int = 7  # template patch size
-    nlm_search_size: int = 21  # search window size
+    nlm_h: float = 10.0
+    nlm_template_size: int = 7
+    nlm_search_size: int = 21
     # Wavelet-specific
-    wavelet: str = "db4"  # wavelet family
-    wavelet_levels: int = 4  # decomposition levels
+    wavelet: str = "db4"
+    wavelet_levels: int = 4
+
+
+def _estimate_noise_sigma(wavelet_scales: list[np.ndarray]) -> float:
+    """Estimate noise sigma from the finest wavelet scale using MAD."""
+    finest = wavelet_scales[0]
+    median_abs = float(np.median(np.abs(finest)))
+    return median_abs / 0.6745 if median_abs > 0 else 1e-6
+
+
+def _denoise_wavelet_gpu(
+    image: np.ndarray,
+    params: DenoiseParams,
+    device: torch.device,
+) -> np.ndarray:
+    """GPU wavelet denoising using a trous decomposition + BayesShrink."""
+    n_scales = min(params.wavelet_levels, 6)
+    threshold_scale = params.strength * 3.0
+
+    channels = [image] if image.ndim == 2 else [image[ch] for ch in range(image.shape[0])]
+    results = []
+    for ch_data in channels:
+        scales_np = wavelet_decompose(ch_data, n_scales=n_scales)
+        sigma_noise = _estimate_noise_sigma(scales_np)
+        results.append(
+            _wavelet_threshold_scale(
+                ch_data, scales_np, sigma_noise, threshold_scale,
+                params, n_scales, device,
+            )
+        )
+    if image.ndim == 2:
+        return results[0]
+    return np.stack(results, axis=0)
+
+
+def _wavelet_threshold_scale(
+    original: np.ndarray,
+    scales: list[np.ndarray],
+    sigma_noise: float,
+    threshold_scale: float,
+    params: DenoiseParams,
+    n_scales: int,
+    device: torch.device,
+) -> np.ndarray:
+    """Apply soft thresholding to wavelet scales on GPU and reconstruct."""
+    dm = get_device_manager()
+    denoised_scales = [scales[0]]
+    for level in range(1, n_scales):
+        level_factor = 1.0 - (level - 1) / max(n_scales - 1, 1)
+        effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
+
+        d = dm.from_numpy(scales[level])
+        sigma_d = max(float(d.std().cpu()), 1e-10)
+        sigma_signal = max(float((max(sigma_d**2 - sigma_noise**2, 0)) ** 0.5), 1e-10)
+        thresh = float((sigma_noise**2 / sigma_signal) * threshold_scale * effective_factor)
+
+        denoised = torch.where(d.abs() > thresh, d.sign() * (d.abs() - thresh), torch.zeros_like(d))
+        denoised_scales.append(dm.to_cpu(denoised))
+
+    result = np.sum(denoised_scales, axis=0)
+    return np.clip(result, 0, 1).astype(np.float32)
 
 
 def _denoise_nlm_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
-    """Apply OpenCV Non-Local Means denoising to a single channel."""
-    # Convert to uint8 for OpenCV NLM (it works on 8-bit images)
+    """Apply OpenCV Non-Local Means denoising to a single channel (CPU)."""
     img_u8 = np.clip(channel * 255, 0, 255).astype(np.uint8)
     h = params.nlm_h * params.strength
     denoised = cv2.fastNlMeansDenoising(
@@ -63,77 +128,26 @@ def _denoise_nlm_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarr
     return denoised.astype(np.float32) / 255.0
 
 
-def _denoise_wavelet_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
-    """Apply wavelet denoising to a single channel using PyWavelets.
-
-    Uses the à trous (stationary wavelet transform) for translation-invariant denoising,
-    with BayesShrink thresholding.
-    """
-    # Estimate noise sigma using MAD of finest wavelet coefficients
-    coeffs = pywt.wavedec2(channel, params.wavelet, level=params.wavelet_levels)
-
-    # MAD-based noise estimation from the finest detail coefficients
-    detail_finest = coeffs[-1]
-    # detail_finest is a tuple of (LH, HL, HH) arrays
-    hh = detail_finest[2]  # diagonal detail
-    sigma_noise = np.median(np.abs(hh)) / 0.6745
-
-    # Threshold scale: strength controls how aggressively we threshold
-    threshold_scale = params.strength * 3.0
-
-    # Apply soft thresholding to detail coefficients
-    # Skip the approximation (coeffs[0]) — keep it intact
-    denoised_coeffs = [coeffs[0]]
-    for level_idx, detail in enumerate(coeffs[1:], 1):
-        # Progressive thresholding: less aggressive at coarser scales
-        level_factor = 1.0 - (level_idx - 1) / max(params.wavelet_levels, 1)
-        # detail_preservation reduces the threshold
-        effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
-
-        thresholded = []
-        for d in detail:
-            # BayesShrink: threshold = sigma_noise^2 / sigma_signal
-            sigma_d = max(np.std(d), 1e-10)
-            sigma_signal = max(np.sqrt(max(sigma_d**2 - sigma_noise**2, 0)), 1e-10)
-            thresh = (sigma_noise**2 / sigma_signal) * threshold_scale * effective_factor
-            thresholded.append(pywt.threshold(d, thresh, mode='soft'))
-        denoised_coeffs.append(tuple(thresholded))
-
-    result = pywt.waverec2(denoised_coeffs, params.wavelet)
-    # Trim to original size (wavelet reconstruction may pad)
-    result = result[:channel.shape[0], :channel.shape[1]]
-    return np.clip(result, 0, 1).astype(np.float32)
-
-
 def denoise(
     image: np.ndarray,
     params: DenoiseParams | None = None,
     mask: Mask | None = None,
     progress: ProgressCallback = _noop_progress,
 ) -> np.ndarray:
-    """Apply noise reduction to an image.
-
-    Parameters
-    ----------
-    image : ndarray
-        Image data, shape (H, W) or (C, H, W), values in [0, 1].
-    params : DenoiseParams, optional
-        Denoising parameters.
-    mask : Mask, optional
-        Selective processing mask.
-    progress : callable
-        Progress callback.
-
-    Returns
-    -------
-    ndarray
-        Denoised image.
-    """
     if params is None:
         params = DenoiseParams()
 
     original = image.copy()
-    denoise_fn = _denoise_nlm_channel if params.method == DenoiseMethod.NLM else _denoise_wavelet_channel
+    dm = get_device_manager()
+    use_gpu = dm.is_gpu and params.method == DenoiseMethod.WAVELET
+
+    if use_gpu:
+        progress(0.1, "Denoising on GPU...")
+        result = _denoise_wavelet_gpu(image, params, dm.device)
+        progress(1.0, "Noise reduction complete")
+        return apply_mask(original, result, mask)
+
+    denoise_fn = _denoise_nlm_channel if params.method == DenoiseMethod.NLM else _denoise_wavelet_gpu_cpu
 
     if image.ndim == 2:
         progress(0.1, "Denoising mono image...")
@@ -152,31 +166,54 @@ def denoise(
     return apply_mask(original, result, mask)
 
 
+def _denoise_wavelet_gpu_cpu(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
+    """CPU fallback using pywt (same algorithm as before)."""
+    import pywt
+
+    coeffs = pywt.wavedec2(channel, params.wavelet, level=params.wavelet_levels)
+    detail_finest = coeffs[-1]
+    hh = detail_finest[2]
+    sigma_noise = float(np.median(np.abs(hh)) / 0.6745)
+    threshold_scale = params.strength * 3.0
+
+    denoised_coeffs = [coeffs[0]]
+    for level_idx, detail in enumerate(coeffs[1:], 1):
+        level_factor = 1.0 - (level_idx - 1) / max(params.wavelet_levels, 1)
+        effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
+        thresholded = []
+        for d in detail:
+            sigma_d = max(float(np.std(d)), 1e-10)
+            sigma_signal = max(float((max(sigma_d**2 - sigma_noise**2, 0)) ** 0.5), 1e-10)
+            thresh = (sigma_noise**2 / sigma_signal) * threshold_scale * effective_factor
+            thresholded.append(pywt.threshold(d, thresh, mode='soft'))
+        denoised_coeffs.append(tuple(thresholded))
+
+    result = pywt.waverec2(denoised_coeffs, params.wavelet)
+    result = result[:channel.shape[0], :channel.shape[1]]
+    return np.clip(result, 0, 1).astype(np.float32)
+
+
 def _denoise_chrominance_only(
     image: np.ndarray,
     params: DenoiseParams,
     denoise_fn,
     progress: ProgressCallback,
 ) -> np.ndarray:
-    """Denoise only the chrominance, preserving luminance detail."""
-    # Convert to YCbCr-like space
     r, g, b = image[0], image[1], image[2]
     y = 0.2126 * r + 0.7152 * g + 0.0722 * b
     cb = b - y
     cr = r - y
 
     progress(0.3, "Denoising Cb channel...")
-    cb_dn = denoise_fn(cb + 0.5, params) - 0.5  # shift to [0,1] for denoising
+    cb_dn = denoise_fn(cb + 0.5, params) - 0.5
     progress(0.6, "Denoising Cr channel...")
     cr_dn = denoise_fn(cr + 0.5, params) - 0.5
 
-    # Reconstruct
     result = np.empty_like(image)
     result[0] = np.clip(y + cr_dn, 0, 1)
     result[1] = np.clip(y - 0.2126 / 0.7152 * cr_dn - 0.0722 / 0.7152 * cb_dn, 0, 1)
     result[2] = np.clip(y + cb_dn, 0, 1)
 
-    # Copy extra channels unchanged
     if image.shape[0] > 3:
         result[3:] = image[3:]
 

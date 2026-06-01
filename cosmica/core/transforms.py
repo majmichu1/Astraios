@@ -12,6 +12,9 @@ from enum import Enum, auto
 
 import cv2
 import numpy as np
+import torch.nn.functional as F
+
+from cosmica.core.device_manager import get_device_manager
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +174,7 @@ class ResizeParams:
 
 
 def resize(image: np.ndarray, params: ResizeParams | None = None) -> np.ndarray:
-    """Resize image by scale factor or to target dimensions."""
+    """Resize image by scale factor or to target dimensions (GPU-accelerated)."""
     if params is None:
         return image.copy()
 
@@ -191,6 +194,21 @@ def resize(image: np.ndarray, params: ResizeParams | None = None) -> np.ndarray:
     else:
         new_w = max(1, int(w * params.scale))
         new_h = max(1, int(h * params.scale))
+
+    dm = get_device_manager()
+    if dm.is_gpu and image.shape[0] <= 64:
+        mode_map = {
+            InterpolationMethod.NEAREST: "nearest",
+            InterpolationMethod.BILINEAR: "bilinear",
+            InterpolationMethod.BICUBIC: "bicubic",
+            InterpolationMethod.LANCZOS: "bicubic",
+        }
+        align_map = {True: True, False: False, "bicubic": True, "nearest": False}
+        torch_mode = mode_map.get(params.interpolation, "bicubic")
+        t = dm.from_numpy(image.astype(np.float32)).unsqueeze(0)
+        result = F.interpolate(t, size=(new_h, new_w), mode=torch_mode,
+                               align_corners=align_map.get(torch_mode, True))
+        return dm.to_cpu(result.squeeze(0)).numpy().astype(np.float32)
 
     interp = _INTERP_MAP.get(params.interpolation, cv2.INTER_LANCZOS4)
 
@@ -236,6 +254,9 @@ def _bin_2d(img: np.ndarray, factor: int, mode: BinMode) -> np.ndarray:
     h, w = img.shape
     new_h = (h // factor) * factor
     new_w = (w // factor) * factor
+    if new_h != h or new_w != w:
+        log.warning("Binning %dx%d: truncating %d rows × %d cols to %d × %d",
+                    factor, factor, h, w, new_h, new_w)
     trimmed = img[:new_h, :new_w]
     reshaped = trimmed.reshape(new_h // factor, factor, new_w // factor, factor)
     if mode == BinMode.SUM:

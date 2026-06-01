@@ -15,7 +15,7 @@ Requires scipy >= 1.7 for ``scipy.interpolate.RBFInterpolator``.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import cv2
 import numpy as np
@@ -167,11 +167,13 @@ def _extract_channel(
 
         points, values = _sample_background(working, params)
 
-        if len(values) < 6:
+        n_terms = (params.polynomial_degree + 1) * (params.polynomial_degree + 2) // 2
+        if len(values) < max(n_terms, 6):
             log.warning(
-                "ABE: only %d samples survived clipping at iteration %d — "
+                "ABE: only %d samples survived clipping (need %d) at iteration %d — "
                 "skipping further iterations",
                 len(values),
+                n_terms,
                 it + 1,
             )
             break
@@ -485,6 +487,7 @@ def _build_rbf_model(
     bg_full = cv2.resize(coarse_f32, (w, h), interpolation=cv2.INTER_CUBIC)
 
     # Same rationale as _build_poly_model: no upper clamp.
+    bg_full = np.nan_to_num(bg_full, nan=0.0)
     bg_full = np.maximum(bg_full, 0.0)
 
     return bg_full.astype(np.float32)

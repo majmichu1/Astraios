@@ -181,8 +181,10 @@ def _compute_white_balance(
     avg_rgb = np.median(colors, axis=0)
 
     if params.white_reference == "G2V":
-        # G2V stars (solar type) have roughly equal RGB
-        target = np.array([1.0, 1.0, 1.0])
+        # G2V stars (solar type, ~5770K) have a slightly blue spectral slope.
+        # Using Gaia BP/RP-based G2V synthetic colors: redder channels need
+        # slightly more gain to neutralize the blue bias.
+        target = np.array([1.035, 1.0, 0.965])
     else:  # "average"
         # Make the average star color neutral
         target = np.array([1.0, 1.0, 1.0])
@@ -356,7 +358,7 @@ def _make_pixel_to_sky(wcs: dict, width: int, height: int):
 
             return sky_astropy
         except Exception:
-            pass
+            log.warning("WCS pixel_to_world failed, using linear fallback")
 
     # Linear approximation fallback
     ra0 = float(wcs["ra"])

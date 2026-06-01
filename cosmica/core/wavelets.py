@@ -29,6 +29,9 @@ def _noop_progress(f: float, m: str) -> None:
 _B3_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float32) / 16.0
 
 
+_MAX_WAVELET_SCALES = 8
+
+
 def _atrous_kernel_2d(scale: int) -> np.ndarray:
     """Create 2D a trous B3 spline kernel at given scale.
 
@@ -77,7 +80,9 @@ def wavelet_decompose(
     data : ndarray
         Single-channel 2D array, float32.
     n_scales : int
-        Number of wavelet detail scales.
+        Number of wavelet detail scales (capped at _MAX_WAVELET_SCALES).
+
+    n_scales = min(n_scales, _MAX_WAVELET_SCALES)
 
     Returns
     -------

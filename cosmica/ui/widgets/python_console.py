@@ -6,7 +6,7 @@ import io
 import sys
 import traceback
 
-from PyQt6.QtCore import Qt, QRegularExpression, pyqtSignal
+from PyQt6.QtCore import QRegularExpression, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QColor,
     QFont,
@@ -18,7 +18,6 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
-    QLabel,
     QPlainTextEdit,
     QPushButton,
     QSplitter,
@@ -256,6 +255,7 @@ class PythonConsoleWidget(QWidget):
             "cosmica": cosmica,
             "image": None,
             "data": None,
+            "_writable_data": None,
             "apply": apply,
             "show": show,
         }
@@ -328,7 +328,14 @@ class PythonConsoleWidget(QWidget):
     def set_image(self, image_data):
         """Update the 'image' and 'data' variables in the console namespace."""
         self._namespace["image"] = image_data
-        self._namespace["data"] = image_data.data if image_data is not None else None
+        if image_data is not None:
+            data_copy = image_data.data.copy()
+            data_copy.flags.writeable = False
+            self._namespace["data"] = data_copy
+            self._namespace["_writable_data"] = image_data.data
+        else:
+            self._namespace["data"] = None
+            self._namespace["_writable_data"] = None
         self._inspector.refresh(self._namespace)
 
     def _execute(self, source: str):

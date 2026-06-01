@@ -11,9 +11,9 @@ import logging
 import shutil
 import subprocess
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.error
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -76,7 +76,7 @@ def query_gaia_dr3(
             with open(cache_path, "w") as f:
                 json.dump([s.__dict__ for s in stars], f)
         except Exception:
-            pass
+            log.warning("Could not write Gaia cache to %s", cache_path)
 
     return stars
 
@@ -389,7 +389,7 @@ def plate_solve_astrometry_net(
                 log.info("Job ID: %s", job_id)
                 break
         except Exception:
-            pass
+            log.debug("astrometry.net job poll failed (retrying)")
 
     if job_id is None:
         log.error("astrometry.net: no job started within timeout")
@@ -406,7 +406,7 @@ def plate_solve_astrometry_net(
                 log.error("astrometry.net solve failed")
                 return None
         except Exception:
-            pass
+            log.debug("astrometry.net status poll failed (retrying)")
     else:
         log.error("astrometry.net timed out waiting for solve")
         return None

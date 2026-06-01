@@ -912,7 +912,6 @@ class SmartProcessor:
         """Execute the processing plan with quality checks."""
         working = data.copy()
         n_stages = 5  # bg, nr, deconv, stretch, post
-        stage_weight = 0.85 / n_stages  # 0.15 to 1.0
 
         # ---- Per-channel processing ----
         if working.ndim == 2:
@@ -1269,7 +1268,7 @@ class SmartProcessor:
 
                     if plan.snr < 15 and total_iters >= 15:
                         break
-                    if plan.snr < 30 and total_iters >= 25:
+                    if plan.snr < 30 and total_iters >= 30:
                         break
 
                 self._quality_check(
@@ -1413,7 +1412,8 @@ class SmartProcessor:
                 "target_brightness",
                 max(final_median, final_signal * 0.5),
                 threshold=target_median,
-                passed=final_signal > 0.15 or abs(final_median - target_median) < 0.1,
+                passed=(final_signal > 0.15 or abs(final_median - target_median) < 0.1
+                        or (sky_dominated and metric > effective_target * 0.5)),
                 adjustment=f"Adaptively chose midtone={best_midtone:.3f}",
             )
 
@@ -1550,7 +1550,7 @@ class SmartProcessor:
         captures gradients from LP without being affected by stars.
         """
         try:
-            from scipy.ndimage import median_filter, gaussian_filter
+            from scipy.ndimage import gaussian_filter, median_filter
             h, w = channel.shape
             kernel = max(64, min(h, w) // 8)
             # Make kernel odd

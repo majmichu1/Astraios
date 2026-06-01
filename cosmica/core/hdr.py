@@ -14,8 +14,6 @@ from typing import Callable
 import cv2
 import numpy as np
 
-from cosmica.core.masks import Mask, apply_mask
-
 log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]

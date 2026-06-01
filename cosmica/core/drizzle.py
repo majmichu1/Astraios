@@ -130,8 +130,9 @@ def _drizzle_frame_gpu(
 ) -> None:
     """GPU drizzle for a single frame using torch scatter_add.
 
-    For each input pixel, computes the output bin index and uses
-    scatter_add_ to accumulate values — no Python loops over pixels.
+    For each input pixel, computes the output bin indices (honouring
+    drop_shrink footprint) and uses scatter_add_ to accumulate —
+    no Python loops over pixels.
     """
     import torch
 
@@ -165,27 +166,33 @@ def _drizzle_frame_gpu(
     ox = ref_pts[0] * scale
     oy = ref_pts[1] * scale
 
-    # Use nearest-integer bin (equivalent to drop_shrink ~1 per output pixel)
-    # For fractional drops, compute the floor bin and spread to nearest neighbours
-    ox_bin = ox.round().long()
-    oy_bin = oy.round().long()
+    half_drop = drop_shrink * scale * 0.5
+    ox_floor = (ox - half_drop).floor().long()
+    ox_ceil  = (ox + half_drop).ceil().long()
+    oy_floor = (oy - half_drop).floor().long()
+    oy_ceil  = (oy + half_drop).ceil().long()
 
-    valid = (ox_bin >= 0) & (ox_bin < out_w) & (oy_bin >= 0) & (oy_bin < out_h)
-    ox_bin = ox_bin[valid]
-    oy_bin = oy_bin[valid]
-    flat_idx = oy_bin * out_w + ox_bin  # (N_valid,)
+    # Expand each pixel into its footprint (bins in [ox_floor, ox_ceil] × [oy_floor, oy_ceil])
+    n = ox.shape[0]
+    # Build index tensor for all 4 corners per pixel, then clamp/filter
+    corners_y = torch.stack([oy_floor, oy_floor, oy_ceil, oy_ceil], dim=1)  # (N, 4)
+    corners_x = torch.stack([ox_floor, ox_ceil, ox_floor, ox_ceil], dim=1)  # (N, 4)
+    valid = (corners_x >= 0) & (corners_x < out_w) & (corners_y >= 0) & (corners_y < out_h)
+    flat_idx = (corners_y * out_w + corners_x)[valid]
 
-    # Image values for valid pixels
+    # Image values — each pixel's value repeated for every valid corner
     if is_color:
         img_t = dm.from_numpy(image.astype(np.float32))  # (C, H, W)
-        img_flat = img_t.reshape(img_t.shape[0], -1)[:, valid]  # (C, N_valid)
-        # scatter_add per channel
+        img_flat = img_t.reshape(img_t.shape[0], -1)  # (C, N)
+        # Repeat per-pixel value 4 times (one per corner), then filter
+        repeated = img_flat.repeat_interleave(4, dim=1)  # (C, N*4)
+        repeated = repeated[:, valid.flatten()]
         for c in range(img_t.shape[0]):
-            output_t[c].flatten().scatter_add_(0, flat_idx, img_flat[c])
+            output_t[c].flatten().scatter_add_(0, flat_idx, repeated[c])
     else:
         img_t = dm.from_numpy(image.astype(np.float32)).flatten()
-        img_valid = img_t[valid]
-        output_t.flatten().scatter_add_(0, flat_idx, img_valid)
+        repeated = img_t.repeat_interleave(4)[valid.flatten()]
+        output_t.flatten().scatter_add_(0, flat_idx, repeated)
 
     weight_flat = torch.ones(flat_idx.shape[0], device=device)
     weight_t.flatten().scatter_add_(0, flat_idx, weight_flat)

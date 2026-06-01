@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import gc
 import logging
-import os
 import random
 from pathlib import Path
 
@@ -47,8 +46,12 @@ def extract_patches_from_file(path: Path, patch_size: int = PATCH_SIZE,
     except Exception:
         return None
 
+    # For 3D data: FITS cubes use first plane, RGB images use luminance
     if data.ndim == 3:
-        data = data[0]
+        if data.shape[2] in (3, 4):  # RGB/RGBA from PIL (H, W, C)
+            data = data.mean(axis=2)
+        else:  # FITS cube (C, H, W) or single plane
+            data = data[0]
 
     h, w = data.shape
     if h < patch_size or w < patch_size:

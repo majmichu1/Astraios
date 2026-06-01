@@ -95,7 +95,7 @@ def _apply_clahe_mono(
     if amount < 1.0:
         enhanced_f = data * (1 - amount) + enhanced_f * amount
 
-    return np.clip(enhanced_f, 0, 1)
+    return np.clip(enhanced_f, 0, 1).astype(np.float32)
 
 
 def _apply_clahe_color(

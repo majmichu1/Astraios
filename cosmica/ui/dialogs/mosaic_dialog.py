@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QFileDialog,
@@ -20,14 +21,20 @@ from PyQt6.QtWidgets import (
 )
 
 from cosmica.core.image_io import load_image
-from cosmica.core.mosaic import BlendMethod, MosaicParams, MosaicResult, mosaic_stitch
+from cosmica.core.mosaic import (
+    BlendMethod,
+    MosaicParams,
+    MosaicResult,
+    NormalizeMethod,
+    mosaic_stitch,
+)
 
 
 class MosaicWorker(QThread):
     """Runs mosaic stitching off the main thread."""
 
     progress = pyqtSignal(float, str)
-    finished = pyqtSignal(object)  # MosaicResult
+    finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(self, panels: list[np.ndarray], params: MosaicParams):
@@ -53,12 +60,12 @@ class MosaicWorker(QThread):
 class MosaicDialog(QDialog):
     """Dialog for mosaic stitching of multiple overlapping panels."""
 
-    result_ready = pyqtSignal(object)  # emits MosaicResult
+    result_ready = pyqtSignal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Mosaic Stitching")
-        self.setMinimumSize(500, 420)
+        self.setMinimumSize(500, 480)
 
         self._panel_paths: list[Path] = []
         self._worker: MosaicWorker | None = None
@@ -81,6 +88,27 @@ class MosaicDialog(QDialog):
         self._feather_spin.setValue(50)
         feather_row.addWidget(self._feather_spin)
         layout.addLayout(feather_row)
+
+        # --- Photometric normalization ---
+        norm_row = QHBoxLayout()
+        self._normalize_check = QCheckBox("Photometric normalization")
+        self._normalize_check.setChecked(True)
+        self._normalize_check.toggled.connect(self._on_normalize_toggled)
+        norm_row.addWidget(self._normalize_check)
+
+        self._norm_method_combo = QComboBox()
+        self._norm_method_combo.addItems(["Robust (median)", "Linear (mean)"])
+        norm_row.addWidget(self._norm_method_combo)
+
+        layout.addLayout(norm_row)
+
+        self._per_channel_check = QCheckBox("Normalize each channel independently")
+        self._per_channel_check.setChecked(True)
+        layout.addWidget(self._per_channel_check)
+
+        self._clip_check = QCheckBox("Clip negative values")
+        self._clip_check.setChecked(True)
+        layout.addWidget(self._clip_check)
 
         # --- Panel list ---
         layout.addWidget(QLabel("Panels:"))
@@ -121,6 +149,12 @@ class MosaicDialog(QDialog):
         btn_row.addWidget(self._run_btn)
 
         layout.addLayout(btn_row)
+
+        self._on_normalize_toggled(self._normalize_check.isChecked())
+
+    def _on_normalize_toggled(self, checked: bool):
+        self._norm_method_combo.setEnabled(checked)
+        self._per_channel_check.setEnabled(checked)
 
     def _add_panels(self):
         paths, _ = QFileDialog.getOpenFileNames(
@@ -176,11 +210,22 @@ class MosaicDialog(QDialog):
             1: BlendMethod.MULTIBAND,
             2: BlendMethod.AVERAGE,
         }
+
+        norm_map = {
+            0: NormalizeMethod.ROBUST,
+            1: NormalizeMethod.LINEAR,
+        }
+
         params = MosaicParams(
             blend_method=method_map.get(
                 self._method_combo.currentIndex(), BlendMethod.FEATHER
             ),
             feather_width=self._feather_spin.value(),
+            normalize=norm_map.get(
+                self._norm_method_combo.currentIndex(), NormalizeMethod.ROBUST
+            ) if self._normalize_check.isChecked() else NormalizeMethod.NONE,
+            norm_per_channel=self._per_channel_check.isChecked(),
+            clip_negative=self._clip_check.isChecked(),
         )
 
         self._worker = MosaicWorker(panels, params)

@@ -67,9 +67,9 @@ def _compute_line_offsets(
     valid = work.copy()
     mask = np.ones_like(valid, dtype=bool)
     for _ in range(3):
-        meds = np.median(np.where(mask, valid, np.nan), axis=1)        # (n_lines,)
+        meds = np.nanmedian(np.where(mask, valid, np.nan), axis=1)        # (n_lines,)
         abs_dev = np.abs(valid - meds[:, np.newaxis])
-        mads = np.median(np.where(mask, abs_dev, np.nan), axis=1)      # (n_lines,)
+        mads = np.nanmedian(np.where(mask, abs_dev, np.nan), axis=1)      # (n_lines,)
         sigma = np.maximum(mads * 1.4826, 1e-10)                       # (n_lines,)
         new_mask = abs_dev < protection_sigma * sigma[:, np.newaxis]
         if new_mask.sum() < 3 * work.shape[0]:

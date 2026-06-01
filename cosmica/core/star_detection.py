@@ -251,6 +251,7 @@ def find_transform_triangle(
         2×3 affine transform matrix (target→ref), or *None* on failure.
     """
     from itertools import combinations
+
     from scipy.spatial import KDTree
 
     ref_pts = ref_stars.positions if hasattr(ref_stars, "positions") else np.asarray(ref_stars)

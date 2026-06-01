@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import math
-
 import numpy as np
 from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
@@ -59,6 +57,10 @@ class ImageCanvas(QWidget):
         # DSO annotation overlay
         self._dso_annotations: list[tuple[float, float, str, str]] = []  # (x, y, name, type)
         self._show_dso_overlay = False
+
+        # Constellation line overlay
+        self._constellation_lines: list[list[tuple[float, float]]] = []  # segments in pixel coords
+        self._show_constellation_overlay = False
 
         # Crop selection mode
         self._crop_mode = False
@@ -226,6 +228,15 @@ class ImageCanvas(QWidget):
         self._show_dso_overlay = visible
         self.update()
 
+    def set_constellation_lines(self, segments: list[list[tuple[float, float]]]):
+        """Set constellation line segments in image-space pixel coords."""
+        self._constellation_lines = segments
+        self.update()
+
+    def set_constellation_overlay_visible(self, visible: bool):
+        self._show_constellation_overlay = visible
+        self.update()
+
     # ── Crop selection mode ───────────────────────────────────────────────────
 
     def set_crop_mode(self, enabled: bool):
@@ -310,6 +321,10 @@ class ImageCanvas(QWidget):
         if self._show_dso_overlay and self._dso_annotations:
             self._draw_dso_annotations(painter, dst, full_w, full_h)
 
+        # Draw constellation line overlay
+        if self._show_constellation_overlay and self._constellation_lines:
+            self._draw_constellation_overlay(painter, dst, full_w, full_h)
+
         # Draw background sample points
         if self._sample_points or self._sample_mode:
             self._draw_sample_points(painter, dst, full_w, full_h)
@@ -317,15 +332,60 @@ class ImageCanvas(QWidget):
         painter.end()
 
     def _draw_grid(self, painter: QPainter, dst: QRectF):
+        if self._pixmap is None:
+            return
+        pw = self._pixmap.width()
+        ph = self._pixmap.height()
+
+        # ── Grid lines: 4×4 equal cells ──────────────────────────────
         pen = QPen(QColor(255, 255, 255, 40), 1)
         pen.setStyle(Qt.PenStyle.DotLine)
         painter.setPen(pen)
-        steps = 4
-        for i in range(1, steps):
-            x = dst.left() + dst.width() * i / steps
-            y = dst.top() + dst.height() * i / steps
+        for i in range(1, 4):
+            x = dst.left() + dst.width() * i / 4
+            y = dst.top() + dst.height() * i / 4
             painter.drawLine(QPointF(x, dst.top()), QPointF(x, dst.bottom()))
             painter.drawLine(QPointF(dst.left(), y), QPointF(dst.right(), y))
+
+        # ── Center crosshair ──────────────────────────────────────────
+        cx = dst.center().x()
+        cy = dst.center().y()
+        cl = min(dst.width(), dst.height()) * 0.04
+        cross_pen = QPen(QColor(255, 255, 255, 80), 1)
+        painter.setPen(cross_pen)
+        painter.drawLine(QPointF(cx - cl, cy), QPointF(cx + cl, cy))
+        painter.drawLine(QPointF(cx, cy - cl), QPointF(cx, cy + cl))
+
+        # ── Pixel coordinate labels at corners ───────────────────────
+        font = painter.font()
+        font.setPointSize(8)
+        painter.setFont(font)
+        coord_pen = QPen(QColor(255, 255, 255, 120))
+        painter.setPen(coord_pen)
+        labels = [
+            ("0, 0", 4, 14),
+            (f"{pw}, {ph}", dst.width() - 60, dst.height() - 4),
+        ]
+        for text, lx, ly in labels:
+            painter.drawText(QPointF(dst.left() + lx, dst.top() + ly), text)
+
+    def _draw_constellation_overlay(self, painter: QPainter, dst: QRectF, pw: int, ph: int):
+        if not self._constellation_lines:
+            return
+        pen = QPen(QColor(120, 180, 255, 160), 1.2)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for segment in self._constellation_lines:
+            if len(segment) < 2:
+                continue
+            pts = []
+            for x_img, y_img in segment:
+                wx = dst.left() + (x_img / pw) * dst.width()
+                wy = dst.top() + (y_img / ph) * dst.height()
+                pts.append(QPointF(wx, wy))
+            for i in range(len(pts) - 1):
+                painter.drawLine(pts[i], pts[i + 1])
 
     def _draw_wcs_overlay(self, painter: QPainter, dst: QRectF, pw: int, ph: int):
         font = QFont()

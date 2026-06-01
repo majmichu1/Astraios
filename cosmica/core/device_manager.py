@@ -7,6 +7,7 @@ Never call torch.cuda.* directly elsewhere in the codebase.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING
@@ -57,7 +58,7 @@ class DeviceManager:
             try:
                 free_mb = torch.cuda.mem_get_info(0)[0] // (1024 * 1024)
             except Exception:
-                pass
+                log.debug("CUDA mem_get_info unavailable")
             cc = (props.major, props.minor)
             self._info = DeviceInfo(
                 backend=Backend.CUDA,
@@ -168,11 +169,16 @@ class DeviceManager:
 
 # Module-level singleton
 _instance: DeviceManager | None = None
+_lock: threading.Lock | None = None
 
 
 def get_device_manager() -> DeviceManager:
     """Return the global DeviceManager singleton."""
-    global _instance
+    global _instance, _lock
+    if _lock is None:
+        _lock = threading.Lock()
     if _instance is None:
-        _instance = DeviceManager()
+        with _lock:
+            if _instance is None:
+                _instance = DeviceManager()
     return _instance

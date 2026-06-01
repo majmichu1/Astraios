@@ -249,7 +249,8 @@ def load_fits(path: Path, debayer: bool = True) -> ImageData:
     # (stacking pipeline keeps Bayer for best SNR and debayers the final stack)
     # Pass debayer=False to skip (e.g. during alignment where mono is faster)
     if debayer and data.ndim == 2 and frame_type == FrameType.LIGHT:
-        from cosmica.core.debayer import detect_bayer_pattern, debayer as _debayer
+        from cosmica.core.debayer import debayer as _debayer
+        from cosmica.core.debayer import detect_bayer_pattern
         bayer = detect_bayer_pattern(header)
         if bayer:
             data = _debayer(data, pattern=bayer, method="vng")
@@ -465,12 +466,16 @@ def _build_xisf_xml(image: ImageData) -> tuple[bytes, int]:
     data_offset = 16 + len(xml_bytes)
 
     # Replace offset placeholder
-    xml_bytes = xml_bytes.replace(b"{OFFSET}", str(data_offset).encode("utf-8"))
-    # If replacement changed length, re-pad
+    offset_str = str(data_offset).encode("utf-8")
+    xml_bytes = xml_bytes.replace(b"{OFFSET}", offset_str)
+    # If replacement changed length, re-pad and update offset in XML
     if len(xml_bytes) % 16 != 0:
         pad_len = (16 - (len(xml_bytes) % 16)) % 16
         xml_bytes += b"\x00" * pad_len
         data_offset = 16 + len(xml_bytes)
+        # Update the offset in the XML to match the new header size
+        new_offset_str = str(data_offset).encode("utf-8")
+        xml_bytes = xml_bytes.replace(offset_str, new_offset_str, 1)
 
     return xml_bytes, data_offset
 

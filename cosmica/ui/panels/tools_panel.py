@@ -6,20 +6,23 @@ Visual style matches the HTML prototype exactly using ui_kit widgets.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QGroupBox,
-    QHBoxLayout, QLabel, QListWidget, QPushButton,
-    QSpinBox, QTabWidget, QTextEdit, QVBoxLayout, QWidget,
+    QCheckBox,
+    QHBoxLayout,
+    QLabel,
+    QListWidget,
+    QTabWidget,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
 )
 
 from cosmica.ai.inference.denoise import AIDenoiseParams
-from cosmica.ai.inference.sharpen import AISharpenParams
 from cosmica.core.abe import ABEParams
 from cosmica.core.background import BackgroundParams
 from cosmica.core.background_neutralization import BackgroundNeutralizationParams
 from cosmica.core.banding import BandingParams
-from cosmica.core.chromatic_aberration import CAParams
 from cosmica.core.color_calibration import ColorCalibrationParams
 from cosmica.core.color_tools import ColorAdjustParams, SCNRParams
 from cosmica.core.cosmetic import CosmeticParams
@@ -30,11 +33,21 @@ from cosmica.core.filters import UnsharpMaskParams
 from cosmica.core.histogram_transform import HistogramTransformParams
 from cosmica.core.local_contrast import LocalContrastParams
 from cosmica.core.morphology import MorphologyParams
-from cosmica.core.stacking import IntegrationMethod, RegistrationMode, RejectionMethod, StackingParams
+from cosmica.core.stacking import (
+    IntegrationMethod,
+    NormalizationMethod,
+    RegistrationMode,
+    RejectionMethod,
+    StackingParams,
+)
 from cosmica.core.star_reduction import StarReductionParams
 from cosmica.core.stretch import ArcsinhStretchParams, GHSParams, StretchParams
 from cosmica.core.transforms import (
-    BinParams, CropParams, FlipParams, ResizeParams, RotateParams,
+    BinParams,
+    CropParams,
+    FlipParams,
+    ResizeParams,
+    RotateParams,
 )
 from cosmica.core.vignette import VignetteParams
 from cosmica.core.wavelets import WaveletParams
@@ -125,6 +138,7 @@ class ToolsPanel(QWidget):
     run_ai_denoise           = pyqtSignal()
     run_ai_sharpen           = pyqtSignal()
     run_starnet              = pyqtSignal()
+    open_batch_preprocess    = pyqtSignal()
     open_batch_dialog        = pyqtSignal()
     start_macro_recording    = pyqtSignal()
     stop_macro_recording     = pyqtSignal()
@@ -137,6 +151,7 @@ class ToolsPanel(QWidget):
     run_vignette_correction  = pyqtSignal()
     run_chromatic_aberration = pyqtSignal()
     show_image_statistics    = pyqtSignal()
+    edit_fits_header         = pyqtSignal()
     curves_histogram_changed = pyqtSignal()
     measure_psf              = pyqtSignal()
     run_continuum_subtraction= pyqtSignal()
@@ -175,6 +190,17 @@ class ToolsPanel(QWidget):
     clip_points_changed      = pyqtSignal(float, float)
     open_smart_processor     = pyqtSignal()
     open_equipment_dialog    = pyqtSignal()
+    open_analysis_fwhm       = pyqtSignal()
+    open_analysis_tilt       = pyqtSignal()
+    open_analysis_photometry = pyqtSignal()
+    open_ez_scripts          = pyqtSignal()
+    open_live_stack          = pyqtSignal()
+    open_mosaic_dialog       = pyqtSignal()
+    open_processing_graph    = pyqtSignal()
+    open_super_resolution    = pyqtSignal()
+    run_superbias            = pyqtSignal()
+    undo_requested           = pyqtSignal()
+    redo_requested           = pyqtSignal()
 
     # ── Init ─────────────────────────────────────────────
     def __init__(self, parent=None):
@@ -203,10 +229,14 @@ class ToolsPanel(QWidget):
         bl.setContentsMargins(8, 4, 8, 4)
         bl.setSpacing(4)
 
-        for label in ("↙ Load Preset", "↗ Save Preset"):
-            b = RunBtn(label, flat=True)
-            b.setFixedHeight(24)
-            bl.addWidget(b)
+        self._btn_load_preset = RunBtn("↙ Load Preset", flat=True)
+        self._btn_load_preset.setFixedHeight(24)
+        self._btn_load_preset.clicked.connect(self._on_load_preset)
+        bl.addWidget(self._btn_load_preset)
+        self._btn_save_preset = RunBtn("↗ Save Preset", flat=True)
+        self._btn_save_preset.setFixedHeight(24)
+        self._btn_save_preset.clicked.connect(self._on_save_preset)
+        bl.addWidget(self._btn_save_preset)
         bl.addStretch()
         self._btn_undo = RunBtn("↩", flat=True)
         self._btn_undo.setFixedWidth(32)
@@ -216,6 +246,8 @@ class ToolsPanel(QWidget):
         self._btn_redo.setFixedWidth(32)
         self._btn_redo.setFixedHeight(24)
         self._btn_redo.setToolTip("Redo (Ctrl+Y)")
+        self._btn_undo.clicked.connect(self.undo_requested)
+        self._btn_redo.clicked.connect(self.redo_requested)
         bl.addWidget(self._btn_undo)
         bl.addWidget(self._btn_redo)
         outer.addWidget(bottom)
@@ -252,6 +284,12 @@ class ToolsPanel(QWidget):
         cal.add_run("▶ Run Calibration", self.run_calibration.emit)
         lay.addWidget(cal)
 
+        # SuperBias
+        sb = CollapsibleSection("SuperBias")
+        sb.add_info("Statistically optimized bias — reduces read noise using spatial redundancy.")
+        sb.add_run("▶ Create SuperBias", self.run_superbias.emit)
+        lay.addWidget(sb)
+
         # Cosmetic
         cos = CollapsibleSection("Cosmetic Correction")
         cos.add_info("Detect and remove hot, cold, and dead pixels.")
@@ -281,8 +319,8 @@ class ToolsPanel(QWidget):
     def _cal_frame_row(self, sec: CollapsibleSection, frame_type: str):
         rl = QHBoxLayout()
         rl.setSpacing(4)
-        bf = RunBtn(f"Folder…", flat=True)
-        bm = RunBtn(f"Master…", flat=True)
+        bf = RunBtn("Folder…", flat=True)
+        bm = RunBtn("Master…", flat=True)
         bf.setFixedHeight(26)
         bm.setFixedHeight(26)
         rl.addWidget(bf)
@@ -330,6 +368,11 @@ class ToolsPanel(QWidget):
             ["Sigma Clipping", "Winsorized Sigma", "Linear Fit",
              "Percentile Clip", "ESD (Generalized)", "Min/Max", "None"],
         )
+        self._norm_combo = integ.add_combo(
+            "Normalization",
+            ["Additive + Scaling", "Linear Fit", "Local", "Additive", "Multiplicative", "None"],
+            current="Additive + Scaling",
+        )
         self._integration_combo = integ.add_combo(
             "Integration",
             ["Average", "Median", "Weighted Average"],
@@ -371,11 +414,25 @@ class ToolsPanel(QWidget):
         self._btn_ms_stack.setEnabled(False)
         lay.addWidget(ms)
 
+        # Live Stack
+        live = CollapsibleSection("Live Stack")
+        live.add_info("Real-time frame accumulation with live preview.")
+        live.add_run("▶ Open Live Stack…", self.open_live_stack.emit, flat=True)
+        lay.addWidget(live)
+
         # Batch
         batch = CollapsibleSection("Batch Processing")
-        batch.add_info("Apply a pipeline to multiple images at once.")
+        batch.add_info("Full calibration → registration → stacking pipeline.")
+        batch.add_run("⊞ Batch Preprocess…", self.open_batch_preprocess.emit, flat=True)
+        batch.add_info("Apply a pipeline to multiple processed images.")
         batch.add_run("⊞ Open Batch Dialog…", self.open_batch_dialog.emit, flat=True)
         lay.addWidget(batch)
+
+        # Mosaic
+        mosaic = CollapsibleSection("Mosaic Stitching")
+        mosaic.add_info("Combine overlapping panels into a seamless mosaic.")
+        mosaic.add_run("⊞ Open Mosaic Dialog…", self.open_mosaic_dialog.emit, flat=True)
+        lay.addWidget(mosaic)
 
         self._tabs.addTab(scrollable_tab(lay), "⧉  Stacking")
 
@@ -405,6 +462,7 @@ class ToolsPanel(QWidget):
         bg.add_layout(grid_row)
 
         self._bg_box_size_spin = bg.add_spin("Box size (px)", 8, 256, 64, 8)
+        self._bg_tolerance = bg.add_slider("Tolerance (σ)", 2.5, 1.0, 5.0, 0.5, 1)
         btn_grid = bg.add_run(
             "⊞ Add Auto-Grid Samples",
             lambda: self.add_bg_grid.emit(
@@ -926,6 +984,18 @@ class ToolsPanel(QWidget):
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
+        # Credit card
+        credit = QLabel(
+            "AI models powered by CosmicClarity — "
+            "MIT-licensed astro AI by Franklin Marek (Seti Astro)"
+        )
+        credit.setWordWrap(True)
+        credit.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 10px; "
+            "padding: 6px 8px; background: #1a1a2e; border-radius: 5px;"
+        )
+        lay.addWidget(credit)
+
         # Status card
         status_w = QWidget()
         status_w.setStyleSheet(
@@ -946,9 +1016,10 @@ class ToolsPanel(QWidget):
         sl.addLayout(hdr_row)
 
         _model_statuses = [
-            ("AI Denoise (Noise2Self)",   "ready"),
-            ("AI Sharpen (Neural Deconv)", "training"),
-            ("StarNet (Star Removal)",     "planned"),
+            ("AI Denoise (CosmicClarity)",   "ready"),
+            ("AI Sharpen (CosmicClarity)",   "ready"),
+            ("Star Removal (built-in)",      "ready"),
+            ("StarNet v2 (external)",        "planned"),
         ]
         _status_style = {
             "ready":    (ACCENT_DARK, ACCENT, "Ready"),
@@ -972,7 +1043,13 @@ class ToolsPanel(QWidget):
         # AI Denoise
         den = CollapsibleSection("AI Denoise", accent=True)
         den.add_info(
-            "Noise2Self — self-supervised denoising trained on real astro images. 7.7M params."
+            "CosmicClarity Denoise — MIT-licensed astro AI by "
+            "Seti Astro (Franklin Marek). Self-supervised denoising."
+        )
+        self._ai_denoise_backend = den.add_combo(
+            "Backend",
+            ["CosmicClarity (best)", "Noise2Self (built-in)"],
+            current="CosmicClarity (best)",
         )
         self._ai_denoise_strength = den.add_slider("Strength", 0.7, 0.0, 1.0, 0.05, 2)
         self._ai_tile_combo       = den.add_combo("Tile size", ["128", "256", "512", "Full"])
@@ -983,31 +1060,43 @@ class ToolsPanel(QWidget):
 
         # AI Sharpen
         shr = CollapsibleSection("AI Sharpen")
-        # warning banner
-        warn = QLabel("Model training in progress (epoch 16/30). Traditional fallback active.")
-        warn.setWordWrap(True)
-        warn.setStyleSheet(
-            f"background: #2d1f00; color: {ORANGE}; border: 1px solid rgba(210,153,34,0.19); "
-            "border-radius: 5px; padding: 6px 8px; font-size: 10px;"
+        shr.add_info(
+            "CosmicClarity Sharpen — MIT-licensed astro AI by "
+            "Seti Astro (Franklin Marek). Learned deconvolution and sharpening."
         )
-        shr.add_widget(warn)
+        self._ai_sharpen_backend = shr.add_combo(
+            "Backend",
+            ["CosmicClarity (best)", "Richardson-Lucy (fallback)"],
+            current="CosmicClarity (best)",
+        )
         self._ai_sharpen_strength = shr.add_slider("Strength", 0.5, 0.0, 1.0, 0.05, 2)
         shr.add_run("▶ Apply AI Sharpen", self.run_ai_sharpen.emit)
         lay.addWidget(shr)
 
-        # StarNet
-        star = CollapsibleSection("StarNet (Star Removal)")
-        info_banner = QLabel("Architecture planned. Use Star Reduction in Detail tab for now.")
-        info_banner.setWordWrap(True)
-        info_banner.setStyleSheet(
-            f"background: #1c1c2e; color: {ACCENT_PURPLE}; "
-            "border: 1px solid rgba(137,87,229,0.19); "
-            "border-radius: 5px; padding: 6px 8px; font-size: 10px;"
+        # Star Removal
+        star = CollapsibleSection("Star Removal", accent=True)
+        star.add_info("Remove stars from image using deep learning.")
+        self._star_removal_path = star.add_combo(
+            "Backend",
+            ["Auto (StarNet v2 preferred)", "StarNet v2", "Built-in (starrem2k13)"],
+            current="Auto (StarNet v2 preferred)",
         )
-        star.add_widget(info_banner)
-        btn_sn = star.add_run("▶ Run StarNet", self.run_starnet.emit)
-        btn_sn.setEnabled(False)
+        self._star_threshold = star.add_slider("Threshold", 0.5, 0.1, 0.9, 0.05, 2)
+        self._star_protect_bg = star.add_check("Protect background detail", True)
+        star.add_info(
+            "StarNet v2 requires manual download from starnetastro.com. "
+            "Built-in (starrem2k13) works out of the box — run download script first.",
+        )
+        star.add_run("▶ Remove Stars", self.run_starnet.emit)
         lay.addWidget(star)
+
+        # AI Super-Resolution
+        sr = CollapsibleSection("AI Super-Resolution")
+        sr.add_info("Upscale images with learned detail synthesis (Real-ESRGAN).")
+        self._sr_scale = sr.add_combo("Scale", ["2×", "4×"], current="2×")
+        self._sr_tile = sr.add_combo("Tile size", ["512", "1024", "Full"], current="512")
+        sr.add_run("▶ Upscale", self.open_super_resolution.emit)
+        lay.addWidget(sr)
 
         # Train
         train = CollapsibleSection("Train Your Own Models")
@@ -1040,6 +1129,12 @@ class ToolsPanel(QWidget):
         pm.add_widget(self._pixelmath_expr)
         pm.add_run("⊞ Open Pixel Math Dialog…", self.open_pixelmath_dialog.emit, flat=True)
         lay.addWidget(pm)
+
+        # EZ Scripts
+        ez = CollapsibleSection("EZ Script Suite")
+        ez.add_info("One-click processing presets (OSC, Narrowband, Luminance, etc.)")
+        ez.add_run("⊞ Open EZ Scripts…", self.open_ez_scripts.emit, flat=True)
+        lay.addWidget(ez)
 
         # HDR
         hdr = CollapsibleSection("HDR Composition")
@@ -1075,6 +1170,21 @@ class ToolsPanel(QWidget):
         btns2[1].clicked.connect(self.load_macro.emit)
         lay.addWidget(mac)
 
+        # Processing History
+        ph = CollapsibleSection("Processing History (Non-Destructive)")
+        ph.add_info("View and edit processing steps. Changes cascade and invalidate downstream steps.")
+        ph.add_run("⊞ Open Processing History…", self.open_processing_graph.emit, flat=True)
+        lay.addWidget(ph)
+
+        # Analysis
+        an = CollapsibleSection("Analysis Tools")
+        an.add_info("Diagnose optical quality (FWHM, tilt, aberrations).")
+        btns = an.add_btn_row([("FWHM Map", True), ("Tilt/Aberrations", True), ("Photometry", True)])
+        btns[0].clicked.connect(self.open_analysis_fwhm.emit)
+        btns[1].clicked.connect(self.open_analysis_tilt.emit)
+        btns[2].clicked.connect(self.open_analysis_photometry.emit)
+        lay.addWidget(an)
+
         # Python Console
         con = CollapsibleSection("Python Console")
         con.add_info("Full Python access to the Cosmica core API.")
@@ -1086,6 +1196,12 @@ class ToolsPanel(QWidget):
         stats.add_info("Mean, median, SD, min, max, histogram percentiles.")
         stats.add_run("⊞ Show Statistics…", self.show_image_statistics.emit, flat=True)
         lay.addWidget(stats)
+
+        # FITS Header
+        hdr = CollapsibleSection("FITS Header")
+        hdr.add_info("View and edit image FITS metadata.")
+        hdr.add_run("⊞ Edit FITS Header…", self.edit_fits_header.emit, flat=True)
+        lay.addWidget(hdr)
 
         self._tabs.addTab(scrollable_tab(lay), "⚙  Utility")
 
@@ -1185,6 +1301,17 @@ class ToolsPanel(QWidget):
 
     # ── Public getters (called from main_window) ──────────
 
+    def _parse_norm(self, text: str) -> NormalizationMethod:
+        nmap = {
+            "Additive + Scaling": NormalizationMethod.ADDITIVE_SCALING,
+            "Linear Fit":        NormalizationMethod.LINEAR_FIT,
+            "Local":             NormalizationMethod.LOCAL,
+            "Additive":          NormalizationMethod.ADDITIVE,
+            "Multiplicative":    NormalizationMethod.MULTIPLICATIVE,
+            "None":              NormalizationMethod.NONE,
+        }
+        return nmap.get(text, NormalizationMethod.ADDITIVE_SCALING)
+
     def get_stacking_params(self) -> StackingParams:
         rejection_map = {
             "Sigma Clipping":     RejectionMethod.SIGMA_CLIP,
@@ -1208,6 +1335,7 @@ class ToolsPanel(QWidget):
             integration=integ_map.get(
                 self._integration_combo.currentText(), IntegrationMethod.AVERAGE
             ),
+            normalization=self._parse_norm(self._norm_combo.currentText()),
             kappa_low=kappa,
             kappa_high=kappa,
         )
@@ -1277,6 +1405,7 @@ class ToolsPanel(QWidget):
         return BackgroundParams(
             grid_size=int(self._bg_grid_spin.value()),
             polynomial_order=int(self._bg_order_spin.value()),
+            per_pixel_sigma=self._bg_tolerance.value(),
             manual_points=manual_points or [],
         )
 
@@ -1314,6 +1443,38 @@ class ToolsPanel(QWidget):
             strength=self._ai_denoise_strength.value(),
             tile_size=tile_map.get(self._ai_tile_combo.currentText(), 256),
             protect_stars=0.8 if self._ai_star_protect.isChecked() else 0.0,
+        )
+
+    def get_ai_denoise_backend(self) -> str:
+        return self._ai_denoise_backend.currentText()
+
+    def get_ai_sharpen_backend(self) -> str:
+        return self._ai_sharpen_backend.currentText()
+
+    def get_cosmic_clarity_denoise_params(self):
+        from cosmica.ai.inference.cosmic_clarity import CosmicClarityParams
+        tile_map = {"128": 128, "256": 256, "512": 512, "Full": 0}
+        return CosmicClarityParams(
+            model="denoise",
+            strength=self._ai_denoise_strength.value(),
+            tile_size=tile_map.get(self._ai_tile_combo.currentText(), 256),
+            keep_original_size=True,
+        )
+
+    def get_cosmic_clarity_sharpen_params(self):
+        from cosmica.ai.inference.cosmic_clarity import CosmicClarityParams
+        return CosmicClarityParams(
+            model="sharpen",
+            strength=self._ai_sharpen_strength.value(),
+            tile_size=512,
+            keep_original_size=True,
+        )
+
+    def get_ai_sharpen_params(self):
+        from cosmica.ai.inference.sharpen import AISharpenParams
+        return AISharpenParams(
+            strength=self._ai_sharpen_strength.value(),
+            tile_size=512,
         )
 
     def get_deconvolution_params(self) -> "DeconvolutionParams | SpatialDeconvParams":
@@ -1471,6 +1632,22 @@ class ToolsPanel(QWidget):
         }
         white_ref = method_map.get(self._cc_method_combo.currentText(), "average")
         return ColorCalibrationParams(white_reference=white_ref)
+
+    def _on_save_preset(self):
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, "Save Preset",
+            "Batch presets can be saved via the Batch Processing dialog.\n"
+            "Per-section preset support coming in a future update.",
+        )
+
+    def _on_load_preset(self):
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(
+            self, "Load Preset",
+            "Batch presets can be loaded via the Batch Processing dialog.\n"
+            "Per-section preset support coming in a future update.",
+        )
 
     def get_pcc_params(self) -> dict:
         solver_map = {"Auto": "auto", "ASTAP": "astap", "Astrometry.net": "astrometry_net"}

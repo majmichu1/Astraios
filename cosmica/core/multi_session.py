@@ -18,7 +18,6 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-import cv2
 import numpy as np
 
 from cosmica.core.image_io import FrameType, ImageData
@@ -27,10 +26,8 @@ from cosmica.core.stacking import (
     RejectionMethod,
     StackingParams,
     StackResult,
-    _integrate,
     _reject_sigma_clip,
     align_frames,
-    normalize_stack,
     stack_images,
 )
 

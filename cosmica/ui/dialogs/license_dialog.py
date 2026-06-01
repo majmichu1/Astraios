@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
@@ -12,7 +11,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from cosmica.licensing.license_manager import LicenseManager, LicenseTier
+from cosmica.licensing.license_manager import LicenseManager
 
 
 class LicenseDialog(QDialog):
@@ -121,6 +120,6 @@ class LicenseDialog(QDialog):
         self._result_label.setText("License deactivated.")
 
     def _open_store(self):
-        from PyQt6.QtGui import QDesktopServices
         from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
         QDesktopServices.openUrl(QUrl("https://cosmica.lemonsqueezy.com/buy"))

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import platform
-import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -96,8 +95,32 @@ class AutoUpdater:
             log.debug("Update check failed: %s", e)
             return info
 
-    def download_update(self, url: str, progress_callback=None) -> Path | None:
-        """Download the update installer to a temp directory."""
+    def _verify_sha256(self, path: Path, expected: str | None) -> bool:
+        """Verify SHA-256 hash of a downloaded file. Returns True if match or no hash provided."""
+        if expected is None:
+            log.warning("No SHA-256 hash available for integrity check — skipping verification")
+            return True
+        import hashlib
+        sha256 = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                sha256.update(chunk)
+        actual = sha256.hexdigest()
+        if actual == expected:
+            log.info("SHA-256 integrity check passed")
+            return True
+        log.error(
+            "SHA-256 mismatch! Expected: %s, got: %s. File may be corrupted or tampered with.",
+            expected, actual,
+        )
+        Path(path).unlink(missing_ok=True)
+        return False
+
+    def download_update(self, url: str, progress_callback=None, sha256: str | None = None) -> Path | None:
+        """Download the update installer to a temp directory.
+
+        If sha256 is provided, verifies the file integrity after download.
+        """
         try:
             resp = requests.get(url, stream=True, timeout=60)
             resp.raise_for_status()
@@ -105,16 +128,26 @@ class AutoUpdater:
             total = int(resp.headers.get("content-length", 0))
             downloaded = 0
 
-            tmp = Path(tempfile.mkdtemp()) / url.split("/")[-1]
-            with open(tmp, "wb") as f:
-                for chunk in resp.iter_content(chunk_size=65536):
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if progress_callback and total > 0:
-                        progress_callback(downloaded / total, f"Downloading update... {downloaded // 1024}KB")
+            tmp_dir = Path(tempfile.mkdtemp())
+            tmp = tmp_dir / url.split("/")[-1]
+            try:
+                with open(tmp, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=65536):
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback and total > 0:
+                            progress_callback(downloaded / total, f"Downloading update... {downloaded // 1024}KB")
 
-            log.info("Update downloaded: %s", tmp)
-            return tmp
+                if not self._verify_sha256(tmp, sha256):
+                    return None
+
+                log.info("Update downloaded: %s", tmp)
+                return tmp
+            except Exception:
+                # Clean up temp dir on failure
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
+                raise
 
         except Exception as e:
             log.error("Download failed: %s", e)

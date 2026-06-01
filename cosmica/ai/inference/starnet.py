@@ -114,7 +114,9 @@ def run_starnet(
             output_path = tmpdir / "starless.fits"
 
             # Save input as FITS (mono luminance for color images)
-            img_data = ImageData(data=process_data, header={})
+            from astropy.io import fits as _fits
+            header = _fits.Header({'NAXIS': 2, 'BITPIX': -32, 'SIMPLE': True})
+            img_data = ImageData(data=process_data, header=header)
             save_fits(img_data, input_path)
 
             # Run StarNet subprocess

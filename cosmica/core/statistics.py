@@ -135,6 +135,11 @@ def _compute_single_channel(name: str, data: np.ndarray) -> ChannelStatistics:
     """
     flat = data.ravel()
     pixel_count = flat.size
+    if pixel_count == 0:
+        return ChannelStatistics(
+            mean=0.0, median=0.0, std=0.0, min_val=0.0, max_val=0.0,
+            mad=0.0, snr=0.0, entropy=0.0, bayer_weighted=1.0,
+        )
 
     mean_val = float(np.mean(flat))
     median_val = float(np.median(flat))

@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from cosmica.core.masks import Mask
 from cosmica.core.star_reduction import create_star_mask
 
 

@@ -16,13 +16,11 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QSlider,
-    QSpinBox,
     QVBoxLayout,
 )
 
 from cosmica.core.masks import (
     Mask,
-    MaskType,
     blur_mask,
     create_luminance_mask,
     create_range_mask,
