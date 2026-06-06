@@ -1010,15 +1010,19 @@ class MainWindow(QMainWindow):
         spacer_tb.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb_layout.addWidget(spacer_tb)
 
+        self._hist_toggle_tb = _ctb("▾ Histogram", "Show/hide histogram", checkable=True)
+        self._hist_toggle_tb.setChecked(True)
+        tb_layout.addWidget(self._hist_toggle_tb)
+
+        fullscreen_tb = _ctb("⛶", "Fullscreen  F11")
+        fullscreen_tb.clicked.connect(self._on_fullscreen)
+        tb_layout.addWidget(fullscreen_tb)
+
         self._canvas_coord_label = QLabel("")
         self._canvas_coord_label.setStyleSheet(
             "color: #8b949e; font-size: 11px; font-family: monospace;"
         )
         tb_layout.addWidget(self._canvas_coord_label)
-
-        self._hist_toggle_tb = _ctb("▾ Histogram", "Show/hide histogram", checkable=True)
-        self._hist_toggle_tb.setChecked(True)
-        tb_layout.addWidget(self._hist_toggle_tb)
 
         center_layout.addWidget(canvas_tb)
 
@@ -1266,20 +1270,29 @@ class MainWindow(QMainWindow):
     def _setup_statusbar(self):
         sb = self.statusBar()
 
-        # Left-side image info labels
-        def _sb_label(text="") -> QLabel:
+        def _sb_label(text="", val: bool = False) -> QLabel:
             lbl = QLabel(text)
-            lbl.setStyleSheet("color: #8b949e; font-size: 11px; padding: 0 6px;")
+            color = "#e6edf3" if val else "#8b949e"
+            font = "monospace" if val else "sans"
+            lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-family: {font}; padding: 0 6px 0 0;")
             return lbl
 
-        self._status_filename = _sb_label()
-        self._status_size = _sb_label()
-        self._status_depth = _sb_label()
-        self._status_channels = _sb_label()
-        self._status_history = _sb_label()
+        self._status_filename_lbl = _sb_label("Image:")
+        self._status_filename = _sb_label("", val=True)
+        self._status_size_lbl = _sb_label("Size:")
+        self._status_size = _sb_label("", val=True)
+        self._status_depth_lbl = _sb_label("Depth:")
+        self._status_depth = _sb_label("", val=True)
+        self._status_channels_lbl = _sb_label("Ch:")
+        self._status_channels = _sb_label("", val=True)
+        self._status_history_lbl = _sb_label("Steps:")
+        self._status_history = _sb_label("", val=True)
         for lbl in (
-            self._status_filename, self._status_size,
-            self._status_depth, self._status_channels, self._status_history,
+            self._status_filename_lbl, self._status_filename,
+            self._status_size_lbl, self._status_size,
+            self._status_depth_lbl, self._status_depth,
+            self._status_channels_lbl, self._status_channels,
+            self._status_history_lbl, self._status_history,
         ):
             sb.addWidget(lbl)
 
@@ -1953,10 +1966,8 @@ class MainWindow(QMainWindow):
         """Refresh the status bar image info labels."""
         img = self._current_image
         if img is None:
-            for lbl in (
-                self._status_filename, self._status_size,
-                self._status_depth, self._status_channels, self._status_history,
-            ):
+            for lbl in (self._status_filename, self._status_size, self._status_depth,
+                        self._status_channels, self._status_history):
                 lbl.setText("")
             return
         fp = getattr(img, "file_path", None)
