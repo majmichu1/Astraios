@@ -439,12 +439,23 @@ def detect_from_fits_header(header: dict[str, Any]) -> dict[str, Any]:
     if obj and str(obj).strip():
         info["object_name"] = str(obj).strip()
 
-    # Coordinates
-    ra = header.get("RA") or header.get("OBJCTRA")
-    if ra is not None:
-        info["ra"] = ra
-    dec = header.get("DEC") or header.get("OBJCTDEC")
-    if dec is not None:
-        info["dec"] = dec
+    # Coordinates — normalise sexagesimal strings to decimal degrees
+    ra_val = header.get("RA") or header.get("OBJCTRA")
+    dec_val = header.get("DEC") or header.get("OBJCTDEC")
+    if isinstance(ra_val, str) and isinstance(dec_val, str):
+        try:
+            from astropy.coordinates import SkyCoord
+            import astropy.units as u
+            c = SkyCoord(ra_val, dec_val, unit=(u.hourangle, u.deg), frame="icrs")
+            info["ra"] = c.ra.deg
+            info["dec"] = c.dec.deg
+        except Exception:
+            info["ra"] = ra_val
+            info["dec"] = dec_val
+    else:
+        if ra_val is not None:
+            info["ra"] = ra_val
+        if dec_val is not None:
+            info["dec"] = dec_val
 
     return info

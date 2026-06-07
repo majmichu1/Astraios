@@ -14,7 +14,7 @@ from cosmica.core.analysis.aperture_photometry import (
 from cosmica.core.analysis.fwhm_map import (
     FWHMMapResult,
     _detect_stars_zone,
-    _gaussian_fit_2d,
+    _measure_fwhm_vectorized,
     compute_fwhm_map,
 )
 from cosmica.core.analysis.tilt_analysis import (
@@ -32,27 +32,29 @@ class TestGaussianFit2D:
     """Tests for _gaussian_fit_2d."""
 
     def test_fit_on_synthetic_star(self):
-        """Should fit a 2D Gaussian and return a reasonable FWHM."""
+        """Should measure FWHM from a synthetic Gaussian star."""
         size = 21
-        cy, cx = 10, 10
+        cx, cy = 10, 10
         sigma = 2.0
         yy, xx = np.mgrid[0:size, 0:size]
         g = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
         g = g.astype(np.float64)
-        fwhm = _gaussian_fit_2d(g, cy, cx, fit_radius=7)
+        ys, xs, fwhms = _measure_fwhm_vectorized(g, threshold=0.1)
         expected_fwhm = sigma * 2.355
-        assert fwhm is not None
-        assert fwhm == pytest.approx(expected_fwhm, rel=0.3)
+        assert len(fwhms) > 0
+        assert fwhms[0] == pytest.approx(expected_fwhm, rel=0.3)
 
-    def test_fit_returns_none_on_flat(self):
-        """Should return None for a flat (no-signal) patch."""
+    def test_fit_returns_empty_on_flat(self):
+        """Should return empty arrays for a flat (no-signal) patch."""
         flat = np.full((11, 11), 0.5, dtype=np.float64)
-        assert _gaussian_fit_2d(flat, 5, 5, fit_radius=5) is None
+        ys, xs, fwhms = _measure_fwhm_vectorized(flat, threshold=0.9)
+        assert len(fwhms) == 0
 
-    def test_fit_returns_none_too_small(self):
-        """Should return None for a patch that is too small."""
-        tiny = np.ones((2, 2), dtype=np.float64)
-        assert _gaussian_fit_2d(tiny, 0, 0, fit_radius=1) is None
+    def test_fit_returns_empty_on_zero(self):
+        """Should return empty arrays for zero-valued patch."""
+        zero = np.zeros((11, 11), dtype=np.float64)
+        ys, xs, fwhms = _measure_fwhm_vectorized(zero, threshold=0.0)
+        assert len(fwhms) == 0
 
 
 class TestDetectStarsZone:

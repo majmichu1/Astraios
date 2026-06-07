@@ -16,6 +16,8 @@ import logging
 from pathlib import Path
 
 import numpy as np
+from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -96,6 +98,12 @@ class _ChannelRow(QWidget):
         if path:
             self._path = Path(path)
             self._path_edit.setText(path)
+            dialog = self.parent()
+            while dialog and not isinstance(dialog, ChannelCombineDialog):
+                dialog = dialog.parent()
+            if dialog:
+                dialog._cached_channels.pop(str(path), None)
+                dialog._schedule_preview()
 
     @property
     def path(self) -> Path | None:
@@ -155,8 +163,20 @@ class ChannelCombineDialog(QDialog):
         self._hoo_note.setVisible(False)
         main_layout.addWidget(self._hoo_note)
 
+        # Live preview
+        self._preview_label = QLabel()
+        self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._preview_label.setMinimumHeight(180)
+        self._preview_label.setStyleSheet("background: #1e1e1e; border: 1px solid #3c3c3c;")
+        main_layout.addWidget(self._preview_label)
+
+        self._cached_channels: dict[str, np.ndarray | None] = {}
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(300)
+        self._preview_timer.timeout.connect(self._update_preview)
+
         # Options
-        options_group = QGroupBox("Options")
         opt_layout = QFormLayout(options_group)
 
         self._bit_depth_combo = QComboBox()
@@ -166,6 +186,7 @@ class ChannelCombineDialog(QDialog):
         self._normalize_check_combo = QComboBox()
         self._normalize_check_combo.addItems(["None", "Per-channel (match median)", "Global (common scale)"])
         self._normalize_check_combo.setCurrentIndex(1)
+        self._normalize_check_combo.currentIndexChanged.connect(self._schedule_preview)
         opt_layout.addRow("Normalize channels:", self._normalize_check_combo)
 
         main_layout.addWidget(options_group)
@@ -178,23 +199,91 @@ class ChannelCombineDialog(QDialog):
         main_layout.addWidget(btn_box)
 
         self._rebuild_channels(DEFAULT_PALETTE)
+        QTimer.singleShot(500, self._schedule_preview)
 
     def _rebuild_channels(self, palette_name: str):
-        # Remove old rows
         for row in self._channel_rows:
             row.setParent(None)
         self._channel_rows.clear()
+        self._cached_channels.clear()
 
         definition = PALETTES.get(palette_name, PALETTES["RGB"])
         for out_ch, src_label in definition:
             row = _ChannelRow(out_ch, src_label, self)
+            row._weight_spin.valueChanged.connect(self._schedule_preview)
             self._channels_layout.addWidget(row)
             self._channel_rows.append(row)
 
         self._hoo_note.setVisible("HOO" in palette_name)
+        self._schedule_preview()
 
     def set_current_image(self, image_data):
         self._current_image = image_data
+
+    def _schedule_preview(self):
+        self._preview_timer.start()
+
+    def _update_preview(self):
+        palette = self._palette_combo.currentText()
+        definition = PALETTES.get(palette, PALETTES["RGB"])
+        channels: dict[str, np.ndarray] = {}
+        channel_counts: dict[str, int] = {}
+
+        for row in self._channel_rows:
+            if row.path is None:
+                continue
+            cache_key = str(row.path)
+            if cache_key not in self._cached_channels:
+                self._cached_channels[cache_key] = self._load_channel(row.path)
+            data = self._cached_channels.get(cache_key)
+            if data is None:
+                continue
+            data = data * row.weight
+            if row.output_channel in channels:
+                prev_n = channel_counts[row.output_channel]
+                channels[row.output_channel] = (
+                    channels[row.output_channel] * prev_n + data
+                ) / (prev_n + 1)
+                channel_counts[row.output_channel] = prev_n + 1
+            else:
+                channels[row.output_channel] = data
+                channel_counts[row.output_channel] = 1
+
+        if len(channels) < 3:
+            self._preview_label.clear()
+            return
+
+        norm_idx = self._normalize_check_combo.currentIndex()
+        if norm_idx == 1:
+            medians = {k: float(np.median(v)) for k, v in channels.items()}
+            target = float(np.mean(list(medians.values())))
+            for k, v in channels.items():
+                channels[k] = np.clip(v + target - medians[k], 0, 1)
+        elif norm_idx == 2:
+            combined_max = max(ch.max() for ch in channels.values())
+            if combined_max > 0:
+                channels = {k: v / combined_max for k, v in channels.items()}
+
+        try:
+            rgb = np.stack([channels["R"], channels["G"], channels["B"]], axis=0)
+        except (ValueError, KeyError):
+            self._preview_label.clear()
+            return
+
+        rgb = np.clip(rgb, 0, 1).astype(np.float32)
+        display = np.transpose(rgb, (1, 2, 0))
+        h, w = display.shape[:2]
+        max_h = max(self._preview_label.height() - 10, 100)
+        max_w = max(self._preview_label.width() - 10, 100)
+        scale = min(max_w / w, max_h / h, 1.0)
+        dw, dh = int(w * scale), int(h * scale)
+
+        display = np.ascontiguousarray((display * 255).astype(np.uint8))
+        qimg = QImage(display.tobytes(), w, h, w * 3, QImage.Format.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimg).scaled(
+            dw, dh, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+        )
+        self._preview_label.setPixmap(pixmap)
 
     def _load_channel(self, path: Path) -> np.ndarray | None:
         """Load a mono (or color-collapsed) channel as 2D float32."""
@@ -214,6 +303,7 @@ class ChannelCombineDialog(QDialog):
         from PyQt6.QtWidgets import QMessageBox
 
         channels: dict[str, np.ndarray] = {}  # 'R'/'G'/'B' → 2D array
+        channel_counts: dict[str, int] = {}  # count of contributions per output channel
 
         for row in self._channel_rows:
             if row.path is None:
@@ -231,9 +321,14 @@ class ChannelCombineDialog(QDialog):
             data = data * row.weight
             # Accumulate (HOO may have two rows for the same output channel)
             if row.output_channel in channels:
-                channels[row.output_channel] = (channels[row.output_channel] + data) * 0.5
+                prev_n = channel_counts[row.output_channel]
+                channels[row.output_channel] = (
+                    channels[row.output_channel] * prev_n + data
+                ) / (prev_n + 1)
+                channel_counts[row.output_channel] = prev_n + 1
             else:
                 channels[row.output_channel] = data
+                channel_counts[row.output_channel] = 1
 
         # Validate all R, G, B are present
         for ch in ("R", "G", "B"):

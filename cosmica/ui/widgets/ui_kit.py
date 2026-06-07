@@ -48,6 +48,7 @@ def scrollable_tab(layout: QVBoxLayout) -> QScrollArea:
     """Wrap a QVBoxLayout in a styled, horizontally-locked scroll area."""
     layout.addStretch()
     container = QWidget()
+    container.setStyleSheet(f"background-color: {BG_PRIMARY};")
     container.setLayout(layout)
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
@@ -149,6 +150,7 @@ class SliderRow(QWidget):
         parent=None,
     ):
         super().__init__(parent)
+        self.setStyleSheet("background-color: transparent;")
         self._dec   = decimals
         self._step  = step
         self._scale = max(1, round(1.0 / step)) if step < 1 else 1
@@ -178,6 +180,7 @@ class SliderRow(QWidget):
         )
         self._slider.setValue(int(value * self._scale))
         self._slider.setStyleSheet(f"""
+            QSlider {{ background: transparent; border: none; }}
             QSlider::groove:horizontal {{
                 height: 4px; background: {BG_TERTIARY}; border-radius: 2px;
             }}

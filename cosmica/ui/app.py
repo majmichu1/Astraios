@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import QEvent
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QComboBox, QSplashScreen
 
 import cosmica
@@ -40,6 +41,11 @@ def run_application(argv: list[str] | None = None) -> int:
     app.setApplicationName(cosmica.__app_name__)
     app.setApplicationVersion(cosmica.__version__)
     app.setOrganizationName("Cosmica")
+
+    # Set application icon
+    icon_path = Path(__file__).resolve().parent.parent / "resources" / "icons" / "cosmica.svg"
+    if icon_path.exists():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # Set default font — Space Grotesk first, then fallbacks
     for family in ("Space Grotesk", "Inter", "Segoe UI", "Roboto", "Ubuntu"):

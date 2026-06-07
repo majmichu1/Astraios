@@ -1,5 +1,6 @@
 """Tests for plate solving."""
 
+import pytest
 import numpy as np
 
 from cosmica.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
@@ -34,12 +35,8 @@ class TestPlateSolve:
     def test_with_scale_hint(self):
         image = _star_image()
         params = PlateSolveParams(scale_hint=1.0)
-        result = plate_solve(image, params)
-        # Without a reference star catalog, solve reports failure but
-        # still returns the scale hint and matched star count.
-        assert not result.success
-        assert result.pixel_scale == 1.0
-        assert result.n_stars_matched > 0
+        with pytest.raises(NotImplementedError):
+            plate_solve(image, params)
 
     def test_empty_image_fails(self):
         image = np.ones((100, 100), dtype=np.float32) * 0.05

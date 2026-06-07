@@ -31,6 +31,7 @@ class PipelineStep:
     tool_name: str  # registered tool name (e.g., "auto_stretch", "denoise")
     params: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
+    mask_name: str | None = None  # saved mask name to protect/reveal areas
 
 
 @dataclass
@@ -58,7 +59,12 @@ class Pipeline:
         return {
             "name": self.name,
             "steps": [
-                {"tool_name": s.tool_name, "params": s.params, "enabled": s.enabled}
+                {
+                    "tool_name": s.tool_name,
+                    "params": s.params,
+                    "enabled": s.enabled,
+                    "mask_name": s.mask_name,
+                }
                 for s in self.steps
             ],
         }
@@ -71,6 +77,7 @@ class Pipeline:
                 tool_name=step_d["tool_name"],
                 params=step_d.get("params", {}),
                 enabled=step_d.get("enabled", True),
+                mask_name=step_d.get("mask_name"),
             )
             pipeline.steps.append(step)
         return pipeline
@@ -171,6 +178,7 @@ def apply_pipeline_to_image(
     data: np.ndarray,
     pipeline: Pipeline,
     progress: ProgressCallback | None = None,
+    masks: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Apply a pipeline to a single image.
 
@@ -182,6 +190,8 @@ def apply_pipeline_to_image(
         Processing pipeline to apply.
     progress : callable, optional
         Progress callback ``(fraction, message)``.
+    masks : dict, optional
+        Named masks ``{name: (H, W) float32 array}`` for mask-aware steps.
 
     Returns
     -------
@@ -194,6 +204,8 @@ def apply_pipeline_to_image(
     if progress is None:
         progress = _noop_progress
 
+    from cosmica.core.masks import apply_mask
+
     enabled = [s for s in pipeline.steps if s.enabled]
     n = len(enabled)
     result = data.copy()
@@ -204,7 +216,11 @@ def apply_pipeline_to_image(
             log.warning("Unknown tool: %s, skipping", step.tool_name)
             continue
         log.info("Applying: %s", step.tool_name)
-        result = func(result, **step.params)
+        processed = func(result, **step.params)
+        if step.mask_name and masks and step.mask_name in masks:
+            processed = apply_mask(result, processed, masks[step.mask_name])
+            log.info("  masked with '%s'", step.mask_name)
+        result = processed
 
     progress(1.0, "Pipeline complete")
     return result

@@ -67,6 +67,7 @@ class _PreprocessWorker(QThread):
 
     def cancel(self):
         self._cancelled = True
+        self.requestInterruption()
 
     def run(self):
         try:

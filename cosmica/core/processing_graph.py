@@ -34,10 +34,12 @@ class ProcessNode:
     process_name: str = ""
     params: dict[str, Any] = field(default_factory=dict)
     enabled: bool = True
+    locked: bool = False
     parent_ids: list[str] = field(default_factory=list)
 
     _cached_output: NDArray | None = field(default=None, repr=False)
     _cache_valid: bool = False
+    _cache_params_hash: int = 0
 
 
 @dataclass
@@ -88,6 +90,22 @@ class ProcessingGraph:
             self.nodes.pop(nid, None)
         self.nodes.pop(node_id, None)
 
+    def update_params(self, node_id: str, params: dict[str, Any]) -> None:
+        """Replace a node's params and invalidate its downstream cache."""
+        node = self.nodes.get(node_id)
+        if node is None or node_id == self.root_id:
+            return
+        node.params = params
+        self.invalidate_downstream(node_id)
+
+    def update_enabled(self, node_id: str, enabled: bool) -> None:
+        """Toggle a node and invalidate its downstream cache."""
+        node = self.nodes.get(node_id)
+        if node is None or node_id == self.root_id:
+            return
+        node.enabled = enabled
+        self.invalidate_downstream(node_id)
+
     def _find_dependents(self, node_id: str) -> set[str]:
         """Find all nodes that depend (directly or indirectly) on node_id."""
         dependents = set()
@@ -103,12 +121,12 @@ class ProcessingGraph:
             node._cached_output = None
 
     def invalidate_downstream(self, node_id: str):
-        """Invalidate cache for node_id and all dependents."""
+        """Invalidate cache for node_id and all dependents. Skips locked nodes."""
         for nid in self._find_dependents(node_id):
-            if nid in self.nodes:
+            if nid in self.nodes and not self.nodes[nid].locked:
                 self.nodes[nid]._cache_valid = False
                 self.nodes[nid]._cached_output = None
-        if node_id in self.nodes:
+        if node_id in self.nodes and not self.nodes[node_id].locked:
             self.nodes[node_id]._cache_valid = False
             self.nodes[node_id]._cached_output = None
 
@@ -152,7 +170,12 @@ class ProcessingGraph:
                 continue
             if nid == self.root_id:
                 continue
-            if nnode._cache_valid and nnode._cached_output is not None:
+            params_hash = hash(frozenset(nnode.params.items()))
+            if (
+                nnode._cache_valid
+                and nnode._cached_output is not None
+                and nnode._cache_params_hash == params_hash
+            ):
                 current = nnode._cached_output
                 continue
             if process_fn:
@@ -160,6 +183,7 @@ class ProcessingGraph:
                     current = process_fn(nnode.process_name, nnode.params, current)
                     nnode._cached_output = current.copy()
                     nnode._cache_valid = True
+                    nnode._cache_params_hash = params_hash
                 except Exception as e:
                     log.error("Processing node %s failed: %s", nid, e)
                     return None
@@ -198,6 +222,7 @@ class ProcessingGraph:
                     "process_name": n.process_name,
                     "params": n.params,
                     "enabled": n.enabled,
+                    "locked": n.locked,
                     "parent_ids": n.parent_ids,
                 }
                 for nid, n in self.nodes.items()
@@ -216,6 +241,7 @@ class ProcessingGraph:
                 process_name=ndata["process_name"],
                 params=ndata.get("params", {}),
                 enabled=ndata.get("enabled", True),
+                locked=ndata.get("locked", False),
                 parent_ids=ndata.get("parent_ids", []),
             )
         return graph
@@ -226,9 +252,10 @@ class ProcessingGraph:
         for nid, node in self.nodes.items():
             if nid == self.root_id:
                 continue
+            lock = "\U0001f512" if node.locked else " "
             status = "\u2713" if node.enabled else "\u2717"
             dep_count = len(self._find_dependents(nid))
-            display = f"{status} {node.process_name.replace('_', ' ').title()}"
+            display = f"{lock}{status} {node.process_name.replace('_', ' ').title()}"
             if dep_count:
                 display += f" \u2192 {dep_count} dependent"
             history.append({

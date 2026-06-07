@@ -40,7 +40,12 @@ def _remove_stars_morph(
     is_color = img.ndim == 3
 
     if is_color:
-        lum = 0.2126 * img[0] + 0.7152 * img[1] + 0.0722 * img[2]
+        if img.shape[0] >= 4:
+            lum = 0.2126 * img[0] + 0.7152 * (img[1] + img[2]) * 0.5 + 0.0722 * img[3]
+        elif img.shape[0] >= 3:
+            lum = 0.2126 * img[0] + 0.7152 * img[1] + 0.0722 * img[2]
+        else:
+            lum = img[0].copy()
     else:
         lum = img.copy()
 

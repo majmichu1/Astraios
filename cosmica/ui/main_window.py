@@ -10,7 +10,7 @@ from pathlib import Path
 
 import numpy as np
 from PyQt6.QtCore import QSettings, Qt, QThread, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QDragEnterEvent, QDropEvent, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -101,6 +101,7 @@ from cosmica.core.transforms import (
 )
 from cosmica.core.undo import CosmicaUndoStack
 from cosmica.core.vignette import correct_vignette
+from cosmica.core.wcs import normalise_wcs_dict
 from cosmica.core.wavelets import wavelet_sharpen
 from cosmica.ui.panels.project_panel import ProjectPanel
 from cosmica.ui.panels.tools_panel import ToolsPanel
@@ -337,6 +338,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{cosmica.__app_name__} v{cosmica.__version__}")
+        self._set_app_icon()
         self.setMinimumSize(1200, 750)
         self.resize(1600, 950)
 
@@ -444,8 +446,7 @@ class MainWindow(QMainWindow):
         )
         version_badge = QLabel(f"v{cosmica.__version__}")
         version_badge.setStyleSheet(
-            "color: #8b949e; font-size: 10px; background: #21262d; border: 1px solid #30363d;"
-            " border-radius: 4px; padding: 1px 5px;"
+            "color: #8b949e; font-size: 10px; padding: 1px 5px;"
         )
         left_layout.addWidget(logo_widget)
         left_layout.addWidget(logo_label)
@@ -454,18 +455,17 @@ class MainWindow(QMainWindow):
 
         # ── Right corner widget: GPU chip + RAM chip + Export ─────────────────
         right_corner = QWidget()
+        right_corner.setStyleSheet("background-color: transparent;")
         right_layout = QHBoxLayout(right_corner)
         right_layout.setContentsMargins(4, 0, 8, 0)
         right_layout.setSpacing(6)
         self._gpu_chip_label = QLabel("")
         self._gpu_chip_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; background: #21262d; border: 1px solid #30363d;"
-            " border-radius: 4px; padding: 1px 7px;"
+            "color: #8b949e; font-size: 11px; padding: 1px 4px;"
         )
         self._ram_chip_label = QLabel("")
         self._ram_chip_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; background: #21262d; border: 1px solid #30363d;"
-            " border-radius: 4px; padding: 1px 7px;"
+            "color: #8b949e; font-size: 11px; padding: 1px 4px;"
         )
         export_btn = QPushButton("⬆ Export Image…")
         export_btn.setStyleSheet(
@@ -690,11 +690,11 @@ class MainWindow(QMainWindow):
         tools_menu.addAction(plate_act)
 
         dso_act = QAction("&DSO Annotation", self)
-        dso_act.triggered.connect(lambda: self._on_toggle_dso_overlay(True))
+        dso_act.triggered.connect(self._on_toggle_dso_overlay)
         tools_menu.addAction(dso_act)
 
         wcs_act = QAction("&WCS Overlay", self)
-        wcs_act.triggered.connect(lambda: self._on_toggle_wcs_overlay(True))
+        wcs_act.triggered.connect(self._on_toggle_wcs_overlay)
         tools_menu.addAction(wcs_act)
 
         const_act = QAction("&Constellation Lines", self)
@@ -858,7 +858,7 @@ class MainWindow(QMainWindow):
         const_btn = _tbtn("✦", "Toggle Constellation Lines  C")
         const_btn.setCheckable(True)
         const_btn.setObjectName("const_tb_btn")
-        const_btn.toggled.connect(lambda checked: self._on_toggle_constellation_overlay())
+        const_btn.toggled.connect(self._on_toggle_constellation_overlay)
         tb.addWidget(const_btn)
         self._tb_const_btn = const_btn
 
@@ -868,7 +868,14 @@ class MainWindow(QMainWindow):
         history_btn.clicked.connect(self._show_processing_graph)
         tb.addWidget(history_btn)
 
-        smart_btn = _tbtn("⚡", "Smart Processor  Ctrl+Shift+P")
+        smart_btn = QToolButton()
+        _icon_path = Path(__file__).resolve().parent.parent / "resources" / "icons" / "lightning.svg"
+        if _icon_path.exists():
+            smart_btn.setIcon(__import__("PyQt6.QtGui", fromlist=["QIcon"]).QIcon(str(_icon_path)))
+            smart_btn.setIconSize(__import__("PyQt6.QtCore", fromlist=["QSize"]).QSize(18, 18))
+        else:
+            smart_btn.setText("⚡")
+        smart_btn.setToolTip("Smart Processor  Ctrl+Shift+P")
         smart_btn.clicked.connect(self._show_smart_processor_dialog)
         tb.addWidget(smart_btn)
 
@@ -882,6 +889,7 @@ class MainWindow(QMainWindow):
 
         # Stretch to push status + Tweaks to right
         spacer = QWidget()
+        spacer.setStyleSheet("background: transparent;")
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
 
@@ -917,6 +925,11 @@ class MainWindow(QMainWindow):
         self._tweaks_panel.log_visible.connect(self._on_tweaks_log_visible)
         self._tweaks_panel.log_height_changed.connect(self._on_tweaks_log_height)
 
+    def _set_app_icon(self):
+        icon_path = Path(__file__).resolve().parent.parent / "resources" / "icons" / "cosmica.svg"
+        if icon_path.exists():
+            self.setWindowIcon(QIcon(str(icon_path)))
+
     def _setup_ui(self):
         # Central widget with splitters
         central = QWidget()
@@ -940,6 +953,8 @@ class MainWindow(QMainWindow):
         self._project_panel.frames_imported.connect(self._on_frames_imported)
         self._project_panel.plate_solve_clicked.connect(self._on_plate_solve_from_menu)
         self._project_panel.dso_overlay_clicked.connect(self._on_toggle_dso_overlay)
+        self._project_panel.show_statistics.connect(self._on_show_statistics)
+        self._project_panel.show_fits_header.connect(self._show_fits_header)
         top_splitter.addWidget(self._project_panel)
 
         # Center: Canvas toolbar + Canvas + histogram
@@ -1218,6 +1233,7 @@ class MainWindow(QMainWindow):
         tp.add_bg_grid.connect(self._on_add_bg_grid)
         tp.toggle_wcs_overlay.connect(self._on_toggle_wcs_overlay)
         tp.toggle_dso_overlay.connect(self._on_toggle_dso_overlay)
+        tp.toggle_constellation_overlay.connect(self._on_toggle_constellation_overlay)
         tp.open_python_console.connect(self._on_open_python_console)
         tp.run_mlt.connect(self._on_run_mlt)
         tp.run_lrgb_combine.connect(self._on_run_lrgb_combine)
@@ -1377,18 +1393,39 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Project", "", "Cosmica Project (cosmica_project.json)"
         )
-        if path:
+        if not path:
+            return
+        try:
             self._project = Project.load(Path(path))
-            self._project_panel.set_project(self._project)
-            self._log_panel.log(f"Opened project: {self._project.name}", "success")
+        except FileNotFoundError as e:
+            QMessageBox.warning(self, "Project Not Found", str(e))
+            self._log_panel.log(f"Open failed: {e}", "error")
+            return
+        except ValueError as e:
+            QMessageBox.critical(
+                self,
+                "Corrupted Project",
+                f"Could not parse project file:\n\n{e}\n\n"
+                f"The file may be corrupted or from an incompatible version.",
+            )
+            self._log_panel.log(f"Open failed: {e}", "error")
+            return
+        except Exception as e:
+            QMessageBox.critical(self, "Open Project Error", f"Unexpected error:\n\n{e}")
+            self._log_panel.log(f"Open failed: {type(e).__name__}: {e}", "error")
+            return
+        self._project_panel.set_project(self._project)
+        self._log_panel.log(f"Opened project: {self._project.name}", "success")
 
     def _save_project(self):
         """Helper to save current project safely."""
         if self._project:
             try:
                 self._project.save()
+                self._log_panel.log("Project saved", "info")
             except Exception as e:
-                log.debug("Failed to save project: %s", e)
+                self._log_panel.log(f"Save failed: {type(e).__name__}: {e}", "error")
+                QMessageBox.warning(self, "Save Failed", f"Could not save project:\n\n{e}")
 
     def _autosave_project(self):
         if self._project:
@@ -1581,10 +1618,19 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "No Project", "No project is currently open.")
             return
         directory = QFileDialog.getExistingDirectory(self, "Choose New Project Location")
-        if directory:
-            self._project.path = Path(directory) / self._project.name
+        if not directory:
+            return
+        self._project.path = Path(directory) / self._project.name
+        try:
             self._project.save()
-            self._log_panel.log(f"Project saved to: {directory}", "success")
+        except Exception as e:
+            self._log_panel.log(f"Save As failed: {type(e).__name__}: {e}", "error")
+            QMessageBox.warning(self, "Save Failed", f"Could not save project:\n\n{e}")
+            return
+        new_path = self._project.path
+        self._project_panel.set_project(self._project)
+        self.setWindowTitle(f"{self._project.name} — Cosmica [{new_path}]")
+        self._log_panel.log(f"Project saved to: {new_path}", "success")
 
     def _on_import_lights(self):
         """Import light frames into current or new project."""
@@ -1709,9 +1755,20 @@ class MainWindow(QMainWindow):
         def _on_solve_done(result):
             if result.success:
                 wcs = result.wcs_header or {}
+                wcs = {} if wcs is None else wcs
+                wcs = normalise_wcs_dict(wcs)
                 self._current_wcs = wcs
-                self._canvas.set_wcs(wcs)
-                self._project_panel.set_wcs_info(wcs)
+                ra_h = int(result.ra_center / 15)
+                ra_m = int((result.ra_center / 15 - ra_h) * 60)
+                ra_s = ((result.ra_center / 15 - ra_h) * 60 - ra_m) * 60
+                dec_d = int(result.dec_center)
+                dec_m = int(abs(result.dec_center - dec_d) * 60)
+                dec_s = (abs(result.dec_center - dec_d) * 60 - dec_m) * 60
+                ra_str = f"{ra_h}h {ra_m:02d}m {ra_s:04.1f}s"
+                dec_str = f"{dec_d}° {dec_m:02d}′ {dec_s:04.1f}″"
+                scale_str = f"{result.pixel_scale:.2f}"
+                pa_str = f"{result.rotation:.1f}"
+                self._project_panel.set_wcs_info(ra_str, dec_str, scale_str, pa_str)
                 self._log_panel.log(
                     f"Plate solve succeeded: RA={result.ra_center:.4f}° "
                     f"Dec={result.dec_center:.4f}° "
@@ -1723,6 +1780,8 @@ class MainWindow(QMainWindow):
                     if frame:
                         frame.wcs = wcs
                         self._save_project()
+                # Fetch catalog stars and build overlays
+                self._update_overlays_from_wcs(wcs)
             else:
                 self._log_panel.log(
                     "Plate solve failed. Install ASTAP (astap_cli) or set an "
@@ -3430,7 +3489,6 @@ class MainWindow(QMainWindow):
             self._log_panel.log(
                 "No WCS data available — run Solve & Calibrate (PCC) first", "warning"
             )
-            self._tools_panel._btn_wcs_overlay.setChecked(False)
             return
         self._canvas.set_wcs_overlay_visible(enabled)
 
@@ -3456,8 +3514,6 @@ class MainWindow(QMainWindow):
         for cat in catalog_stars:
             if cat.g_mag is None:
                 continue
-            # Invert sky_fn: try to find pixel coords for this star
-            # Use linear approximation: center + offset
             ra0, dec0 = sky_fn(w / 2, h / 2)
             cos_dec = _np.cos(_np.radians(dec0))
             dra = (cat.ra_deg - ra0) * cos_dec
@@ -3465,7 +3521,8 @@ class MainWindow(QMainWindow):
             px = w / 2 + dra / max(scale_deg, 1e-10)
             py = h / 2 - ddec / max(scale_deg, 1e-10)
             if 0 <= px < w and 0 <= py < h:
-                overlay.append((float(px), float(py), float(cat.g_mag)))
+                bp_rp = (float(cat.bp_mag) - float(cat.rp_mag)) if (cat.bp_mag is not None and cat.rp_mag is not None) else 0.0
+                overlay.append((float(px), float(py), float(cat.g_mag), bp_rp))
 
         self._wcs_overlay_stars = overlay
         self._current_wcs = wcs
@@ -3473,6 +3530,20 @@ class MainWindow(QMainWindow):
         # Auto-populate DSO and constellation annotations
         self._update_dso_annotations(wcs)
         self._update_constellation_overlay(wcs)
+
+    def _update_overlays_from_wcs(self, wcs: dict):
+        """Query Gaia star catalog and update all WCS-based overlays."""
+        if not wcs or self._current_image is None:
+            return
+        try:
+            from cosmica.core.star_catalog import query_gaia_dr3
+            ra_center = wcs.get("ra_center", 0.0)
+            dec_center = wcs.get("dec_center", 0.0)
+            catalog_stars = query_gaia_dr3(ra_center, dec_center, radius_deg=0.5)
+            self._log_panel.log(f"Gaia DR3: {len(catalog_stars)} stars retrieved", "info")
+            self._update_wcs_overlay(wcs, list(catalog_stars))
+        except Exception as e:
+            self._log_panel.log(f"Catalog query skipped: {e}", "info")
 
     def _update_dso_annotations(self, wcs: dict):
         """Project DSO catalog entries to image pixel coordinates and push to canvas."""
@@ -3535,24 +3606,29 @@ class MainWindow(QMainWindow):
         self._constellation_segments = segments
         self._canvas.set_constellation_lines(segments)
 
-    @pyqtSlot()
-    def _on_toggle_dso_overlay(self):
+    def _on_toggle_dso_overlay(self, enabled=None):
         """Toggle DSO annotation overlay visibility on the canvas."""
-        current = getattr(self._canvas, '_show_dso_overlay', False)
-        self._canvas.set_dso_overlay_visible(not current)
+        if enabled is None:
+            current = getattr(self._canvas, '_show_dso_overlay', False)
+            enabled = not current
+        if enabled and not getattr(self._canvas, '_dso_annotations', None):
+            self._log_panel.log(
+                "No DSO annotations available — run Solve & Calibrate (PCC) first", "warning"
+            )
+            return
+        self._canvas.set_dso_overlay_visible(enabled)
 
-    @pyqtSlot()
-    def _on_toggle_constellation_overlay(self):
+    def _on_toggle_constellation_overlay(self, enabled=None):
         """Toggle constellation line overlay visibility."""
-        if not self._constellation_segments and hasattr(self, '_current_wcs'):
+        if enabled is None:
+            current = getattr(self._canvas, '_show_constellation_overlay', False)
+            enabled = not current
+        if enabled and not self._constellation_segments and hasattr(self, '_current_wcs'):
             self._update_constellation_overlay(self._current_wcs)
-        current = getattr(self._canvas, '_show_constellation_overlay', False)
-        new_state = not current
-        self._canvas.set_constellation_overlay_visible(new_state)
-        # Sync toolbar button if it exists (block signals to prevent double-toggle)
+        self._canvas.set_constellation_overlay_visible(enabled)
         if hasattr(self, "_tb_const_btn"):
             self._tb_const_btn.blockSignals(True)
-            self._tb_const_btn.setChecked(new_state)
+            self._tb_const_btn.setChecked(enabled)
             self._tb_const_btn.blockSignals(False)
 
     # ── Python console ────────────────────────────────────────────────────────
@@ -4098,6 +4174,8 @@ class MainWindow(QMainWindow):
                         log.warning("No astrometry.net API key set in Preferences")
                 else:  # auto
                     wcs = plate_solve_auto(solve_path, api_key, ra_hint, dec_hint)
+                if wcs:
+                    wcs = normalise_wcs_dict(wcs)
 
             if tmp_fits is not None:
                 tmp_fits.unlink(missing_ok=True)
@@ -4169,12 +4247,8 @@ class MainWindow(QMainWindow):
 
         from cosmica.core.spcc import spcc_calibrate
         params = self._tools_panel.get_spcc_params()
-        catalog = self._wcs_overlay_stars          # list of (x_img, y_img, mag) — need bp_rp
-        # _wcs_overlay_stars stores (x, y, magnitude); we use magnitude as proxy for bp_rp
-        # In a future version, store actual BP-RP from catalog query.
-        # For now use G magnitude as a rough temperature proxy (brighter G-type stars)
-        catalog_with_color = [(x, y, max(0.0, min(3.0, (m - 5.0) / 3.0)))
-                              for x, y, m in catalog]
+        catalog = self._wcs_overlay_stars
+        catalog_with_color = [(x, y, bp_rp) for x, y, _mag, bp_rp in catalog]
 
         self._log_panel.log(
             f"Running SPCC ({params.filter_name}, {len(catalog_with_color)} catalog stars)…", "info"
@@ -4837,6 +4911,7 @@ class MainWindow(QMainWindow):
         dlg.set_image_data(
             self._current_image.data,
             fits_header=getattr(self._current_image, "header", None),
+            wcs=getattr(self, "_current_wcs", None),
         )
         dlg.result_ready.connect(self._on_smart_processor_result)
         dlg.exec()

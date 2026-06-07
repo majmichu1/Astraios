@@ -87,17 +87,9 @@ def plate_solve(
         result = _estimate_field_geometry(positions, sf.image_width, sf.image_height)
         return result
 
-    # We have star positions and a scale hint but no reference catalog
-    # to match against, so we can only report geometry — not true RA/Dec.
-    log.info(
-        "Local triangle-match: %d stars, scale hint %.2f arcsec/px, "
-        "but no reference catalog — RA/Dec unavailable",
-        len(sf), params.scale_hint,
-    )
-    return PlateSolveResult(
-        success=False,
-        n_stars_matched=len(sf),
-        pixel_scale=params.scale_hint or 0.0,
+    raise NotImplementedError(
+        "Local plate_solve with scale_hint requires a reference catalog. "
+        "Use plate_solve_astap / plate_solve_astrometry_net instead."
     )
 
 
@@ -272,16 +264,37 @@ def plate_solve_astrometry_net(
 
     BASE = "https://nova.astrometry.net/api/"
 
+    def _request_with_retry(url, data=None, headers=None, max_retries=3, base_delay=1.0, timeout=30):
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(url, data=data, headers=headers or {})
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    return json.loads(resp.read())
+            except urllib.request.HTTPError as e:
+                if e.code == 429 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.warning("astrometry.net rate limited (429), retrying in %.0fs…", delay)
+                    time.sleep(delay)
+                    continue
+                if e.code >= 500 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                    continue
+                raise
+            except (urllib.request.URLError, ConnectionError, TimeoutError) as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.debug("astrometry.net request failed (%s), retrying in %.0fs…", e, delay)
+                    time.sleep(delay)
+                    continue
+                raise
+
     def _api(endpoint, data=None, files=None):
         url = BASE + endpoint
         if data:
             body = ("request-json=" + urllib.parse.quote(json.dumps(data))).encode()
-            req = urllib.request.Request(url, data=body)
-            req.add_header("Content-Type", "application/x-www-form-urlencoded")
-        else:
-            req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
+            return _request_with_retry(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        return _request_with_retry(url)
 
     try:
         if progress:
@@ -310,7 +323,6 @@ def plate_solve_astrometry_net(
             mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
             _fits.PrimaryHDU(mono_u16).writeto(tmp_path, overwrite=True)
 
-            # Use multipart form upload via urllib
             import uuid
             boundary = uuid.uuid4().hex
             with open(tmp_path, "rb") as f:
@@ -333,11 +345,12 @@ def plate_solve_astrometry_net(
             + "Content-Type: image/fits\r\n\r\n"
         ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
 
-        req = urllib.request.Request(BASE + "upload", data=parts)
-        req.add_header("Content-Type", f"multipart/form-data; boundary={boundary}")
-        req.add_header("Content-Length", str(len(parts)))
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            upload_resp = json.loads(resp.read())
+        upload_resp = _request_with_retry(
+            BASE + "upload", data=parts,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                     "Content-Length": str(len(parts))},
+            timeout=60,
+        )
 
         if upload_resp.get("status") != "success":
             log.warning("astrometry.net upload failed: %s", upload_resp)
@@ -349,7 +362,7 @@ def plate_solve_astrometry_net(
 
         # Poll for job completion
         job_id = None
-        for _ in range(60):  # up to 120s
+        for _ in range(60):
             time.sleep(2)
             sub_status = _api(f"submissions/{subid}")
             jobs = sub_status.get("jobs", [])
@@ -378,7 +391,6 @@ def plate_solve_astrometry_net(
             log.warning("astrometry.net: solve timed out")
             return PlateSolveResult(success=False)
 
-        # Get calibration
         if progress:
             progress(0.9, "Fetching solution…")
         cal = _api(f"jobs/{job_id}/calibration")
@@ -407,7 +419,7 @@ def plate_solve_astrometry_net(
 
     except urllib.request.HTTPError as e:
         if e.code == 429:
-            log.warning("astrometry.net rate limited (429). Wait ~1 hour and try again.")
+            log.warning("astrometry.net rate limited (429) after retries. Wait ~1 hour and try again.")
         else:
             log.warning("astrometry.net HTTP %d: %s", e.code, e.reason)
         return PlateSolveResult(success=False)

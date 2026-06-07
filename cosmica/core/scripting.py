@@ -63,13 +63,30 @@ class MacroRecorder:
     def step_count(self) -> int:
         return len(self._pipeline.steps)
 
-    def record_step(self, tool_name: str, params: dict[str, Any] | None = None):
-        """Record a processing step if currently recording."""
+    def record_step(
+        self,
+        tool_name: str,
+        params: dict[str, Any] | None = None,
+        mask_name: str | None = None,
+    ):
+        """Record a processing step if currently recording.
+
+        Parameters
+        ----------
+        tool_name : str
+            Registered tool name.
+        params : dict, optional
+            Tool parameters.
+        mask_name : str, optional
+            Name of a saved mask to apply with this step.
+        """
         if not self._recording:
             return
-        step = PipelineStep(tool_name=tool_name, params=params or {})
+        step = PipelineStep(
+            tool_name=tool_name, params=params or {}, mask_name=mask_name,
+        )
         self._pipeline.steps.append(step)
-        log.debug("Recorded step: %s %s", tool_name, params or {})
+        log.debug("Recorded step: %s %s (mask=%s)", tool_name, params or {}, mask_name)
 
     def discard(self):
         """Discard the current recording."""
@@ -82,6 +99,7 @@ def play_macro(
     data: np.ndarray,
     macro: Pipeline,
     progress: ProgressCallback | None = None,
+    masks: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
     """Replay a macro (pipeline) on image data.
 
@@ -93,6 +111,8 @@ def play_macro(
         The macro/pipeline to replay.
     progress : callable, optional
         Progress callback.
+    masks : dict, optional
+        Named masks ``{name: (H, W) float32 array}`` for mask-aware steps.
 
     Returns
     -------
@@ -110,7 +130,7 @@ def play_macro(
     progress(0.0, f"Playing macro: {macro.name} ({n_steps} steps)")
     log.info("Playing macro: %s (%d steps)", macro.name, n_steps)
 
-    result = apply_pipeline_to_image(data, macro, progress=progress)
+    result = apply_pipeline_to_image(data, macro, progress=progress, masks=masks)
 
     progress(1.0, "Macro playback complete")
     return result

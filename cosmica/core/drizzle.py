@@ -232,6 +232,12 @@ def drizzle_integrate(
     if not images:
         raise ValueError("No images provided for drizzle")
 
+    for i, img in enumerate(images):
+        if not np.all(np.isfinite(img)):
+            n_bad = int(np.sum(~np.isfinite(img)))
+            log.warning("Drizzle frame %d: %d NaN/inf values replaced with 0", i, n_bad)
+            images[i] = np.nan_to_num(img, nan=0.0, posinf=0.0, neginf=0.0)
+
     ref = images[0]
     is_color = ref.ndim == 3
     if is_color:

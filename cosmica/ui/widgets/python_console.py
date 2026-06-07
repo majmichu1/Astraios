@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 _BANNER = (
-    "Cosmica Python Console  —  {v}\n"
+    f"Cosmica Python Console  —  {sys.version.split()[0]}\n"
     "  image      — current ImageData  (set when you open the console)\n"
     "  data        — image.data ndarray (H,W) or (C,H,W) float32 [0,1]\n"
     "  apply(arr)  — push ndarray back as current image\n"
@@ -37,19 +37,11 @@ _BANNER = (
     "  np, cv2, torch, fits, plt — pre-imported for convenience\n"
     "  cosmica     — full cosmica package\n"
     "  Shift+Enter — multi-line input  |  Up/Down — history  |  Ctrl+L — clear\n"
-).format(v=sys.version.split()[0])
+)
 
-_KEYWORDS = (
-    "False None True and as assert async await break class continue def del "
-    "elif else except finally for from global if import in is lambda nonlocal "
-    "not or pass raise return try while with yield"
-).split()
+_KEYWORDS = ["False", "None", "True", "and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return", "try", "while", "with", "yield"]
 
-_BUILTINS = "abs all any bin bool bytes callable chr dict dir divmod enumerate eval "  \
-            "exec filter float format frozenset getattr hasattr hash help hex id "  \
-            "input int isinstance issubclass iter len list map max min next object "  \
-            "open ord pow print range repr reversed round set setattr slice sorted "  \
-            "staticmethod str sum super tuple type vars zip".split()
+_BUILTINS = ["abs", "all", "any", "bin", "bool", "bytes", "callable", "chr", "dict", "dir", "divmod", "enumerate", "eval", "exec", "filter", "float", "format", "frozenset", "getattr", "hasattr", "hash", "help", "hex", "id", "input", "int", "isinstance", "issubclass", "iter", "len", "list", "map", "max", "min", "next", "object", "open", "ord", "pow", "print", "range", "repr", "reversed", "round", "set", "setattr", "slice", "sorted", "staticmethod", "str", "sum", "super", "tuple", "type", "vars", "zip"]
 
 
 class _PySyntaxHighlighter(QSyntaxHighlighter):
@@ -202,6 +194,7 @@ class PythonConsoleWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._namespace: dict = {}
+        self._timeout_sec: float = 5.0
         self._setup_namespace()
         self._build_ui()
         self._write(_BANNER, color="#888888")
@@ -258,6 +251,7 @@ class PythonConsoleWidget(QWidget):
             "_writable_data": None,
             "apply": apply,
             "show": show,
+            "set_timeout": self.set_timeout,
         }
 
     def _build_ui(self):
@@ -349,32 +343,60 @@ class PythonConsoleWidget(QWidget):
 
         self._write(f">>> {source}\n", color="#61afef")
 
-        old_stdout, old_stderr = sys.stdout, sys.stderr
-        sys.stdout = sys.stderr = buf = io.StringIO()
+        import threading
+        result_box: dict = {}
 
-        try:
+        def _run():
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+            buf = io.StringIO()
+            sys.stdout = sys.stderr = buf
             try:
-                result = eval(compile(source, "<console>", "eval"), self._namespace)
-                output = buf.getvalue()
-                if output:
-                    self._write(output)
-                if result is not None:
-                    self._write(repr(result) + "\n", color="#e5c07b")
-            except SyntaxError:
-                exec(compile(source, "<console>", "exec"), self._namespace)
-                output = buf.getvalue()
-                if output:
-                    self._write(output)
-        except Exception:
-            output = buf.getvalue()
-            if output:
-                self._write(output)
-            self._write(traceback.format_exc(), color="#e06c75")
-        finally:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
+                try:
+                    result = eval(compile(source, "<console>", "eval"), self._namespace)
+                    result_box["kind"] = "eval"
+                    result_box["result"] = result
+                    result_box["output"] = buf.getvalue()
+                except SyntaxError:
+                    exec(compile(source, "<console>", "exec"), self._namespace)
+                    result_box["kind"] = "exec"
+                    result_box["result"] = None
+                    result_box["output"] = buf.getvalue()
+            except Exception:
+                result_box["kind"] = "error"
+                result_box["output"] = traceback.format_exc()
+            finally:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+
+        t = threading.Thread(target=_run, daemon=True, name="pyconsole")
+        t.start()
+        t.join(timeout=self._timeout_sec if self._timeout_sec > 0 else None)
+        if t.is_alive():
+            self._write(
+                f"[timeout] Command exceeded {self._timeout_sec}s. "
+                f"Background thread continues; UI is responsive. "
+                f"Increase with `set_timeout(N)`.\n",
+                color="#e06c75",
+            )
+            return
+
+        kind = result_box.get("kind")
+        output = result_box.get("output", "")
+        result = result_box.get("result")
+        if kind == "error":
+            self._write(output, color="#e06c75")
+            return
+        if output:
+            self._write(output)
+        if result is not None:
+            self._write(repr(result) + "\n", color="#e5c07b")
 
         self._inspector.refresh(self._namespace)
         self._output.moveCursor(QTextCursor.MoveOperation.End)
+
+    def set_timeout(self, seconds: float):
+        """Set the per-command timeout in seconds. 0 disables the timeout."""
+        self._timeout_sec = max(0.0, float(seconds))
+        self._write(f"Timeout set to {self._timeout_sec}s.\n", color="#888888")
 
     def _write(self, text: str, color: str | None = None):
         self._output.moveCursor(QTextCursor.MoveOperation.End)
@@ -398,7 +420,7 @@ class PythonConsoleWidget(QWidget):
         )
         if path:
             try:
-                with open(path, "r") as f:
+                with open(path) as f:
                     code = f.read()
                 self._input.setPlainText(code)
             except Exception as exc:

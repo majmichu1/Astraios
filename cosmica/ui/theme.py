@@ -228,19 +228,19 @@ QTabBar::tab:hover:!selected {{
 }}
 
 QTabBar::scroller {{
-    width: 26px;
+    width: 52px;
 }}
 
 QTabBar QToolButton {{
     background-color: {BG_TERTIARY};
     border: 1px solid {BORDER};
-    border-radius: 3px;
+    border-radius: 4px;
     color: {TEXT_PRIMARY};
-    width: 20px;
-    height: 20px;
+    width: 22px;
+    height: 22px;
     padding: 0px;
-    margin: 2px 4px 2px 2px;
-    font-size: 11px;
+    margin: 1px;
+    font-size: 12px;
 }}
 
 QTabBar QToolButton:hover {{

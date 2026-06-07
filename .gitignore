@@ -90,3 +90,4 @@ training_log_extract.txt
 
 # Superpowers plugin plans/specs (local planning, not source code)
 docs/superpowers/
+\n# local state\nsigma

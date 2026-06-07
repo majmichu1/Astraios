@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -63,7 +65,20 @@ class ColorProfile:
         return self._profile is not None or self.path is None  # None = sRGB
 
 
-# Built-in presets (loaded on demand via _get_builtin)
+_RESOURCE_DIR = Path(__file__).resolve().parent.parent / "resources" / "icc"
+
+
+def _load_bundled(name: str, display_name: str, description: str) -> ColorProfile:
+    """Load an ICC profile from the bundled resources directory."""
+    path = _RESOURCE_DIR / f"{name}.icc"
+    if path.exists():
+        cp = ColorProfile(name=display_name, path=path, description=description)
+        if cp.is_valid():
+            return cp
+    log.warning("Bundled ICC profile %s not found, falling back to sRGB", path)
+    return _get_srgb()
+
+
 def _get_srgb() -> ColorProfile:
     try:
         from PIL import ImageCms
@@ -75,23 +90,11 @@ def _get_srgb() -> ColorProfile:
 
 
 def _get_adobe_rgb() -> ColorProfile:
-    try:
-        from PIL import ImageCms
-        p = ColorProfile(name="Adobe RGB (1998)", description="Wide-gamut Adobe RGB (1998)")
-        p._profile = ImageCms.createProfile("sRGB")
-        return p
-    except Exception:
-        return ColorProfile(name="Adobe RGB (1998)")
+    return _load_bundled("AdobeRGB", "Adobe RGB (1998)", "Wide-gamut Adobe RGB (1998)")
 
 
 def _get_display_p3() -> ColorProfile:
-    try:
-        from PIL import ImageCms
-        p = ColorProfile(name="Display P3", description="Apple Display P3 wide gamut")
-        p._profile = ImageCms.createProfile("sRGB")
-        return p
-    except Exception:
-        return ColorProfile(name="Display P3")
+    return _load_bundled("DisplayP3", "Display P3", "Apple Display P3 wide gamut")
 
 
 SRGB = _get_srgb()

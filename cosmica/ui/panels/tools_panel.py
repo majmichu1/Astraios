@@ -6,7 +6,7 @@ Visual style matches the HTML prototype exactly using ui_kit widgets.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QTabWidget,
     QTextEdit,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -82,14 +83,14 @@ QTabBar::tab:hover:!selected {{
     color: {TEXT_PRIMARY};
 }}
 QTabBar::scroller {{
-    width: 24px;
+    width: 52px;
 }}
 QTabBar QToolButton {{
     background-color: {BG_TERTIARY}; border: 1px solid {BORDER};
-    border-radius: 3px; color: {TEXT_PRIMARY};
-    width: 20px; height: 20px;
-    padding: 0px; margin: 2px 2px;
-    font-size: 11px;
+    border-radius: 4px; color: {TEXT_PRIMARY};
+    width: 22px; height: 22px;
+    padding: 0px; margin: 1px;
+    font-size: 12px;
 }}
 QTabBar QToolButton:hover {{
     background-color: {BG_HOVER}; color: #ffffff;
@@ -165,6 +166,7 @@ class ToolsPanel(QWidget):
     run_lrgb_combine         = pyqtSignal()
     run_spcc                 = pyqtSignal()
     toggle_dso_overlay       = pyqtSignal(bool)
+    toggle_constellation_overlay = pyqtSignal(bool)
     open_star_mask_dialog    = pyqtSignal()
     open_subframe_selector   = pyqtSignal()
     blink_load_a             = pyqtSignal()
@@ -262,6 +264,20 @@ class ToolsPanel(QWidget):
         self._build_detail_tab()
         self._build_ai_tab()
         self._build_utility_tab()
+
+        QTimer.singleShot(0, self._fix_tab_scroll_buttons)
+
+    def _fix_tab_scroll_buttons(self):
+        from PyQt6.QtCore import Qt
+
+        tb = self._tabs.tabBar()
+        for btn in tb.findChildren(QToolButton):
+            if btn.arrowType() == Qt.ArrowType.LeftArrow:
+                btn.setText("◀")
+                btn.setArrowType(Qt.ArrowType.NoArrow)
+            elif btn.arrowType() == Qt.ArrowType.RightArrow:
+                btn.setText("▶")
+                btn.setArrowType(Qt.ArrowType.NoArrow)
 
     # ── TAB 1: Pre-Process ────────────────────────────────
     def _build_preprocess_tab(self):
@@ -758,6 +774,26 @@ class ToolsPanel(QWidget):
             "Method",
             ["Background reference", "Photometric (SPCC)", "Manual RGB"],
         )
+        cc.add_info("Manual RGB multipliers (only for Manual RGB method).")
+        rgb_row = QHBoxLayout()
+        rgb_row.setSpacing(6)
+        self._cc_r_spin = styled_spin(0.1, 5.0, 1.0, 0.01, 2, "")
+        self._cc_g_spin = styled_spin(0.1, 5.0, 1.0, 0.01, 2, "")
+        self._cc_b_spin = styled_spin(0.1, 5.0, 1.0, 0.01, 2, "")
+        for label, spin in [
+            ("R", self._cc_r_spin), ("G", self._cc_g_spin), ("B", self._cc_b_spin),
+        ]:
+            sub = QHBoxLayout()
+            sub.setSpacing(2)
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #aaa; font-size: 10px;")
+            sub.addWidget(lbl)
+            sub.addWidget(spin)
+            rgb_row.addLayout(sub)
+        cc.body.addLayout(rgb_row)
+        self._cc_rgb_row = rgb_row
+        self._cc_method_combo.currentIndexChanged.connect(self._toggle_cc_manual_rgb)
+        self._toggle_cc_manual_rgb()
         btns = cc.add_btn_row([("Pick BG Reference", True), ("Calibrate", False)])
         btns[1].clicked.connect(self.run_color_calibration.emit)
         lay.addWidget(cc)
@@ -898,9 +934,11 @@ class ToolsPanel(QWidget):
         sr = CollapsibleSection("Star Reduction")
         sr.add_info("Reduce star halos to reveal faint nebula details.")
         self._star_reduction_amount = sr.add_slider("Amount (%)", 50, 0, 100, 1, 0)
-        self._star_reduction_method = sr.add_combo(
-            "Method", ["Morphological", "Halo only", "Full star"]
+        self._star_reduction_kernel = sr.add_combo(
+            "Kernel", ["Elliptical", "Circular", "Square", "Diamond"]
         )
+        self._star_reduction_iters = sr.add_slider("Iterations", 2, 1, 10, 1, 0)
+        self._star_reduction_protect = sr.add_check("Protect core", True)
         sr.add_run("▶ Reduce Stars", self.run_star_reduction.emit)
         lay.addWidget(sr)
 
@@ -1190,6 +1228,17 @@ class ToolsPanel(QWidget):
         con.add_info("Full Python access to the Cosmica core API.")
         con.add_run("⊞ Open Python Console…", self.open_python_console.emit, flat=True)
         lay.addWidget(con)
+
+        # Overlays
+        ov = CollapsibleSection("Overlays")
+        ov.add_info("Toggle WCS, DSO, and constellation overlays on the canvas.")
+        btns = ov.add_btn_row([("WCS Overlay", False), ("DSO Annotations", False), ("Constellations", False)])
+        for b in btns:
+            b.setCheckable(True)
+        btns[0].clicked.connect(self.toggle_wcs_overlay)
+        btns[1].clicked.connect(self.toggle_dso_overlay)
+        btns[2].clicked.connect(self.toggle_constellation_overlay)
+        lay.addWidget(ov)
 
         # Statistics
         stats = CollapsibleSection("Image Statistics")
@@ -1498,13 +1547,25 @@ class ToolsPanel(QWidget):
         """Auto-populate the PSF FWHM field from a Measure PSF result."""
         self._deconv_psf_spin.setValue(round(fwhm, 1))
 
+    def is_tgv_denoise_selected(self) -> bool:
+        """Check if TGV Denoise is the selected method."""
+        return self._denoise_method_combo.currentText() == "TGV Denoise"
+
+    def get_tgv_params(self):
+        """Return TGVParams from the current slider values."""
+        from cosmica.core.tgv_denoise import TGVParams
+        return TGVParams(
+            strength=self._denoise_amount.value(),
+            n_iter=150,
+        )
+
     def get_denoise_params(self) -> DenoiseParams:
         from cosmica.core.denoise import DenoiseMethod
         method_map = {
             "NLM (Non-Local Means)": DenoiseMethod.NLM,
             "Wavelet Denoise": DenoiseMethod.WAVELET,
-            "TGV Denoise": DenoiseMethod.WAVELET,
-            "Median Filter": DenoiseMethod.WAVELET,
+            "TGV Denoise": DenoiseMethod.TGV,
+            "Median Filter": DenoiseMethod.MEDIAN,
         }
         method = method_map.get(self._denoise_method_combo.currentText(), DenoiseMethod.WAVELET)
         return DenoiseParams(
@@ -1515,8 +1576,18 @@ class ToolsPanel(QWidget):
         )
 
     def get_star_reduction_params(self) -> StarReductionParams:
+        from cosmica.core.morphology import StructuringElement
+        kernel_map = {
+            "Elliptical": StructuringElement.CIRCLE,
+            "Circular": StructuringElement.CIRCLE,
+            "Square": StructuringElement.SQUARE,
+            "Diamond": StructuringElement.DIAMOND,
+        }
         return StarReductionParams(
             amount=self._star_reduction_amount.value() / 100.0,
+            iterations=int(self._star_reduction_iters.value()),
+            protect_core=self._star_reduction_protect.isChecked(),
+            kernel_type=kernel_map.get(self._star_reduction_kernel.currentText(), StructuringElement.CIRCLE),
         )
 
     def get_unsharp_mask_params(self) -> UnsharpMaskParams:
@@ -1631,7 +1702,41 @@ class ToolsPanel(QWidget):
             "Manual RGB": "custom",
         }
         white_ref = method_map.get(self._cc_method_combo.currentText(), "average")
-        return ColorCalibrationParams(white_reference=white_ref)
+        custom_rgb = (
+            float(self._cc_r_spin.value()),
+            float(self._cc_g_spin.value()),
+            float(self._cc_b_spin.value()),
+        )
+        return ColorCalibrationParams(white_reference=white_ref, custom_rgb=custom_rgb)
+
+    def get_drizzle_params(self) -> tuple[bool, "DrizzleParams"]:
+        from cosmica.core.drizzle import DrizzleParams
+        enabled = self._drizzle_check.isChecked()
+        text = self._drizzle_scale_combo.currentText()
+        scale = 3 if text.startswith("3") else 2
+        params = DrizzleParams(scale=scale, drop_shrink=float(self._drizzle_drop_spin.value()))
+        return (enabled, params)
+
+    def get_spcc_params(self):
+        """Return SPCCParams from the SPCC UI section."""
+        from cosmica.core.spcc import SPCCParams
+        filter_map = {
+            "Broadband (L/R/G/B)": "Mono + Baader LRGB",
+            "Narrowband Ha/OIII/SII": "OSC (no filter)",
+            "Custom": "OSC (no filter)",
+        }
+        filter_name = filter_map.get(self._spcc_filter_combo.currentText(), "OSC (no filter)")
+        return SPCCParams(filter_name=filter_name)
+
+    def _toggle_cc_manual_rgb(self):
+        visible = self._cc_method_combo.currentText() == "Manual RGB"
+        for i in range(self._cc_rgb_row.count()):
+            item = self._cc_rgb_row.itemAt(i)
+            if item and item.layout():
+                for j in range(item.layout().count()):
+                    w = item.layout().itemAt(j).widget()
+                    if w:
+                        w.setVisible(visible)
 
     def _on_save_preset(self):
         from PyQt6.QtWidgets import QMessageBox

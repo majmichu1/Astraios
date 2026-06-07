@@ -11,7 +11,8 @@ from cosmica.core.image_io import ImageData
 log = logging.getLogger(__name__)
 
 # Maximum number of undo steps to keep in memory
-MAX_UNDO_DEPTH = 50
+# Lowered from 50 — avoids 5+ GB for 8MP images (96 MB per copy × 50 = 4.8 GB)
+MAX_UNDO_DEPTH = 20
 
 
 class ImageEditCommand(QUndoCommand):

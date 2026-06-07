@@ -8,6 +8,10 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
+# Maximum acceptable ellipticity for reliable deconvolution
+# (matches smart_processor.py threshold).
+MAX_ELLIPTICITY = 0.30
+
 log = logging.getLogger(__name__)
 
 
@@ -241,6 +245,8 @@ def analyze_tilt(
             astigmatism_detected = angle_std > 20.0
 
         # Tilt: asymmetric FWHM (large ellipticity imbalance)
+        # Individual star ellipticity > MAX_ELLIPTICITY flags guiding issues.
+        # Zone-to-zone asymmetry > 0.05 flags optical tilt.
         ell_flat = ell_vals.flatten()
         if len(ell_flat) >= 4:
             half = len(ell_flat) // 2

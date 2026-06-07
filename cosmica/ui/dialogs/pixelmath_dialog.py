@@ -421,16 +421,15 @@ class PixelMathDialog(QDialog):
 
     def _apply_to_channels(self, data: np.ndarray,
                            result: np.ndarray) -> np.ndarray:
-        """Apply expression result to the selected channel(s)."""
+        """Return the result early if it already matches the target channel shape."""
         channel = self._channel_combo.currentText()
         if channel == "All channels":
             return result
-        if result.ndim == 2 and data.ndim == 3:
-            idx = {"Red (R)": 0, "Green (G)": 1, "Blue (B)": 2}.get(channel)
-            if idx is not None:
-                out = data.copy()
-                out[idx] = result
-                return out
+        idx = {"Red (R)": 0, "Green (G)": 1, "Blue (B)": 2}.get(channel)
+        if idx is not None and data.ndim == 3 and result.shape == data[idx].shape:
+            out = data.copy()
+            out[idx] = result
+            return out
         return result
 
     def _do_evaluate(self, expr: str):

@@ -35,6 +35,8 @@ def _noop_progress(fraction: float, message: str) -> None:
 class DenoiseMethod(Enum):
     NLM = auto()
     WAVELET = auto()
+    TGV = auto()
+    MEDIAN = auto()
 
 
 @dataclass
@@ -52,6 +54,10 @@ class DenoiseParams:
     # Wavelet-specific
     wavelet: str = "db4"
     wavelet_levels: int = 4
+    # Median-specific
+    median_kernel: int = 3
+    # TGV-specific
+    tgv_n_iter: int = 150
 
 
 def _estimate_noise_sigma(wavelet_scales: list[np.ndarray]) -> float:
@@ -128,6 +134,35 @@ def _denoise_nlm_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarr
     return denoised.astype(np.float32) / 255.0
 
 
+def _denoise_median_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
+    """Apply median filter denoising to a single channel (CPU).
+
+    `strength` scales the kernel size (3..15, odd).
+    `detail_preservation` blends result with original (1=full original, 0=full median).
+    """
+    k = max(3, int(round(3 + 12 * params.strength)))
+    if k % 2 == 0:
+        k += 1
+    img_u8 = np.clip(channel * 255, 0, 255).astype(np.uint8)
+    denoised_u8 = cv2.medianBlur(img_u8, k)
+    denoised = denoised_u8.astype(np.float32) / 255.0
+    if params.detail_preservation > 0:
+        blend = params.detail_preservation
+        denoised = denoised * (1.0 - blend) + channel * blend
+    return np.clip(denoised, 0, 1).astype(np.float32)
+
+
+def _denoise_tgv(image: np.ndarray, params: DenoiseParams, progress: ProgressCallback) -> np.ndarray:
+    """Apply TGV² denoising. Delegates to cosmica.core.tgv_denoise.tgv_denoise."""
+    from cosmica.core.tgv_denoise import TGVParams, tgv_denoise as _tgv
+
+    tgv_params = TGVParams(
+        strength=max(0.01, params.strength * 0.5),
+        n_iter=params.tgv_n_iter,
+    )
+    return _tgv(image, tgv_params, progress=progress)
+
+
 def denoise(
     image: np.ndarray,
     params: DenoiseParams | None = None,
@@ -147,7 +182,28 @@ def denoise(
         progress(1.0, "Noise reduction complete")
         return apply_mask(original, result, mask)
 
-    denoise_fn = _denoise_nlm_channel if params.method == DenoiseMethod.NLM else _denoise_wavelet_gpu_cpu
+    if params.method == DenoiseMethod.TGV:
+        progress(0.1, "Running TGV denoise...")
+        try:
+            result = _denoise_tgv(image, params, progress)
+        except Exception as e:
+            progress(0.5, f"TGV failed ({type(e).__name__}), falling back to wavelet...")
+            fallback = DenoiseParams(
+                method=DenoiseMethod.WAVELET,
+                strength=params.strength,
+                detail_preservation=params.detail_preservation,
+                chrominance_only=params.chrominance_only,
+            )
+            return denoise(image, fallback, mask=mask, progress=progress)
+        progress(1.0, "Noise reduction complete")
+        return apply_mask(original, result, mask)
+
+    if params.method == DenoiseMethod.MEDIAN:
+        denoise_fn = _denoise_median_channel
+    elif params.method == DenoiseMethod.NLM:
+        denoise_fn = _denoise_nlm_channel
+    else:
+        denoise_fn = _denoise_wavelet_gpu_cpu
 
     if image.ndim == 2:
         progress(0.1, "Denoising mono image...")

@@ -303,8 +303,8 @@ class LiveStackDialog(QDialog):
         else:
             self._elapsed_label.setText(f"Elapsed: {elapsed / 60:.1f} min")
 
-    def _display_preview(self, arr: np.ndarray):
-        if arr.size == 0 or arr.shape[-2:] == (100, 100) and arr.max() == 0:
+    def _display_preview(self, arr: np.ndarray | None):
+        if arr is None or not isinstance(arr, np.ndarray) or arr.size == 0:
             return
 
         h, w = arr.shape[-2], arr.shape[-1]

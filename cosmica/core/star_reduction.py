@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from cosmica.core.masks import Mask, MaskType, apply_mask
+from cosmica.core.morphology import StructuringElement
 from cosmica.core.star_detection import detect_stars
 
 ProgressCallback = Callable[[float, str], None]
@@ -33,6 +34,7 @@ class StarReductionParams:
     iterations: int = 2  # morphological erosion iterations
     protect_core: bool = True  # protect brightest star cores
     kernel_size: int = 3  # erosion kernel size
+    kernel_type: StructuringElement | None = None
 
 
 def create_star_mask(
@@ -125,8 +127,14 @@ def reduce_stars(
 
     progress(0.4, "Applying morphological reduction…")
     original = image.copy()
+    _MORPH_MAP = {
+        StructuringElement.CIRCLE: cv2.MORPH_ELLIPSE,
+        StructuringElement.SQUARE: cv2.MORPH_RECT,
+        StructuringElement.DIAMOND: cv2.MORPH_CROSS,
+    }
+    morph_type = _MORPH_MAP.get(params.kernel_type or StructuringElement.CIRCLE, cv2.MORPH_ELLIPSE)
     kernel = cv2.getStructuringElement(
-        cv2.MORPH_ELLIPSE, (params.kernel_size, params.kernel_size)
+        morph_type, (params.kernel_size, params.kernel_size)
     )
 
     if image.ndim == 2:

@@ -14,13 +14,14 @@ from typing import Callable
 import numpy as np
 
 from cosmica.core.masks import Mask, apply_mask
+from cosmica.core.star_detection import detect_stars
+from cosmica.core.wcs import normalise_wcs_dict
 
 ProgressCallback = Callable[[float, str], None]
 
 
 def _noop_progress(f: float, m: str) -> None:
     pass
-from cosmica.core.star_detection import detect_stars
 
 log = logging.getLogger(__name__)
 
@@ -291,6 +292,8 @@ def _match_stars_to_catalog(image, detected, catalog_stars, wcs, height, width):
     Uses astropy WCS when a full WCS header is available, falls back to
     simple linear projection otherwise.
     """
+    if wcs is not None:
+        wcs = normalise_wcs_dict(wcs)
     if not wcs or "ra" not in wcs or wcs["ra"] is None:
         return []
 

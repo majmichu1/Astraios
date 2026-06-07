@@ -564,7 +564,10 @@ class SubframeDialog(QDialog):
         self._worker.frame_measured.connect(self._on_frame_measured)
         self._worker.thumbnail.connect(self._on_thumbnail)
         self._worker.finished.connect(self._on_scored)
-        self._worker.error.connect(lambda msg: self._progress.setFormat(f"Error: {msg}"))
+        self._worker.error.connect(lambda msg: (
+            self._progress.setFormat(f"Error: {msg}"),
+            self._score_btn.setEnabled(True),
+        ))
         self._worker.start()
 
     def _on_frame_measured(self, row: int, metrics: dict):

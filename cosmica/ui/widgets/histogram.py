@@ -107,6 +107,7 @@ class HistogramWidget(QWidget):
             if channel_name not in self._data:
                 continue
             counts = self._data[channel_name].astype(np.float64)
+            counts = np.nan_to_num(counts, nan=0.0, posinf=0.0, neginf=0.0)
             if counts.max() == 0:
                 continue
 
@@ -125,7 +126,7 @@ class HistogramWidget(QWidget):
 
             for i in range(n_bins):
                 x = margin + (i / n_bins) * w
-                y = margin + h - counts[i] * h
+                y = margin + h - float(counts[i]) * h
                 path.lineTo(x, y)
 
             path.lineTo(margin + w, margin + h)

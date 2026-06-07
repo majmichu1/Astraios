@@ -108,13 +108,20 @@ def _query_vizier_tap(
 
     url = f"https://tapvizier.cds.unistra.fr/TAPVizieR/tap/sync?{params}"
 
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "Cosmica/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read().decode("utf-8")
-    except Exception as e:
-        log.error("Vizier TAP query failed: %s", e)
-        return []
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Cosmica/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read().decode("utf-8")
+            break
+        except Exception as e:
+            if attempt < 2:
+                delay = 1.0 * (2 ** attempt)
+                log.debug("Vizier TAP query failed (%s), retrying in %.0fs…", e, delay)
+                time.sleep(delay)
+                continue
+            log.error("Vizier TAP query failed after 3 attempts: %s", e)
+            return []
 
     stars: list[StarCatalogEntry] = []
     try:
@@ -304,17 +311,37 @@ def plate_solve_astrometry_net(
     import io
     BASE = "http://nova.astrometry.net/api"
 
+    def _request_with_retry(url, data=None, headers=None, max_retries=3, base_delay=1.0, timeout=30):
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(url, data=data, headers=headers or {})
+                with urllib.request.urlopen(req, timeout=timeout) as r:
+                    return json.loads(r.read())
+            except urllib.request.HTTPError as e:
+                if e.code == 429 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.warning("astrometry.net rate limited (429), retrying in %.0fs…", delay)
+                    time.sleep(delay)
+                    continue
+                if e.code >= 500 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    time.sleep(delay)
+                    continue
+                raise
+            except (urllib.request.URLError, ConnectionError, TimeoutError) as e:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    log.debug("astrometry.net request failed (%s), retrying in %.0fs…", e, delay)
+                    time.sleep(delay)
+                    continue
+                raise
+
     def _post_json(url: str, data: dict) -> dict:
         payload = ("request-json=" + urllib.parse.quote(json.dumps(data))).encode()
-        req = urllib.request.Request(url, data=payload,
-                                     headers={"Content-Type": "application/x-www-form-urlencoded"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
+        return _request_with_retry(url, data=payload, headers={"Content-Type": "application/x-www-form-urlencoded"})
 
     def _get_json(url: str) -> dict:
-        req = urllib.request.Request(url, headers={"User-Agent": "Cosmica/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            return json.loads(r.read())
+        return _request_with_retry(url, headers={"User-Agent": "Cosmica/1.0"})
 
     # 1. Login
     log.info("Logging in to astrometry.net...")
@@ -358,13 +385,12 @@ def plate_solve_astrometry_net(
         _write(image_path.read_bytes())
         _write(f"\r\n--{boundary}--\r\n".encode())
 
-        upload_req = urllib.request.Request(
+        upload_resp = _request_with_retry(
             f"{BASE}/upload",
             data=body.getvalue(),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            timeout=60,
         )
-        with urllib.request.urlopen(upload_req, timeout=60) as r:
-            upload_resp = json.loads(r.read())
 
         subid = upload_resp.get("subid")
         if not subid:
@@ -389,7 +415,7 @@ def plate_solve_astrometry_net(
                 log.info("Job ID: %s", job_id)
                 break
         except Exception:
-            log.debug("astrometry.net job poll failed (retrying)")
+            log.debug("astrometry.net job poll error, continuing")
 
     if job_id is None:
         log.error("astrometry.net: no job started within timeout")
@@ -406,7 +432,7 @@ def plate_solve_astrometry_net(
                 log.error("astrometry.net solve failed")
                 return None
         except Exception:
-            log.debug("astrometry.net status poll failed (retrying)")
+            log.debug("astrometry.net status poll error, continuing")
     else:
         log.error("astrometry.net timed out waiting for solve")
         return None
@@ -415,9 +441,17 @@ def plate_solve_astrometry_net(
     log.info("Downloading WCS from astrometry.net job %s...", job_id)
     try:
         wcs_url = f"http://nova.astrometry.net/wcs_file/{job_id}"
-        req = urllib.request.Request(wcs_url, headers={"User-Agent": "Cosmica/1.0"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            wcs_data = r.read()
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(wcs_url, headers={"User-Agent": "Cosmica/1.0"})
+                with urllib.request.urlopen(req, timeout=30) as r:
+                    wcs_data = r.read()
+                break
+            except Exception:
+                if attempt < 2:
+                    time.sleep(1.0 * (2 ** attempt))
+                    continue
+                raise
 
         # Write to temp file and parse
         import tempfile

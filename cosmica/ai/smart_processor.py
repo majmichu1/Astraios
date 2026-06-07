@@ -94,7 +94,8 @@ class ImageAnalysis:
     # Per-channel statistics
     channel_stats: list[dict[str, float]]
     # Overall quality metrics
-    median_snr: float  # estimated signal-to-noise ratio
+    median_snr: float  # estimated signal-to-noise ratio (from median)
+    object_snr: float  # SNR from bright pixels (P95) — better for nebula images
     background_level: float  # median background as fraction of range
     dynamic_range_stops: float  # log2(max_signal / noise_floor)
     has_blown_highlights: bool  # >0.5% pixels at max value
@@ -143,6 +144,10 @@ class ProcessingPlan:
     # Object-aware background
     use_object_aware_bg: bool = False
     exclusion_mask: np.ndarray | None = field(default=None, repr=False)
+    # HDR merge hint for extreme-dynamic-range objects like M42
+    needs_hdr_merge: bool = False
+    hdr_operator: str = "core_blend"  # "reinhard" | "drago" | "core_blend"
+    hdr_params: dict | None = None
     # Summary
     notes: list[str] = field(default_factory=list)
 
@@ -222,6 +227,10 @@ class SmartProcessor:
         target_name: str | None = None,
         ra_hint: float | None = None,
         dec_hint: float | None = None,
+        wcs_dict: dict[str, Any] | None = None,
+        enabled_stages: set[str] | None = None,
+        hdr_operator: str = "core_blend",
+        hdr_params: dict | None = None,
         progress: ProgressCallback | None = None,
     ) -> SmartProcessorResult:
         """Run the full Smart Processing pipeline.
@@ -240,6 +249,18 @@ class SmartProcessor:
             User-provided RA hint (degrees) for plate solving.
         dec_hint : float, optional
             User-provided Dec hint (degrees) for plate solving.
+        wcs_dict : dict, optional
+            Existing WCS header dict from a prior plate solve.  If provided
+            with valid ``ra_center`` / ``dec_center`` / ``scale`` keys, the
+            plate-solve step is skipped and catalog lookup proceeds directly.
+        enabled_stages : set of str, optional
+            Which pipeline stages to run.  Valid keys: ``"background"``,
+            ``"denoise"``, ``"deconv"``, ``"stretch"``, ``"local_contrast"``,
+            ``"hdr_merge"``.  ``None`` = run all.
+        hdr_operator : str, optional
+            HDR tonemap operator: ``"core_blend"``, ``"reinhard"``, or ``"drago"``.
+        hdr_params : dict, optional
+            Operator-specific parameters dict.
         progress : callable, optional
             Progress callback ``(fraction, message)``.
 
@@ -252,9 +273,13 @@ class SmartProcessor:
             progress = _noop_progress
         self._log = []
         self._quality_checks = []
+        self._existing_wcs = wcs_dict
+        self._enabled_stages = enabled_stages or {"background", "denoise", "deconv", "stretch", "local_contrast", "hdr_merge"}
         self._user_target_name = target_name
         self._user_ra_hint = ra_hint
         self._user_dec_hint = dec_hint
+        self._hdr_operator = hdr_operator
+        self._hdr_params = hdr_params
 
         # Phase 1: Analyze
         progress(0.0, "Analyzing image...")
@@ -322,6 +347,28 @@ class SmartProcessor:
         signal = bg_level  # in linear data, signal ≈ median for unstretched
         snr = signal / max(noise_est, 1e-10)
 
+        # Object SNR: measure object brightness above background.
+        # Compute simple object mask (pixels > bg + 3σ) and use median
+        # of those pixels.  The contrast (object - bg) / noise captures
+        # nebula visibility for objects like M42 where the bright core
+        # is a tiny fraction of the total area.
+        if data.ndim == 2:
+            flat = data.ravel()
+        else:
+            flat = np.max(data, axis=0).ravel()
+        obj_mask = flat > (bg_level + 3.0 * noise_est)
+        if obj_mask.any():
+            object_signal = float(np.median(flat[obj_mask]))
+            object_snr = max(0.0, (object_signal - bg_level) / max(noise_est, 1e-10))
+        else:
+            object_signal = bg_level
+            object_snr = 0.0
+        if object_snr > snr * 2:
+            self._log_msg(
+                f"Object SNR={object_snr:.1f} (obj median - bg) vs global SNR={snr:.1f} — "
+                f"using object SNR for nebula-aware decisions"
+            )
+
         # Dynamic range
         max_val = max(s["max"] for s in channel_stats)
         dr_stops = math.log2(max(max_val, 1e-10) / max(noise_est, 1e-10))
@@ -378,36 +425,63 @@ class SmartProcessor:
         targets: list[TargetInfo] = []
         primary_target: TargetInfo | None = None
 
-        # Try plate solving (in subprocess to protect against segfaults in native code)
-        try:
-            solve_params = PlateSolveParams()
-            if plate_scale:
-                solve_params.scale_hint = plate_scale
-            # Use user-provided RA/Dec hints if available
-            if self._user_ra_hint is not None and self._user_dec_hint is not None:
-                solve_params.ra_hint = self._user_ra_hint
-                solve_params.dec_hint = self._user_dec_hint
-                self._log_msg(f"Using user-provided coordinates: RA={self._user_ra_hint:.4f}, Dec={self._user_dec_hint:.4f}")
-            elif "ra" in header_info and "dec" in header_info:
-                try:
-                    solve_params.ra_hint = float(header_info["ra"])
-                    solve_params.dec_hint = float(header_info["dec"])
-                except (ValueError, TypeError):
-                    pass
-
-            self._log_msg("Attempting plate solve...")
-            solve_result = self._safe_plate_solve(data, solve_params)
-
-            if solve_result and solve_result.success:
-                self._log_msg(
-                    f"Plate solve success: RA={solve_result.ra_center:.4f}, "
-                    f"Dec={solve_result.dec_center:.4f}, "
-                    f"scale={solve_result.pixel_scale:.2f} arcsec/px"
+        # Reuse existing WCS from a prior plate solve (avoids re-solving)
+        if self._existing_wcs:
+            ra = self._existing_wcs.get("ra_center", 0.0)
+            dec = self._existing_wcs.get("dec_center", 0.0)
+            scale = self._existing_wcs.get("scale", 0.0)
+            if ra > 0 and scale > 0:
+                rotation = self._existing_wcs.get("rotation", 0.0)
+                solve_result = PlateSolveResult(
+                    success=True,
+                    ra_center=ra,
+                    dec_center=dec,
+                    pixel_scale=scale,
+                    rotation=rotation,
+                    wcs_header=self._existing_wcs,
                 )
-                if not plate_scale and solve_result.pixel_scale > 0:
-                    plate_scale = solve_result.pixel_scale
-        except Exception as exc:
-            self._log_msg(f"Plate solving failed: {exc}")
+                if not plate_scale or plate_scale <= 0:
+                    plate_scale = scale
+                self._log_msg(
+                    f"Using existing WCS: RA={ra:.4f}°, Dec={dec:.4f}°, "
+                    f"scale={scale:.2f}\"/px"
+                )
+            else:
+                self._log_msg(
+                    "Existing WCS lacks coordinate data — will attempt plate solve"
+                )
+
+        # Try plate solving (only if we don't already have a valid WCS)
+        if solve_result is None:
+            try:
+                solve_params = PlateSolveParams()
+                if plate_scale:
+                    solve_params.scale_hint = plate_scale
+                # Use user-provided RA/Dec hints if available
+                if self._user_ra_hint is not None and self._user_dec_hint is not None:
+                    solve_params.ra_hint = self._user_ra_hint
+                    solve_params.dec_hint = self._user_dec_hint
+                    self._log_msg(f"Using user-provided coordinates: RA={self._user_ra_hint:.4f}, Dec={self._user_dec_hint:.4f}")
+                elif "ra" in header_info and "dec" in header_info:
+                    try:
+                        solve_params.ra_hint = float(header_info["ra"])
+                        solve_params.dec_hint = float(header_info["dec"])
+                    except (ValueError, TypeError):
+                        pass
+
+                self._log_msg("Attempting plate solve...")
+                solve_result = self._safe_plate_solve(data, solve_params)
+
+                if solve_result and solve_result.success:
+                    self._log_msg(
+                        f"Plate solve success: RA={solve_result.ra_center:.4f}, "
+                        f"Dec={solve_result.dec_center:.4f}, "
+                        f"scale={solve_result.pixel_scale:.2f} arcsec/px"
+                    )
+                    if not plate_scale and solve_result.pixel_scale > 0:
+                        plate_scale = solve_result.pixel_scale
+            except Exception as exc:
+                self._log_msg(f"Plate solving failed: {exc}")
 
         # Catalog lookup
         if solve_result and solve_result.success and solve_result.ra_center > 0:
@@ -466,6 +540,7 @@ class SmartProcessor:
             width=w,
             channel_stats=channel_stats,
             median_snr=snr,
+            object_snr=object_snr,
             background_level=bg_level,
             dynamic_range_stops=dr_stops,
             has_blown_highlights=blown,
@@ -571,8 +646,12 @@ class SmartProcessor:
     ) -> ProcessingPlan:
         """Build the processing plan based on image analysis."""
         hints = {}
+        is_extreme_dr = False
         if analysis.primary_target:
-            hints = analysis.primary_target.processing_hints
+            hints = analysis.primary_target.processing_hints.copy()
+            if analysis.primary_target.dynamic_range == "extreme":
+                hints["dynamic_range"] = "extreme"
+                is_extreme_dr = True
 
         # Determine channel names
         ch_names = self._get_channel_names(analysis)
@@ -647,6 +726,10 @@ class SmartProcessor:
                 use_obj_bg = True
                 self._log_msg(f"Plan: Object-aware background with {len(objects)} object(s)")
 
+        needs_hdr = hints.get("hdr_merge_recommended", False) or is_extreme_dr
+        if needs_hdr:
+            self._log_msg("Plan: HDR-merge hint active — extreme dynamic range detected")
+
         plan = ProcessingPlan(
             channel_plans=channel_plans,
             do_scnr=do_scnr,
@@ -655,6 +738,9 @@ class SmartProcessor:
             color_adjust_params=color_params,
             use_object_aware_bg=use_obj_bg,
             exclusion_mask=exclusion_mask,
+            needs_hdr_merge=needs_hdr,
+            hdr_operator=self._hdr_operator,
+            hdr_params=self._hdr_params,
         )
 
         # Summary notes
@@ -679,7 +765,6 @@ class SmartProcessor:
         plan = ChannelPlan(channel_idx=idx, channel_name=name, snr=snr)
 
         # --- Background extraction ---
-        # Use LP severity to set initial aggressiveness
         bg_complexity = hints.get("background_complexity", "gradient")
         lp = analysis.lp_severity
         if lp == "severe":
@@ -703,6 +788,8 @@ class SmartProcessor:
             polynomial_order=poly_order,
             sigma_clip=2.5,
         )
+        if "background" not in self._enabled_stages:
+            plan.background_params = None
 
         # --- Noise reduction ---
         nr_level = hints.get("noise_reduction", self._auto_nr_level(snr))
@@ -712,6 +799,10 @@ class SmartProcessor:
             "moderate": 0.5,
             "heavy": 0.8,
         }.get(nr_level, 0.5)
+
+        # For extreme-DR objects (M42 etc.) halve NR to preserve fine nebulosity
+        if hints.get("dynamic_range") == "extreme":
+            strength *= 0.5
 
         # Luminance / detail channels get less NR; color channels can have more
         if name in ("L", "mono"):
@@ -730,13 +821,28 @@ class SmartProcessor:
             strength=strength,
             detail_preservation=detail_preservation,
         )
+        if "denoise" not in self._enabled_stages:
+            plan.denoise_params = None
 
         # --- Deconvolution ---
-        # Auto-decide based on measured PSF and SNR — only when beneficial
+        # Auto-decide based on measured PSF and SNR.  For nebula-dominated
+        # images the *object* SNR (from P95) is often much higher than the
+        # global median SNR — use whichever is larger.
+        effective_snr = max(snr, analysis.object_snr) if hasattr(analysis, 'object_snr') else snr
         do_deconv = hints.get("deconvolution", False) or hints.get("deconv_aggressive", False)
         if not do_deconv:
-            if analysis.psf and analysis.psf.fwhm > 2.5 and snr > 10:
+            if analysis.psf and analysis.psf.fwhm > 2.5 and effective_snr > 10:
                 do_deconv = True
+
+        # For known high-DR targets (M42, etc.) always try deconv if we have
+        # a valid PSF — the stars are sharp even if the nebula dominates.
+        if not do_deconv and hints.get("dynamic_range") == "extreme":
+            if analysis.psf and analysis.psf.n_stars_used >= 3:
+                do_deconv = True
+                self._log_msg(
+                    f"Plan [{name}]: Forcing deconvolution for extreme-DR target "
+                    f"(PSF valid, {analysis.psf.n_stars_used} stars)"
+                )
 
         # Guard: skip deconvolution if PSF measurement is unreliable
         if do_deconv and analysis.psf:
@@ -754,23 +860,34 @@ class SmartProcessor:
                 do_deconv = False
 
         # Catalog hint: gentle stretch means conservative deconvolution
-        if hints.get("stretch") == "gentle":
+        # Extreme-DR objects (e.g. M42) get even gentler treatment to avoid
+        # ringing around bright nebula cores.
+        if hints.get("dynamic_range") == "extreme":
             gentle_deconv = True
+            extreme_dr_deconv = True
+        elif hints.get("stretch") == "gentle":
+            gentle_deconv = True
+            extreme_dr_deconv = False
         else:
             gentle_deconv = False
+            extreme_dr_deconv = False
 
         if do_deconv and analysis.psf:
             fwhm = analysis.psf.fwhm
             # Conservative parameters — execution phase will adapt
-            max_iters = 8 if gentle_deconv else 10
-            reg = 0.02 if gentle_deconv else 0.01
+            max_iters = 5 if extreme_dr_deconv else (8 if gentle_deconv else 10)
+            reg = 0.03 if extreme_dr_deconv else (0.02 if gentle_deconv else 0.01)
+            dering_amount = 1.0 if extreme_dr_deconv else 0.8
             plan.deconvolution_params = DeconvolutionParams(
                 psf_fwhm=fwhm,
                 iterations=max_iters,
                 regularization=reg,
                 deringing=True,
-                deringing_amount=0.8,
+                deringing_amount=dering_amount,
             )
+            if "deconv" not in self._enabled_stages:
+                plan.deconvolution_params = None
+                plan.use_spatial_deconv = False
 
             # Use spatially-varying PSF when the image is large enough
             # and we have sufficient stars across the field. This handles
@@ -796,9 +913,14 @@ class SmartProcessor:
             shadow_clip=-2.0,
             linked=False,  # per-channel control
         )
+        if "stretch" not in self._enabled_stages:
+            plan.stretch_params = None
 
         # --- Local contrast ---
         contrast_level = hints.get("contrast_enhancement", "moderate")
+        # For extreme-DR objects (M42 etc.) use at most subtle LC
+        if hints.get("dynamic_range") == "extreme":
+            contrast_level = "subtle"
         if contrast_level != "none":
             clip_limit = {
                 "subtle": 1.5,
@@ -810,6 +932,8 @@ class SmartProcessor:
                 tile_size=8,
                 amount=0.6,
             )
+        if "local_contrast" not in self._enabled_stages:
+            plan.local_contrast_params = None
 
         return plan
 
@@ -1037,6 +1161,18 @@ class SmartProcessor:
         if plan.do_color_adjust and working.ndim == 3 and working.shape[0] >= 3:
             self._log_msg("Applying color adjustment")
             working = color_adjust(working, plan.color_adjust_params)
+
+        # HDR local contrast: single very gentle CLAHE pass for extreme-DR
+        # objects.  Reveals faint outer structure without amplifying noise.
+        if plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+            progress(0.96, "HDR local contrast enhancement...")
+            self._log_msg("HDR: gentle single-pass local contrast")
+            hdr_lce = LocalContrastParams(
+                clip_limit=1.8,
+                tile_size=8,
+                amount=0.25,
+            )
+            working = local_contrast_enhance(working, hdr_lce)
 
         # Final clamp
         working = np.clip(working, 0, 1).astype(np.float32)
@@ -1319,6 +1455,11 @@ class SmartProcessor:
             elif stretch_hint == "aggressive":
                 base_target *= 1.2
 
+            # Extreme-DR objects (M42 etc.) need the gentlest stretch to
+            # preserve both core and outer nebulosity without blowing out.
+            if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+                base_target *= 0.55  # very conservative
+
             if plan.snr < 8:
                 base_target *= 0.8
             elif plan.snr > 50:
@@ -1366,6 +1507,11 @@ class SmartProcessor:
                     effective_target = target_median
                     sky_dominated = False
 
+                # For HDR objects cap the effective target so the stretch
+                # doesn't over-brighten the nebula and blow the core.
+                if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+                    effective_target = min(effective_target, 0.30)
+
                 error = abs(metric - effective_target)
 
                 self._log_msg(
@@ -1394,12 +1540,21 @@ class SmartProcessor:
                 else:
                     break  # good enough
 
-                midtone = max(0.001, min(0.5, midtone))
+                # For HDR cap midtone so the core doesn't blow out completely.
+                min_midtone = 0.020 if full_plan.needs_hdr_merge else 0.001
+                midtone = max(min_midtone, min(0.5, midtone))
 
             if best_result is not None:
                 working = best_result
             else:
                 working = auto_stretch(pre_stretch, plan.stretch_params)
+
+            # Background lift: raise the floor slightly so the background
+            # isn't completely black.  Common astrophotography technique.
+            if full_plan.needs_hdr_merge:
+                bg_pedestal = 0.005
+                working = np.clip(working + bg_pedestal, 0, 1)
+                self._log_msg(f"[{name}] Background lift: +{bg_pedestal:.3f}")
 
             final_median = float(np.median(working))
             final_signal = float(np.mean(working[working > 0.02])) if np.any(working > 0.02) else 0.0
@@ -1416,6 +1571,33 @@ class SmartProcessor:
                         or (sky_dominated and metric > effective_target * 0.5)),
                 adjustment=f"Adaptively chose midtone={best_midtone:.3f}",
             )
+
+        # Core protection for HDR objects: apply the selected tonemap operator
+        # to the linear pre-stretch data and blend.  Preserves Trapezium /
+        # bright core detail while bringing out faint outer nebulosity.
+        if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+            from cosmica.core.hdr_operators import apply_hdr
+            operator = full_plan.hdr_operator
+            params = full_plan.hdr_params
+            hdr_result = apply_hdr(pre_stretch, operator, params)
+            # Blend with existing working via the core protection mask
+            if operator == "core_blend":
+                working = hdr_result
+            else:
+                p99 = float(np.percentile(pre_stretch, 99))
+                core_linear = (pre_stretch > p99 * 0.3).astype(np.float32)
+                if np.any(core_linear):
+                    from scipy.ndimage import gaussian_filter
+                    core_mask = gaussian_filter(core_linear, sigma=max(8, min(working.shape) * 0.015))
+                    core_mask = np.clip(core_mask, 0, 1)
+                    working = working * (1.0 - core_mask) + hdr_result * core_mask
+                    core_blend_frac = float(np.mean(core_mask))
+                    self._log_msg(
+                        f"[{name}] HDR ({operator}) applied over "
+                        f"{core_blend_frac:.4f} of the frame"
+                    )
+                else:
+                    working = hdr_result
 
         # Stage 5: Local contrast
         if plan.local_contrast_params is not None:

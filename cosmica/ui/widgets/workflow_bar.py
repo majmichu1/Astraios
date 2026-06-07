@@ -6,13 +6,13 @@ and add to the main window layout between the quick toolbar and panels.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
-    QPushButton,
     QScrollArea,
     QSizePolicy,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -31,13 +31,14 @@ _STEPS = [
     ("Stacking",    "Align · Integrate"),
     ("Background",  "Extract · ABE"),
     ("Stretch",     "GHS · Curves"),
+    ("Transform",   "Resize · Rotate"),
     ("Color",       "SCNR · Calibrate"),
     ("Detail",      "Decon · Denoise"),
     ("Export",      "FITS · TIFF · PNG"),
 ]
 
 # Map step index → Tools Panel tab index (0-based)
-_STEP_TO_TAB = {0: 0, 1: 1, 2: 2, 3: 3, 4: 5, 5: 6, 6: None}
+_STEP_TO_TAB = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: None}
 
 
 class WorkflowBar(QWidget):
@@ -69,13 +70,15 @@ class WorkflowBar(QWidget):
         scroll.setStyleSheet("QScrollArea { border: none; }")
 
         inner = QWidget()
+        inner.setStyleSheet("background: transparent; border: none;")
         self._layout = QHBoxLayout(inner)
         self._layout.setContentsMargins(8, 0, 8, 0)
         self._layout.setSpacing(0)
 
-        self._btns: list[QPushButton] = []
+        self._btns: list[_StepButton] = []
         self._arrows: list[QLabel] = []
 
+        self._layout.addStretch()
         for i, (name, sub) in enumerate(_STEPS):
             btn = _StepButton(i, name, sub)
             btn.clicked.connect(lambda _, idx=i: self._on_click(idx))
@@ -90,6 +93,7 @@ class WorkflowBar(QWidget):
                 self._arrows.append(arrow)
                 self._layout.addWidget(arrow)
 
+        self._layout.addStretch()
         scroll.setWidget(inner)
 
         outer = QHBoxLayout(self)
@@ -97,7 +101,7 @@ class WorkflowBar(QWidget):
         outer.addWidget(scroll)
 
         self.setStyleSheet(
-            f"background: {BG_SECONDARY}; border-bottom: 1px solid {BORDER};"
+            f"background: {BG_SECONDARY}; border: none;"
         )
         self._refresh()
 
@@ -138,24 +142,24 @@ class WorkflowBar(QWidget):
             )
 
 
-class _StepButton(QPushButton):
+class _StepButton(QWidget):
+    clicked = pyqtSignal(int)
+
     def __init__(self, idx: int, name: str, subtitle: str, parent=None):
         super().__init__(parent)
         self._idx = idx
-        self.setCursor(
-            __import__("PyQt6.QtCore", fromlist=["Qt"]).Qt.CursorShape.PointingHandCursor
-        )
+        self._hovered = False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
 
+        self.setStyleSheet("border: none;")
         lay = QHBoxLayout(self)
         lay.setContentsMargins(12, 4, 12, 4)
         lay.setSpacing(0)
 
         col = QWidget()
-        col.setStyleSheet("background-color: transparent;")
-        col_lay = __import__(
-            "PyQt6.QtWidgets", fromlist=["QVBoxLayout"]
-        ).QVBoxLayout(col)
+        col.setStyleSheet("background: transparent; border: none;")
+        col_lay = QVBoxLayout(col)
         col_lay.setContentsMargins(0, 0, 0, 0)
         col_lay.setSpacing(1)
 
@@ -176,6 +180,24 @@ class _StepButton(QPushButton):
         col_lay.addWidget(self._sub_lbl)
         lay.addWidget(col)
 
+        self.set_state(done=False, current=idx == 0, future=idx > 0)
+
+    def mousePressEvent(self, event):
+        self.clicked.emit(self._idx)
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self.update()
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self.update()
+
+    def paintEvent(self, event):
+        if self._hovered:
+            p = __import__("PyQt6.QtGui", fromlist=["QPainter"]).QPainter(self)
+            p.fillRect(self.rect(), __import__("PyQt6.QtGui", fromlist=["QColor"]).QColor(BG_HOVER))
+
     def set_state(self, done: bool, current: bool, future: bool) -> None:
         name_color = (
             ACCENT if current
@@ -191,9 +213,3 @@ class _StepButton(QPushButton):
             f"color: {sub_color}; font-size: 9px; background-color: transparent;"
         )
         self._check_lbl.setText("✓ " if done else "")
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-            }}
-            QPushButton:hover {{ background: {BG_HOVER}; }}
-        """)

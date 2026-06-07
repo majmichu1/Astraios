@@ -63,6 +63,11 @@ class ProcessingGraphDialog(QDialog):
         self._toggle_btn.setEnabled(False)
         btn_row.addWidget(self._toggle_btn)
 
+        self._lock_btn = QPushButton("\U0001f512 Lock Step")
+        self._lock_btn.clicked.connect(self._lock_step)
+        self._lock_btn.setEnabled(False)
+        btn_row.addWidget(self._lock_btn)
+
         btn_row.addStretch()
 
         close_btn = QPushButton("Close")
@@ -98,7 +103,12 @@ class ProcessingGraphDialog(QDialog):
         has_selection = row >= 0
         self._delete_btn.setEnabled(has_selection)
         self._toggle_btn.setEnabled(has_selection)
+        self._lock_btn.setEnabled(has_selection)
         if has_selection:
+            node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
+            if node_id and node_id in self._graph.nodes:
+                locked = self._graph.nodes[node_id].locked
+                self._lock_btn.setText("\U0001f513 Unlock Step" if locked else "\U0001f512 Lock Step")
             self.graph_changed.emit()
 
     def _delete_step(self):
@@ -109,6 +119,19 @@ class ProcessingGraphDialog(QDialog):
         if node_id:
             self._graph.remove_node(node_id)
             self._graph.invalidate_downstream("base")
+            self._refresh()
+            self.graph_changed.emit()
+
+    def _lock_step(self):
+        row = self._history_list.currentRow()
+        if row < 0:
+            return
+        node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
+        if node_id and node_id in self._graph.nodes:
+            self._graph.nodes[node_id].locked = not self._graph.nodes[node_id].locked
+            self._lock_btn.setText(
+                "\U0001f513 Unlock Step" if self._graph.nodes[node_id].locked else "\U0001f512 Lock Step"
+            )
             self._refresh()
             self.graph_changed.emit()
 

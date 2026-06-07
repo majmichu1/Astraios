@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import logging
+import os
+import platform
+import sys
+import tempfile
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -16,7 +20,8 @@ from cosmica.core.device_manager import get_device_manager
 log = logging.getLogger(__name__)
 
 MODEL_DIR = Path.home() / ".cosmica" / "models" / "cosmic_clarity"
-RELEASE_BASE = "https://github.com/setiastro/cosmicclarity/releases/download/Windows"
+_OS_TAG = {"Linux": "linux", "Darwin": "macos", "Windows": "Windows"}.get(platform.system(), "linux")
+RELEASE_BASE = f"https://github.com/setiastro/cosmicclarity/releases/download/{_OS_TAG}"
 
 MODEL_URLS: dict[str, str] = {}
 
@@ -107,7 +112,16 @@ def _load_model(model_name: str):
             MODEL_DIR.mkdir(parents=True, exist_ok=True)
             try:
                 log.info("Downloading CosmicClarity model %s from %s", actual_name, url)
-                urllib.request.urlretrieve(url, actual_path)
+                tmp = tempfile.NamedTemporaryFile(dir=str(MODEL_DIR), prefix="tmp_", suffix=".pth", delete=False)
+                tmp_path = Path(tmp.name)
+                try:
+                    urllib.request.urlretrieve(url, tmp_path)
+                    os.chmod(tmp_path, 0o644)
+                    tmp_path.rename(actual_path)
+                except Exception:
+                    if tmp_path.exists():
+                        tmp_path.unlink()
+                    raise
                 log.info("Model saved: %s", actual_path)
             except Exception as e:
                 log.warning(

@@ -33,6 +33,7 @@ class SmartProcessWorker(QThread):
 
     progress = pyqtSignal(float, str)
     finished = pyqtSignal(object)  # SmartProcessorResult
+    error = pyqtSignal(str)  # error message
 
     def __init__(
         self,
@@ -43,6 +44,10 @@ class SmartProcessWorker(QThread):
         target_name=None,
         ra_hint=None,
         dec_hint=None,
+        wcs=None,
+        enabled_stages=None,
+        hdr_operator="core_blend",
+        hdr_params=None,
     ):
         super().__init__()
         self._processor = processor
@@ -52,20 +57,41 @@ class SmartProcessWorker(QThread):
         self._target_name = target_name
         self._ra_hint = ra_hint
         self._dec_hint = dec_hint
+        self._wcs = wcs
+        self._enabled_stages = enabled_stages
+        self._hdr_operator = hdr_operator
+        self._hdr_params = hdr_params
+        self._cancel_requested = False
+
+    def request_cancel(self):
+        self._cancel_requested = True
+        self.requestInterruption()
 
     def run(self):
-        result = self._processor.process(
-            self._data,
-            fits_header=self._fits_header,
-            input_type_hint=self._input_type_hint,
-            target_name=self._target_name,
-            ra_hint=self._ra_hint,
-            dec_hint=self._dec_hint,
-            progress=self._emit_progress,
-        )
-        self.finished.emit(result)
+        try:
+            result = self._processor.process(
+                self._data,
+                fits_header=self._fits_header,
+                input_type_hint=self._input_type_hint,
+                target_name=self._target_name,
+                ra_hint=self._ra_hint,
+                dec_hint=self._dec_hint,
+                wcs_dict=self._wcs,
+                enabled_stages=self._enabled_stages,
+                hdr_operator=self._hdr_operator,
+                hdr_params=self._hdr_params,
+                progress=self._emit_progress,
+            )
+            if self._cancel_requested:
+                self.error.emit("Cancelled")
+                return
+            self.finished.emit(result)
+        except Exception as e:
+            self.error.emit(f"{type(e).__name__}: {e}")
 
     def _emit_progress(self, fraction: float, message: str):
+        if self._cancel_requested:
+            raise InterruptedError("Smart Process cancelled")
         self.progress.emit(fraction, message)
 
 
@@ -151,23 +177,55 @@ class SmartProcessDialog(QDialog):
 
         layout.addWidget(target_group)
 
-        # --- Options ---
-        options_group = QGroupBox("Options")
-        opt_layout = QVBoxLayout(options_group)
+        # --- Processing Stages ---
+        stages_group = QGroupBox("Processing Stages")
+        stages_layout = QVBoxLayout(stages_group)
 
-        self._object_aware_cb = QCheckBox("Object-aware background extraction")
+        self._stage_bg = QCheckBox("Background extraction")
+        self._stage_bg.setChecked(True)
+        stages_layout.addWidget(self._stage_bg)
+
+        self._stage_denoise = QCheckBox("Noise reduction")
+        self._stage_denoise.setChecked(True)
+        stages_layout.addWidget(self._stage_denoise)
+
+        self._stage_deconv = QCheckBox("Deconvolution")
+        self._stage_deconv.setChecked(True)
+        stages_layout.addWidget(self._stage_deconv)
+
+        self._stage_stretch = QCheckBox("Adaptive stretch")
+        self._stage_stretch.setChecked(True)
+        stages_layout.addWidget(self._stage_stretch)
+
+        self._stage_lce = QCheckBox("Local contrast")
+        self._stage_lce.setChecked(True)
+        stages_layout.addWidget(self._stage_lce)
+
+        self._stage_hdr = QCheckBox("HDR enhancement")
+        self._stage_hdr.setChecked(True)
+        stages_layout.addWidget(self._stage_hdr)
+
+        hdr_op_layout = QHBoxLayout()
+        hdr_op_layout.setContentsMargins(20, 0, 0, 0)
+        hdr_op_layout.addWidget(QLabel("Operator:"))
+        self._hdr_operator_combo = QComboBox()
+        self._hdr_operator_combo.addItem("Core Blend", "core_blend")
+        self._hdr_operator_combo.addItem("Reinhard Tonemap", "reinhard")
+        self._hdr_operator_combo.addItem("Drago Tonemap", "drago")
+        self._hdr_operator_combo.setCurrentIndex(0)
+        hdr_op_layout.addWidget(self._hdr_operator_combo)
+        hdr_op_layout.addStretch()
+        stages_layout.addLayout(hdr_op_layout)
+
+        self._object_aware_cb = QCheckBox("Object-aware background")
         self._object_aware_cb.setChecked(True)
-        opt_layout.addWidget(self._object_aware_cb)
-
-        self._deconv_cb = QCheckBox("Enable deconvolution (when beneficial)")
-        self._deconv_cb.setChecked(True)
-        opt_layout.addWidget(self._deconv_cb)
+        stages_layout.addWidget(self._object_aware_cb)
 
         self._adaptive_cb = QCheckBox("Adaptive quality checks")
         self._adaptive_cb.setChecked(True)
-        opt_layout.addWidget(self._adaptive_cb)
+        stages_layout.addWidget(self._adaptive_cb)
 
-        layout.addWidget(options_group)
+        layout.addWidget(stages_group)
 
         # --- Progress ---
         self._progress_bar = QProgressBar()
@@ -212,6 +270,11 @@ class SmartProcessDialog(QDialog):
         self._run_btn.clicked.connect(self._run)
         btn_row.addWidget(self._run_btn)
 
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setEnabled(False)
+        self._cancel_btn.clicked.connect(self._on_cancel_clicked)
+        btn_row.addWidget(self._cancel_btn)
+
         self._apply_btn = QPushButton("Apply Result")
         self._apply_btn.setEnabled(False)
         self._apply_btn.clicked.connect(self._apply_result)
@@ -219,10 +282,11 @@ class SmartProcessDialog(QDialog):
 
         layout.addLayout(btn_row)
 
-    def set_image_data(self, data, fits_header=None):
+    def set_image_data(self, data, fits_header=None, wcs=None):
         """Set the image data to process."""
         self._data = data
         self._fits_header = fits_header
+        self._wcs = wcs
 
     def _equipment_summary(self) -> str:
         if not self._equipment:
@@ -254,6 +318,7 @@ class SmartProcessDialog(QDialog):
 
         self._run_btn.setEnabled(False)
         self._apply_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(True)
         self._results_group.setVisible(False)
         self._log_text.clear()
         self._progress_bar.setValue(0)
@@ -274,7 +339,23 @@ class SmartProcessDialog(QDialog):
         }
         input_type_hint = type_map.get(self._type_combo.currentIndex())
 
+        # Collect enabled stages from checkboxes
+        enabled_stages = set()
+        if self._stage_bg.isChecked():
+            enabled_stages.add("background")
+        if self._stage_denoise.isChecked():
+            enabled_stages.add("denoise")
+        if self._stage_deconv.isChecked():
+            enabled_stages.add("deconv")
+        if self._stage_stretch.isChecked():
+            enabled_stages.add("stretch")
+        if self._stage_lce.isChecked():
+            enabled_stages.add("local_contrast")
+        if self._stage_hdr.isChecked():
+            enabled_stages.add("hdr_merge")
+
         processor = SmartProcessor(equipment=self._equipment)
+        hdr_op = self._hdr_operator_combo.currentData()
         self._worker = SmartProcessWorker(
             processor,
             self._data,
@@ -283,9 +364,13 @@ class SmartProcessDialog(QDialog):
             target_name=target_name,
             ra_hint=ra_hint,
             dec_hint=dec_hint,
+            wcs=getattr(self, "_wcs", None),
+            enabled_stages=enabled_stages,
+            hdr_operator=hdr_op,
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
+        self._worker.error.connect(self._on_worker_error)
         self._worker.start()
 
     def _on_progress(self, fraction: float, message: str):
@@ -298,6 +383,8 @@ class SmartProcessDialog(QDialog):
         self._run_btn.setEnabled(True)
         self._apply_btn.setEnabled(True)
         self._progress_bar.setValue(100)
+        self._cancel_btn.setEnabled(False)
+        self._status_label.setText("Done")
 
         # Compact status summary
         a = result.analysis
@@ -368,6 +455,21 @@ class SmartProcessDialog(QDialog):
                 lines.append(f"    -> {qc.adjustment}")
 
         self._results_content.setText("\n".join(lines))
+
+    def _on_worker_error(self, message: str):
+        self._run_btn.setEnabled(True)
+        self._apply_btn.setEnabled(False)
+        self._cancel_btn.setEnabled(False)
+        self._progress_bar.setValue(0)
+        self._status_label.setText(f"Error: {message}")
+        self._log_text.append(f"ERROR: {message}")
+        self._worker = None
+
+    def _on_cancel_clicked(self):
+        if self._worker is not None:
+            self._cancel_btn.setEnabled(False)
+            self._status_label.setText("Cancelling...")
+            self._worker.request_cancel()
 
     def _apply_result(self):
         if self._result:

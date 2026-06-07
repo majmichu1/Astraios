@@ -51,7 +51,7 @@ class ImageCanvas(QWidget):
         self._sample_points: list[tuple[float, float]] = []  # image-space coords
 
         # WCS/catalog star overlay
-        self._overlay_stars: list[tuple[float, float, float]] = []  # (x, y, mag) image-space
+        self._overlay_stars: list[tuple[float, float, float, float]] = []  # (x, y, mag, bp_rp) image-space
         self._show_wcs_overlay = False
 
         # DSO annotation overlay
@@ -210,8 +210,8 @@ class ImageCanvas(QWidget):
 
     # ── WCS overlay ──────────────────────────────────────────────────────────
 
-    def set_overlay_stars(self, stars: list[tuple[float, float, float]]):
-        """Set catalog stars for WCS overlay. Each entry: (x_img, y_img, magnitude)."""
+    def set_overlay_stars(self, stars: list[tuple[float, float, float]] | list[tuple[float, float, float, float]]):
+        """Set catalog stars for WCS overlay. Each entry: (x_img, y_img, magnitude[, bp_rp])."""
         self._overlay_stars = stars
         self.update()
 
@@ -392,11 +392,11 @@ class ImageCanvas(QWidget):
         font.setPointSize(8)
         painter.setFont(font)
 
-        for x_img, y_img, mag in self._overlay_stars:
+        for star in self._overlay_stars:
+            x_img, y_img, mag = star[0], star[1], star[2]
             wx = dst.left() + (x_img / pw) * dst.width()
             wy = dst.top() + (y_img / ph) * dst.height()
 
-            # Circle radius scaled by brightness (brighter = larger)
             r = max(4.0, 12.0 - mag)
 
             painter.setPen(QPen(QColor(80, 200, 255, 200), 1))
@@ -545,18 +545,23 @@ class ImageCanvas(QWidget):
             self.setCursor(cursor)
 
     def wheelEvent(self, event: QWheelEvent):
-        delta = event.angleDelta().y()
-        factor = 1.15 if delta > 0 else 1 / 1.15
-        mouse_pos = event.position()
-        old_scene = self._widget_to_image(mouse_pos)
-        self._fit_to_window = False
-        self._zoom = max(0.01, min(50.0, self._zoom * factor))
-        new_scene = self._widget_to_image(mouse_pos)
-        if old_scene is not None and new_scene is not None:
-            dx = (new_scene.x() - old_scene.x()) * self._zoom
-            dy = (new_scene.y() - old_scene.y()) * self._zoom
-            self._pan_offset += QPointF(dx, dy)
-        self.zoom_changed.emit(self._zoom)
+        dy = event.angleDelta().y()
+        dx = event.angleDelta().x()
+        if dy != 0:
+            factor = 1.15 if dy > 0 else 1 / 1.15
+            mouse_pos = event.position()
+            old_scene = self._widget_to_image(mouse_pos)
+            self._fit_to_window = False
+            self._zoom = max(0.01, min(50.0, self._zoom * factor))
+            new_scene = self._widget_to_image(mouse_pos)
+            if old_scene is not None and new_scene is not None:
+                dx_c = (new_scene.x() - old_scene.x()) * self._zoom
+                dy_c = (new_scene.y() - old_scene.y()) * self._zoom
+                self._pan_offset += QPointF(dx_c, dy_c)
+            self.zoom_changed.emit(self._zoom)
+        elif dx != 0:
+            self._pan_offset += QPointF(dx, 0)
+            self._fit_to_window = False
         self.update()
 
     def resizeEvent(self, event):

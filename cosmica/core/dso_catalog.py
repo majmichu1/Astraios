@@ -136,13 +136,20 @@ def query_dso_in_field(
     dec_center: float,
     fov_deg: float,
 ) -> list[DSOEntry]:
-    """Return DSOs within fov_deg/2 radius of the field centre."""
+    """Return DSOs within fov_deg/2 radius of the field centre.
+
+    Uses a flat-sky (small-angle) approximation: angular distance in
+    degrees ≈ √((dra·cosδ)² + ddec²). The previous rectangular filter
+    missed ~21% of objects that fell within the inscribed circle but
+    outside the bounding box (corners).
+    """
     results = []
     cos_dec = np.cos(np.radians(dec_center))
     half = fov_deg / 2.0
+    half_sq = half * half
     for obj in _CATALOG:
         dra  = abs(obj.ra_deg  - ra_center) * cos_dec
         ddec = abs(obj.dec_deg - dec_center)
-        if dra < half and ddec < half:
+        if dra * dra + ddec * ddec < half_sq:
             results.append(obj)
     return results

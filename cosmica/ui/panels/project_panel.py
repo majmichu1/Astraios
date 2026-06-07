@@ -238,8 +238,7 @@ class ProjectPanel(QWidget):
         # Project name box
         self._name_box = QWidget()
         self._name_box.setStyleSheet(
-            f"background-color: {BG_TERTIARY}; border: 1px solid {BORDER};"
-            "border-radius: 5px;"
+            f"border: 1px solid {BORDER}; border-radius: 5px;"
         )
         name_box_layout = QVBoxLayout(self._name_box)
         name_box_layout.setContentsMargins(8, 5, 8, 5)

@@ -64,15 +64,13 @@ def create_superbias(
             column_pattern = column_pattern[np.newaxis, :]
         result = pixel_bias - column_pattern
     else:
-        # (N, H, W, C) multichannel
-        result = np.empty_like(pixel_bias)
-        for c in range(pixel_bias.shape[2]):
-            col_pat = np.median(pixel_bias[:, :, c], axis=0, keepdims=True)
-            col_pat = col_pat - col_pat.mean()
-            if column_smooth > 0:
-                col_pat_smooth = _gaussian_smooth_1d(col_pat[0], column_smooth)
-                col_pat = col_pat_smooth[np.newaxis, :]
-            result[:, :, c] = pixel_bias[:, :, c] - col_pat
+        # (N, H, W, C) multichannel — vectorized column pattern
+        col_pat = np.median(pixel_bias, axis=0, keepdims=True)  # (1, W, C)
+        col_pat = col_pat - col_pat.mean(axis=1, keepdims=True)
+        if column_smooth > 0:
+            for c in range(pixel_bias.shape[2]):
+                col_pat[0, :, c] = _gaussian_smooth_1d(col_pat[0, :, c], column_smooth)
+        result = pixel_bias - col_pat
 
     return result.astype(np.float32)
 

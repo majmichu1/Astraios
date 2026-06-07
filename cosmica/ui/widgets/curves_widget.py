@@ -12,7 +12,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QMouseEvent, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
-from cosmica.core.curves import CurvePoints
+from cosmica.core.curves import CurvePoints, CurvesParams
 
 if TYPE_CHECKING:
     pass
@@ -35,6 +35,8 @@ class CurveEditor(QWidget):
     POINT_HOVER_COLOR = QColor(255, 200, 100)
     HIST_COLOR = QColor(80, 80, 80, 120)
 
+    CHANNEL_NAMES = ["master", "red", "green", "blue"]
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMinimumSize(200, 200)
@@ -44,6 +46,9 @@ class CurveEditor(QWidget):
         self._histogram: np.ndarray | None = None
         self._dragging_idx: int = -1
         self._hover_idx: int = -1
+        # Per-channel points cache: {channel_name: list[tuple[float, float]]}
+        self._channel_cache: dict[str, list[tuple[float, float]]] = {}
+        self._current_channel: str = "master"
 
     @property
     def curve(self) -> CurvePoints:
@@ -194,14 +199,35 @@ class CurveEditor(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent):
         self._dragging_idx = -1
 
+    def set_channel(self, channel: str) -> None:
+        """Switch to a different channel, caching the current curve points."""
+        self._channel_cache[self._current_channel] = list(self._curve.points)
+        self._current_channel = channel
+        cached = self._channel_cache.get(channel)
+        if cached:
+            self._curve = CurvePoints()
+            self._curve.points = list(cached)
+        else:
+            self._curve = CurvePoints()
+        self.curve_changed.emit()
+        self.update()
+
+    def get_points(self) -> list[tuple[float, float]]:
+        return list(self._curve.points)
+
+    def set_points(self, points: list[tuple[float, float]]) -> None:
+        self._curve = CurvePoints()
+        self._curve.points = list(points)
+        self.curve_changed.emit()
+        self.update()
+
     def reset(self):
         """Reset the curve to identity."""
         self._curve = CurvePoints()
+        self._channel_cache.clear()
         self.curve_changed.emit()
         self.update()
 
     def get_params(self) -> CurvesParams:
         """Return CurvesParams for the current curve state."""
-        from cosmica.core.curves import CurvesParams
-
         return CurvesParams(master=self._curve)

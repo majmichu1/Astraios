@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -102,7 +103,11 @@ class ColorSettingsDialog(QDialog):
         )
         conv_layout.addRow("Rendering intent:", self._intent_combo)
 
-        self._gamma_spin = QLabel("2.2")
+        self._gamma_spin = QDoubleSpinBox()
+        self._gamma_spin.setRange(1.0, 3.5)
+        self._gamma_spin.setSingleStep(0.1)
+        self._gamma_spin.setValue(self._load_gamma())
+        self._gamma_spin.setDecimals(2)
         self._gamma_spin.setStyleSheet("font-weight: bold;")
         conv_layout.addRow("Display gamma:", self._gamma_spin)
 
@@ -219,7 +224,25 @@ class ColorSettingsDialog(QDialog):
 
     def get_display_gamma(self) -> float:
         """Return the configured display gamma."""
-        return 2.2
+        return float(self._gamma_spin.value())
+
+    def _load_gamma(self) -> float:
+        """Load the saved display gamma from settings, or 2.2 default."""
+        try:
+            from cosmica.core.config import get_config
+            cfg = get_config()
+            return float(cfg.get(SETTINGS_KEY_GAMMA, 2.2))
+        except Exception:
+            return 2.2
+
+    def accept(self):
+        """Persist gamma when user clicks OK."""
+        try:
+            from cosmica.core.config import get_config
+            get_config().set(SETTINGS_KEY_GAMMA, float(self._gamma_spin.value()))
+        except Exception:
+            pass
+        super().accept()
 
     def is_soft_proof_enabled(self) -> bool:
         """Whether soft-proof simulation is active."""
