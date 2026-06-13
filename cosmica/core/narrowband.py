@@ -19,9 +19,19 @@ log = logging.getLogger(__name__)
 
 
 class NarrowbandPalette(Enum):
-    SHO = auto()  # Hubble palette: S=R, H=G, O=B
-    HOO = auto()  # Ha=R, OIII=G+B
-    HOS = auto()  # Ha=R, OIII=G, SII=B (natural-ish)
+    # Linear permutation palettes (channels mapped directly to R/G/B)
+    SHO = auto()  # Hubble palette: R=SII, G=Ha, B=OIII
+    HOO = auto()  # R=Ha, G=OIII, B=OIII (bicolor)
+    HOS = auto()  # R=Ha, G=OIII, B=SII
+    HSO = auto()  # R=Ha, G=SII, B=OIII
+    OHS = auto()  # R=OIII, G=Ha, B=SII
+    OSH = auto()  # R=OIII, G=SII, B=Ha
+    # Dynamic (nonlinear) palettes — the green channel is a per-pixel blend of
+    # Ha and OIII weighted by OIII strength, instead of a fixed channel map.
+    # This breaks up the flat green of a static SHO and is the basis of the
+    # popular "Foraxx" look.
+    FORAXX = auto()       # Foraxx-style: R=Ha, G=blend(Ha,OIII), B=OIII
+    DYNAMIC_SHO = auto()  # SHO with the same dynamic green blend (R=SII)
     CUSTOM = auto()
 
 
@@ -43,7 +53,27 @@ PALETTE_MATRICES = {
         [0.0, 1.0, 0.0],  # G = OIII
         [0.0, 0.0, 1.0],  # B = SII
     ], dtype=np.float32),
+    NarrowbandPalette.HSO: np.array([
+        [1.0, 0.0, 0.0],  # R = Ha
+        [0.0, 0.0, 1.0],  # G = SII
+        [0.0, 1.0, 0.0],  # B = OIII
+    ], dtype=np.float32),
+    NarrowbandPalette.OHS: np.array([
+        [0.0, 1.0, 0.0],  # R = OIII
+        [1.0, 0.0, 0.0],  # G = Ha
+        [0.0, 0.0, 1.0],  # B = SII
+    ], dtype=np.float32),
+    NarrowbandPalette.OSH: np.array([
+        [0.0, 1.0, 0.0],  # R = OIII
+        [0.0, 0.0, 1.0],  # G = SII
+        [1.0, 0.0, 0.0],  # B = Ha
+    ], dtype=np.float32),
 }
+
+# Palettes computed with a nonlinear (per-pixel) blend rather than a fixed matrix.
+DYNAMIC_PALETTES = frozenset(
+    {NarrowbandPalette.FORAXX, NarrowbandPalette.DYNAMIC_SHO}
+)
 
 
 @dataclass
@@ -93,6 +123,17 @@ def combine_narrowband(
     if sii is None:
         sii = np.zeros((h, w), dtype=np.float32)
 
+    dm = get_device_manager()
+
+    # Dynamic (nonlinear) palettes blend Ha/OIII per pixel.
+    if params.palette in DYNAMIC_PALETTES:
+        result = _combine_dynamic(ha, oiii, sii, params.palette, dm)
+        if params.normalize:
+            m = float(result.max())
+            if m > 1e-10:
+                result = result / m
+        return np.clip(result, 0.0, 1.0).astype(np.float32)
+
     # Stack inputs: (3, H, W) — [Ha, OIII, SII]
     stack = np.stack([ha, oiii, sii], axis=0)  # (3, H, W)
 
@@ -103,7 +144,6 @@ def combine_narrowband(
         matrix = PALETTE_MATRICES[params.palette]
 
     # Apply: result[c,H,W] = einsum("ci,ihw->chw", matrix, stack) on GPU
-    dm = get_device_manager()
     with torch.no_grad():
         matrix_t = torch.from_numpy(matrix).to(dm.device)  # (3, 3)
         stack_t = torch.from_numpy(stack).to(dm.device)    # (3, H, W)
@@ -115,6 +155,41 @@ def combine_narrowband(
         result = result_t.clamp(0, 1).cpu().numpy().astype(np.float32)
 
     return result
+
+
+def _combine_dynamic(
+    ha: np.ndarray,
+    oiii: np.ndarray,
+    sii: np.ndarray,
+    palette: NarrowbandPalette,
+    dm,
+) -> np.ndarray:
+    """Compute a dynamic (nonlinear) narrowband palette on the GPU.
+
+    The green channel is a per-pixel blend of Ha and OIII weighted by
+    ``factor = OIII**(1 - OIII)`` (the community "Foraxx" weighting):
+    ``green = factor*Ha + (1 - factor)*OIII``. Red/blue depend on the palette:
+
+    - ``FORAXX``:      R=Ha,  B=OIII
+    - ``DYNAMIC_SHO``: R=SII, B=OIII
+
+    Returns an unnormalised ``(3, H, W)`` float32 array.
+    """
+    with torch.no_grad():
+        dev = dm.device
+        h_t = torch.from_numpy(np.ascontiguousarray(ha)).to(dev)
+        o_t = torch.from_numpy(np.ascontiguousarray(oiii)).to(dev)
+        factor = torch.pow(o_t.clamp(0, 1), (1.0 - o_t.clamp(0, 1)))
+        green = factor * h_t + (1.0 - factor) * o_t
+
+        if palette == NarrowbandPalette.DYNAMIC_SHO:
+            red = torch.from_numpy(np.ascontiguousarray(sii)).to(dev)
+        else:  # FORAXX
+            red = h_t
+        blue = o_t
+
+        result_t = torch.stack([red, green, blue], dim=0)
+        return result_t.cpu().numpy().astype(np.float32)
 
 
 def continuum_subtraction(

@@ -83,11 +83,21 @@ class NarrowbandDialog(QDialog):
             "SHO (Hubble Palette)",
             "HOO (Ha + OIII)",
             "HOS (Natural-ish)",
+            "HSO",
+            "OHS",
+            "OSH",
+            "Foraxx (dynamic)",
+            "Dynamic SHO",
         ])
         self._palette_combo.setToolTip(
             "SHO: SII=Red, Ha=Green, OIII=Blue (Hubble)\n"
             "HOO: Ha=Red, OIII=Green+Blue\n"
-            "HOS: Ha=Red, OIII=Green, SII=Blue"
+            "HOS: Ha=Red, OIII=Green, SII=Blue\n"
+            "HSO: Ha=Red, SII=Green, OIII=Blue\n"
+            "OHS: OIII=Red, Ha=Green, SII=Blue\n"
+            "OSH: OIII=Red, SII=Green, Ha=Blue\n"
+            "Foraxx: R=Ha, B=OIII, green dynamically blends Ha/OIII\n"
+            "Dynamic SHO: SHO with the dynamic green blend (R=SII)"
         )
         palette_layout.addWidget(self._palette_combo)
         layout.addWidget(palette_group)
@@ -142,6 +152,11 @@ class NarrowbandDialog(QDialog):
             0: NarrowbandPalette.SHO,
             1: NarrowbandPalette.HOO,
             2: NarrowbandPalette.HOS,
+            3: NarrowbandPalette.HSO,
+            4: NarrowbandPalette.OHS,
+            5: NarrowbandPalette.OSH,
+            6: NarrowbandPalette.FORAXX,
+            7: NarrowbandPalette.DYNAMIC_SHO,
         }
         params = NarrowbandParams(
             palette=palette_map.get(self._palette_combo.currentIndex(), NarrowbandPalette.SHO),
