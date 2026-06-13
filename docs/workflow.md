@@ -124,9 +124,9 @@ Calibration → Stacking → Stretch → Background → Color → Detail → Exp
 | Web portfolio | PNG | 16-bit |
 | Social media | JPEG | 8-bit, quality 95% |
 
-## Pro Workflow: Smart Processor
+## Automated Workflow: Smart Processor
 
-For users with a **Pro license**, the **Smart Processor** (Ctrl+Shift+P) automates the entire pipeline:
+The **Smart Processor** (Ctrl+Shift+P) automates the entire pipeline:
 
 1. Detects image type (OSC RGB, mono, narrowband)
 2. Measures PSF and identifies the target object

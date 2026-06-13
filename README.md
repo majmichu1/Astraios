@@ -205,14 +205,13 @@ cosmica/
 ├── core/                # 66 image processing modules (GPU-accelerated)
 ├── ai/                  # AI inference, training, model management
 ├── ui/                  # PyQt6 interface (dialogs, panels, widgets)
-├── licensing/           # License key (Lemon Squeezy + Gumroad)
 ├── updater/             # Auto-update via GitHub Releases
 ├── plugins/             # Plugin system (built-in + user)
 ├── resources/           # Static SVG icons
 └── scripts/             # Training and utility scripts
 ```
 
-Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/`, `tests/test_ui/`, and `tests/test_licensing/`.
+Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/` and `tests/test_ui/`.
 
 ## License
 
