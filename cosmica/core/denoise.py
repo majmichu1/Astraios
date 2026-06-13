@@ -67,6 +67,47 @@ def _estimate_noise_sigma(wavelet_scales: list[np.ndarray]) -> float:
     return median_abs / 0.6745 if median_abs > 0 else 1e-6
 
 
+def measure_noise(image: np.ndarray) -> tuple[float, float]:
+    """Measure the noise level and SNR of an image.
+
+    Uses the patch-based estimator from :mod:`cosmica.core.mure_denoise`.
+    Cosmica stores colour images channel-first ``(C, H, W)`` whereas the
+    estimator expects mono ``(H, W)``; we therefore estimate per channel and
+    average, which both fixes the layout mismatch and gives a single number
+    to drive the UI.
+
+    Args:
+        image: ``(H, W)`` or ``(C, H, W)`` float32 in ``[0, 1]``.
+
+    Returns:
+        ``(sigma, snr)`` — noise standard deviation (in ``[0, 1]`` units,
+        averaged across channels) and the corresponding signal-to-noise ratio.
+    """
+    from cosmica.core.mure_denoise import estimate_noise, snr_estimate
+
+    if image.ndim == 2:
+        sigma = float(estimate_noise(image))
+    else:
+        sigmas = [float(estimate_noise(image[c])) for c in range(image.shape[0])]
+        sigma = float(np.mean(sigmas)) if sigmas else 0.0
+    return sigma, snr_estimate(image, sigma)
+
+
+def recommend_strength(image: np.ndarray) -> tuple[float, float, float]:
+    """Recommend a denoise *Amount* (0–1) from the measured noise level.
+
+    The mapping is empirical: cleaner images get gentler denoising, noisier
+    ones get stronger. It gives the user a sensible, data-driven starting
+    point rather than a fixed default — they remain free to adjust.
+
+    Returns:
+        ``(strength, sigma, snr)`` so callers can also surface the measurement.
+    """
+    sigma, snr = measure_noise(image)
+    strength = float(np.clip(0.2 + sigma * 20.0, 0.15, 0.9))
+    return strength, sigma, snr
+
+
 def _denoise_wavelet_gpu(
     image: np.ndarray,
     params: DenoiseParams,

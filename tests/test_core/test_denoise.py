@@ -2,7 +2,13 @@
 
 import numpy as np
 
-from cosmica.core.denoise import DenoiseMethod, DenoiseParams, denoise
+from cosmica.core.denoise import (
+    DenoiseMethod,
+    DenoiseParams,
+    denoise,
+    measure_noise,
+    recommend_strength,
+)
 from cosmica.core.masks import Mask
 
 
@@ -57,3 +63,29 @@ class TestDenoise:
         result = denoise(noisy, mask=mask)
         # Top half should be unchanged
         np.testing.assert_array_almost_equal(result[:50, :], noisy[:50, :])
+
+
+class TestNoiseMeasurement:
+    def test_noisier_image_reports_higher_sigma(self):
+        rng = np.random.default_rng(0)
+        clean = np.full((128, 128), 0.3, np.float32) + rng.normal(0, 0.002, (128, 128)).astype(np.float32)
+        noisy = np.full((128, 128), 0.3, np.float32) + rng.normal(0, 0.03, (128, 128)).astype(np.float32)
+        assert measure_noise(noisy)[0] > measure_noise(clean)[0]
+
+    def test_handles_channel_first_color(self):
+        # Cosmica stores colour channel-first (C, H, W); must not crash or misread axes.
+        rng = np.random.default_rng(1)
+        img = np.clip(0.3 + rng.normal(0, 0.02, (3, 96, 96)), 0, 1).astype(np.float32)
+        sigma, snr = measure_noise(img)
+        assert 0.0 < sigma < 0.1
+        assert snr > 0
+
+    def test_recommend_strength_in_range_and_monotonic(self):
+        rng = np.random.default_rng(2)
+        clean = np.full((128, 128), 0.3, np.float32) + rng.normal(0, 0.002, (128, 128)).astype(np.float32)
+        noisy = np.full((128, 128), 0.3, np.float32) + rng.normal(0, 0.04, (128, 128)).astype(np.float32)
+        s_clean = recommend_strength(clean)[0]
+        s_noisy = recommend_strength(noisy)[0]
+        assert 0.15 <= s_clean <= 0.9
+        assert 0.15 <= s_noisy <= 0.9
+        assert s_noisy > s_clean

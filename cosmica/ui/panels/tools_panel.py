@@ -127,6 +127,8 @@ class ToolsPanel(QWidget):
     run_color_calibration    = pyqtSignal()
     run_pcc                  = pyqtSignal()
     run_denoise              = pyqtSignal()
+    request_auto_denoise     = pyqtSignal()
+    run_frequency_separation = pyqtSignal()
     run_star_reduction       = pyqtSignal()
     open_narrowband_dialog   = pyqtSignal()
     open_pixelmath_dialog    = pyqtSignal()
@@ -918,6 +920,9 @@ class ToolsPanel(QWidget):
         self._denoise_amount     = dnz.add_slider("Amount",     0.5, 0.0, 1.0, 0.05, 2)
         self._denoise_lum        = dnz.add_slider("Luminance",  0.7, 0.0, 1.0, 0.05, 2)
         self._denoise_chrom      = dnz.add_slider("Chrominance",0.5, 0.0, 1.0, 0.05, 2)
+        _auto_btn = dnz.add_btn_row([("🎯 Auto (measure noise)", False)])[0]
+        _auto_btn.clicked.connect(self.request_auto_denoise.emit)
+        self._denoise_noise_label = dnz.add_status_label("Noise: not measured")
         self._denoise_preview_check = dnz.add_check("Live split preview")
         for _sl in (self._denoise_amount, self._denoise_lum, self._denoise_chrom):
             _sl.value_changed.connect(
@@ -964,6 +969,25 @@ class ToolsPanel(QWidget):
         btns[0].clicked.connect(self.run_wavelet_sharpen.emit)
         btns[1].clicked.connect(self.run_mlt.emit)
         lay.addWidget(wav)
+
+        # Frequency Separation
+        fs = CollapsibleSection("Frequency Separation")
+        fs.add_info("Split into structure (LF) + detail (HF). Boost detail or smooth colour/gradients independently.")
+        self._fs_method = fs.add_combo("Method", ["Subtract (linear)", "Divide (ratio)"])
+        self._fs_sigma = fs.add_slider("Split radius", 5.0, 1.0, 50.0, 1.0, 1)
+        self._fs_hf_boost = fs.add_slider("Detail boost", 1.0, 0.0, 3.0, 0.05, 2)
+        self._fs_lf_smooth = fs.add_slider("Smooth structure", 0.0, 0.0, 30.0, 1.0, 1)
+        self._fs_preview_check = fs.add_check("Live split preview")
+        for _sl in (self._fs_sigma, self._fs_hf_boost, self._fs_lf_smooth):
+            _sl.value_changed.connect(
+                lambda _, s=self._fs_preview_check: self._fire_preview("frequency_separation", s)
+            )
+        self._fs_preview_check.toggled.connect(
+            lambda on: self.preview_requested.emit("frequency_separation") if on
+            else self.preview_cancelled.emit()
+        )
+        fs.add_run("▶ Apply Frequency Separation", self.run_frequency_separation.emit)
+        lay.addWidget(fs)
 
         # CLAHE
         clh = CollapsibleSection("Local Contrast / CLAHE")
@@ -1573,6 +1597,32 @@ class ToolsPanel(QWidget):
             strength=self._denoise_amount.value(),
             detail_preservation=self._denoise_lum.value(),
             chrominance_only=(self._denoise_chrom.value() > 0.5),
+        )
+
+    def set_denoise_amount(self, value: float) -> None:
+        """Set the denoise Amount slider (used by the Auto measurement)."""
+        self._denoise_amount.setValue(value)
+
+    def set_denoise_noise_readout(self, sigma: float, snr: float) -> None:
+        """Display the measured noise sigma / SNR under the denoise controls."""
+        self._denoise_noise_label.setText(f"Noise σ={sigma:.4f}   SNR={snr:.1f}")
+
+    def get_frequency_separation_params(self):
+        from cosmica.core.frequency_separation import (
+            FrequencySeparationParams,
+            SeparationMethod,
+        )
+
+        method = (
+            SeparationMethod.DIVIDE
+            if self._fs_method.currentText().startswith("Divide")
+            else SeparationMethod.SUBTRACT
+        )
+        return FrequencySeparationParams(
+            sigma=self._fs_sigma.value(),
+            method=method,
+            hf_boost=self._fs_hf_boost.value(),
+            lf_smooth=self._fs_lf_smooth.value(),
         )
 
     def get_star_reduction_params(self) -> StarReductionParams:

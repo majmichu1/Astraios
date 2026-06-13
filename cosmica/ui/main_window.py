@@ -1176,6 +1176,8 @@ class MainWindow(QMainWindow):
         tp.run_color_calibration.connect(self._on_run_color_calibration)
         tp.run_pcc.connect(self._on_run_pcc)
         tp.run_denoise.connect(self._on_run_denoise)
+        tp.request_auto_denoise.connect(self._on_auto_denoise)
+        tp.run_frequency_separation.connect(self._on_run_frequency_separation)
         tp.run_star_reduction.connect(self._on_run_star_reduction)
         tp.open_narrowband_dialog.connect(self._show_narrowband_dialog)
         tp.open_pixelmath_dialog.connect(self._show_pixelmath_dialog)
@@ -3083,6 +3085,9 @@ class MainWindow(QMainWindow):
             return richardson_lucy(data, params=params)
         elif tool_name == "denoise":
             return denoise(data, tp.get_denoise_params())
+        elif tool_name == "frequency_separation":
+            from cosmica.core.frequency_separation import frequency_separation
+            return frequency_separation(data, tp.get_frequency_separation_params())
         elif tool_name == "scnr":
             return scnr(data, tp.get_scnr_params())
         elif tool_name == "color_adjust":
@@ -3790,10 +3795,17 @@ class MainWindow(QMainWindow):
     def _show_channel_match_dialog(self):
         if self._current_image is None:
             return
+        data = self._current_image.data
+        if data.ndim != 3 or data.shape[0] < 3:
+            self._log_panel.log("Channel Match requires a colour (RGB) image.", "warning")
+            return
         from cosmica.core.channel_match import ChannelMatchParams, align_channels
 
         params = ChannelMatchParams()
-        result = align_channels(self._current_image.data, params)
+        # align_channels expects channel-last (H, W, 3); internal format is (C, H, W).
+        rgb_hwc = np.ascontiguousarray(np.transpose(data[:3], (1, 2, 0)))
+        aligned = align_channels(rgb_hwc, params)
+        result = np.transpose(aligned, (2, 0, 1)).astype(np.float32)
         self._update_current_image(result, "Channel Match complete")
 
     @pyqtSlot()
@@ -3804,7 +3816,14 @@ class MainWindow(QMainWindow):
         from cosmica.core.lens_distortion import LensDistortionParams, correct_distortion
 
         params = LensDistortionParams()
-        result = correct_distortion(self._current_image.data, params)
+        data = self._current_image.data
+        if data.ndim == 3:
+            # correct_distortion expects (H, W) or (H, W, C); internal format is (C, H, W).
+            hwc = np.ascontiguousarray(np.transpose(data, (1, 2, 0)))
+            corrected = correct_distortion(hwc, params)
+            result = np.transpose(corrected, (2, 0, 1)).astype(np.float32)
+        else:
+            result = correct_distortion(data, params)
         self._update_current_image(result, "Lens distortion correction applied")
 
     @pyqtSlot()
@@ -4262,6 +4281,21 @@ class MainWindow(QMainWindow):
                            on_done=lambda r: self._update_current_image(r, "SPCC complete"))
 
     @pyqtSlot()
+    def _on_auto_denoise(self):
+        """Measure image noise and set a recommended denoise Amount."""
+        if self._current_image is None:
+            self._log_panel.log("Auto denoise: no image loaded.", "warn")
+            return
+        from cosmica.core.denoise import recommend_strength
+
+        strength, sigma, snr = recommend_strength(self._current_image.data)
+        self._tools_panel.set_denoise_amount(strength)
+        self._tools_panel.set_denoise_noise_readout(sigma, snr)
+        self._log_panel.log(
+            f"Measured noise σ={sigma:.4f}, SNR={snr:.1f} → Amount set to {strength:.2f}",
+            "info",
+        )
+
     def _on_run_denoise(self):
         if self._current_image is None:
             return
@@ -4289,6 +4323,34 @@ class MainWindow(QMainWindow):
             if self._project:
                 self._project.add_history(
                     "Denoise", {"method": _p.method.name, "strength": _p.strength}
+                )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_frequency_separation(self):
+        if self._current_image is None:
+            return
+        from cosmica.core.frequency_separation import frequency_separation
+
+        params = self._tools_panel.get_frequency_separation_params()
+        self._log_panel.log(
+            f"Frequency separation (σ={params.sigma:.0f}, detail×{params.hf_boost:.2f}, "
+            f"smooth={params.lf_smooth:.0f}, {params.method.name.lower()})...",
+            "info",
+        )
+        _p = params
+
+        def _work(data, progress=None):
+            return frequency_separation(data, _p, progress=progress)
+
+        def _done(result):
+            self._update_current_image(result, "Frequency separation complete")
+            if self._project:
+                self._project.add_history(
+                    "FrequencySeparation",
+                    {"sigma": _p.sigma, "hf_boost": _p.hf_boost,
+                     "lf_smooth": _p.lf_smooth, "method": _p.method.name},
                 )
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
