@@ -93,111 +93,109 @@ def plate_solve(
     )
 
 
+def _write_temp_mono_fits(image: np.ndarray, params: PlateSolveParams) -> "object | None":
+    """Write a mono uint16 FITS for an external solver. Returns a Path or None.
+
+    Centralises the array→FITS conversion shared by the ASTAP and
+    astrometry.net adapters so the two paths can't drift apart.
+    """
+    import tempfile
+    from pathlib import Path
+
+    try:
+        from astropy.io import fits as _fits
+    except ImportError:
+        log.warning("astropy required for plate solving")
+        return None
+
+    mono = image.mean(axis=0) if image.ndim == 3 else image
+    mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
+    hdu = _fits.PrimaryHDU(mono_u16)
+    if params.ra_hint is not None:
+        hdu.header["OBJCTRA"] = params.ra_hint
+    if params.dec_hint is not None:
+        hdu.header["OBJCTDEC"] = params.dec_hint
+
+    fd = tempfile.NamedTemporaryFile(suffix=".fits", delete=False)
+    fd.close()
+    path = Path(fd.name)
+    hdu.writeto(str(path), overwrite=True)
+    return path
+
+
+def _result_from_solver_dict(d: dict | None, image: np.ndarray) -> PlateSolveResult:
+    """Convert a :mod:`cosmica.core.star_catalog` solver dict to a result.
+
+    star_catalog returns ``{ra, dec, scale, rotation, wcs_header}`` where
+    ``wcs_header`` is the full solved FITS header. We feed that header through
+    :func:`_parse_wcs_header` so the resulting ``wcs_header`` is in the
+    canonical ``ra_center`` format that plate-solve consumers expect (see
+    :mod:`cosmica.core.wcs`). Falls back to the flat fields if no FITS header
+    is present.
+    """
+    if not d:
+        return PlateSolveResult(success=False)
+
+    fits_header = d.get("wcs_header") or {}
+    if fits_header and ("CRVAL1" in fits_header or "CD1_1" in fits_header):
+        return _parse_wcs_header(dict(fits_header), image)
+
+    ra = float(d.get("ra") or 0.0)
+    dec = float(d.get("dec") or 0.0)
+    scale = float(d.get("scale") or 0.0)
+    rotation = float(d.get("rotation") or 0.0)
+    h = image.shape[-2] if image.ndim >= 2 else 1
+    w = image.shape[-1] if image.ndim >= 2 else 1
+    scale_deg = scale / 3600.0
+    wcs_dict = {
+        "ra_center": ra, "dec_center": dec, "scale": scale, "rotation": rotation,
+        "width": w, "height": h,
+        "cd11": scale_deg, "cd12": 0.0, "cd21": 0.0, "cd22": scale_deg,
+        "crpix1": w / 2, "crpix2": h / 2,
+    }
+    return PlateSolveResult(
+        success=(scale > 0 or ra != 0.0 or dec != 0.0),
+        ra_center=ra, dec_center=dec, pixel_scale=scale,
+        rotation=rotation, wcs_header=wcs_dict,
+    )
+
+
 def plate_solve_astap(
     image: np.ndarray,
     params: PlateSolveParams | None = None,
     progress=None,
 ) -> PlateSolveResult:
-    """Plate-solve using ASTAP CLI (offline, fast).
+    """Plate-solve an array using ASTAP CLI (offline, fast).
 
-    Requires ASTAP to be installed and ``astap`` or ``astap_cli`` on PATH,
-    or at the default install location on Linux/Windows.
+    Thin adapter over :func:`cosmica.core.star_catalog.plate_solve_astap` —
+    the single source of truth for the ASTAP subprocess. Writes the array to a
+    temporary FITS, delegates, then converts the WCS dict to a
+    :class:`PlateSolveResult`.
 
     ASTAP: https://www.hnsky.org/astap.htm  (free, GPL)
     """
-    import shutil
-    import subprocess
-    import tempfile
-    from pathlib import Path
+    from cosmica.core import star_catalog
 
     if params is None:
         params = PlateSolveParams()
+    if progress:
+        progress(0.1, "Running ASTAP plate solver…")
 
-    # Locate binary
-    binary = (
-        shutil.which("astap_cli")
-        or shutil.which("astap")
-    )
-    if binary is None:
-        for p in ("/usr/bin/astap", "/usr/local/bin/astap"):
-            if Path(p).exists():
-                binary = p
-                break
-    if binary is None or not Path(binary).exists():
-        log.warning("ASTAP not found on PATH — install ASTAP for offline plate solving")
+    path = _write_temp_mono_fits(image, params)
+    if path is None:
         return PlateSolveResult(success=False)
-
-    # Write image as temporary FITS
     try:
-        from astropy.io import fits as _fits
-    except ImportError:
-        log.warning("astropy required for ASTAP plate solving")
-        return PlateSolveResult(success=False)
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_fits = Path(tmpdir) / "solve_input.fits"
-
-        # Convert to mono float32 for solving
-        if image.ndim == 3:
-            mono = image.mean(axis=0)
-        else:
-            mono = image
-        mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
-
-        hdu = _fits.PrimaryHDU(mono_u16)
-        if params.ra_hint is not None:
-            hdu.header["OBJCTRA"] = params.ra_hint
-        if params.dec_hint is not None:
-            hdu.header["OBJCTDEC"] = params.dec_hint
-        hdu.writeto(str(tmp_fits), overwrite=True)
-
-        # Build ASTAP command
-        cmd = [binary, "-f", str(tmp_fits), "-update", "-log"]
-        if params.ra_hint is not None and params.dec_hint is not None:
-            cmd += ["-ra", str(params.ra_hint / 15.0), "-spd", str(params.dec_hint + 90.0)]
-            cmd += ["-r", str(params.search_radius)]
-        if params.scale_hint is not None:
-            cmd += ["-fov", str(params.scale_hint * image.shape[-1] / 3600.0)]
-
-        if progress:
-            progress(0.1, "Running ASTAP plate solver…")
-
-        try:
-            proc = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=120
-            )
-            log.debug("ASTAP stdout: %s", proc.stdout[:500])
-            log.debug("ASTAP stderr: %s", proc.stderr[:500])
-        except subprocess.TimeoutExpired:
-            log.warning("ASTAP timed out after 120s")
-            return PlateSolveResult(success=False)
-        except Exception as e:
-            log.warning("ASTAP failed to run: %s", e)
-            return PlateSolveResult(success=False)
-
-        # ASTAP writes a .wcs file alongside the input FITS
-        wcs_path = tmp_fits.with_suffix(".wcs")
-        if not wcs_path.exists():
-            # Check for solved FITS header update
-            solved_fits = tmp_fits
-            try:
-                with _fits.open(str(solved_fits)) as hdul:
-                    h = hdul[0].header
-                    if "CRVAL1" not in h:
-                        log.warning("ASTAP: no WCS in output — solve failed")
-                        return PlateSolveResult(success=False)
-                    return _parse_wcs_header(dict(h), image)
-            except Exception as e:
-                log.warning("ASTAP output parse failed: %s", e)
-                return PlateSolveResult(success=False)
-
-        try:
-            with _fits.open(str(wcs_path)) as hdul:
-                wcs_header = dict(hdul[0].header)
-            return _parse_wcs_header(wcs_header, image)
-        except Exception as e:
-            log.warning("ASTAP WCS parse failed: %s", e)
-            return PlateSolveResult(success=False)
+        d = star_catalog.plate_solve_astap(
+            path, params.ra_hint, params.dec_hint, params.scale_hint
+        )
+    finally:
+        path.unlink(missing_ok=True)
+        # ASTAP writes sidecar files next to the input
+        for suffix in (".wcs", ".ini"):
+            path.with_suffix(suffix).unlink(missing_ok=True)
+    if progress:
+        progress(1.0, "ASTAP solve complete" if d else "ASTAP solve failed")
+    return _result_from_solver_dict(d, image)
 
 
 def _parse_wcs_header(header: dict, image: np.ndarray) -> PlateSolveResult:
@@ -244,188 +242,34 @@ def plate_solve_astrometry_net(
     params: PlateSolveParams | None = None,
     progress=None,
 ) -> PlateSolveResult:
-    """Plate-solve using the astrometry.net web API (nova.astrometry.net).
+    """Plate-solve an array via nova.astrometry.net.
 
+    Thin adapter over :func:`cosmica.core.star_catalog.plate_solve_astrometry_net`
+    — the single source of truth for the astrometry.net upload/poll logic.
     Requires an internet connection and an API key from nova.astrometry.net.
     """
-    import json
-    import tempfile
-    import time
-    import urllib.parse
-    import urllib.request
-    from pathlib import Path
+    from cosmica.core import star_catalog
 
     if params is None:
         params = PlateSolveParams()
-
     if not api_key:
         log.warning("No astrometry.net API key provided")
         return PlateSolveResult(success=False)
+    if progress:
+        progress(0.1, "Uploading image to astrometry.net…")
 
-    BASE = "https://nova.astrometry.net/api/"
-
-    def _request_with_retry(url, data=None, headers=None, max_retries=3, base_delay=1.0, timeout=30):
-        for attempt in range(max_retries):
-            try:
-                req = urllib.request.Request(url, data=data, headers=headers or {})
-                with urllib.request.urlopen(req, timeout=timeout) as resp:
-                    return json.loads(resp.read())
-            except urllib.request.HTTPError as e:
-                if e.code == 429 and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    log.warning("astrometry.net rate limited (429), retrying in %.0fs…", delay)
-                    time.sleep(delay)
-                    continue
-                if e.code >= 500 and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    time.sleep(delay)
-                    continue
-                raise
-            except (urllib.request.URLError, ConnectionError, TimeoutError) as e:
-                if attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
-                    log.debug("astrometry.net request failed (%s), retrying in %.0fs…", e, delay)
-                    time.sleep(delay)
-                    continue
-                raise
-
-    def _api(endpoint, data=None, files=None):
-        url = BASE + endpoint
-        if data:
-            body = ("request-json=" + urllib.parse.quote(json.dumps(data))).encode()
-            return _request_with_retry(url, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
-        return _request_with_retry(url)
-
+    path = _write_temp_mono_fits(image, params)
+    if path is None:
+        return PlateSolveResult(success=False)
     try:
-        if progress:
-            progress(0.05, "Logging in to astrometry.net…")
-        resp = _api("login", {"apikey": api_key})
-        if resp.get("status") != "success":
-            log.warning("astrometry.net login failed: %s", resp)
-            return PlateSolveResult(success=False)
-        session = resp["session"]
-
-        # Upload image as FITS
-        if progress:
-            progress(0.15, "Uploading image to astrometry.net…")
-        try:
-            from astropy.io import fits as _fits
-        except ImportError:
-            return PlateSolveResult(success=False)
-
-        try:
-            with tempfile.NamedTemporaryFile(suffix=".fits", delete=False) as tf:
-                tmp_path = tf.name
-            if image.ndim == 3:
-                mono = image.mean(axis=0)
-            else:
-                mono = image
-            mono_u16 = (np.clip(mono, 0, 1) * 65535).astype(np.uint16)
-            _fits.PrimaryHDU(mono_u16).writeto(tmp_path, overwrite=True)
-
-            import uuid
-            boundary = uuid.uuid4().hex
-            with open(tmp_path, "rb") as f:
-                file_data = f.read()
-        except Exception:
-            raise
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
-
-        meta = {"session": session}
-        if params.ra_hint is not None:
-            meta["center_ra"] = params.ra_hint
-            meta["center_dec"] = params.dec_hint
-            meta["radius"] = params.search_radius
-
-        parts = (
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\"request-json\"\r\n\r\n"
-            + json.dumps(meta) + "\r\n"
-            + f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"image.fits\"\r\n"
-            + "Content-Type: image/fits\r\n\r\n"
-        ).encode() + file_data + f"\r\n--{boundary}--\r\n".encode()
-
-        upload_resp = _request_with_retry(
-            BASE + "upload", data=parts,
-            headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
-                     "Content-Length": str(len(parts))},
-            timeout=60,
+        d = star_catalog.plate_solve_astrometry_net(
+            path, api_key, params.ra_hint, params.dec_hint, params.scale_hint
         )
-
-        if upload_resp.get("status") != "success":
-            log.warning("astrometry.net upload failed: %s", upload_resp)
-            return PlateSolveResult(success=False)
-
-        subid = upload_resp["subid"]
-        if progress:
-            progress(0.3, f"Submitted (submission {subid}), waiting for solve…")
-
-        # Poll for job completion
-        job_id = None
-        for _ in range(60):
-            time.sleep(2)
-            sub_status = _api(f"submissions/{subid}")
-            jobs = sub_status.get("jobs", [])
-            if jobs and jobs[0]:
-                job_id = jobs[0]
-                break
-            if progress:
-                progress(0.3, "Waiting for solver queue…")
-
-        if not job_id:
-            log.warning("astrometry.net: no job assigned after timeout")
-            return PlateSolveResult(success=False)
-
-        for attempt in range(60):
-            time.sleep(2)
-            job_status = _api(f"jobs/{job_id}")
-            status = job_status.get("status")
-            if progress:
-                progress(0.3 + attempt * 0.01, f"Solving… ({status})")
-            if status == "success":
-                break
-            if status == "failure":
-                log.warning("astrometry.net solve failed")
-                return PlateSolveResult(success=False)
-        else:
-            log.warning("astrometry.net: solve timed out")
-            return PlateSolveResult(success=False)
-
-        if progress:
-            progress(0.9, "Fetching solution…")
-        cal = _api(f"jobs/{job_id}/calibration")
-        ra = cal.get("ra", 0.0)
-        dec = cal.get("dec", 0.0)
-        scale = cal.get("pixscale", 0.0)
-        rotation = cal.get("orientation", 0.0)
-
-        h = image.shape[-2]
-        w = image.shape[-1]
-        scale_deg = scale / 3600.0
-        wcs_dict = {
-            "ra_center": ra, "dec_center": dec,
-            "scale": scale, "rotation": rotation,
-            "width": w, "height": h,
-            "cd11": scale_deg, "cd12": 0.0,
-            "cd21": 0.0, "cd22": scale_deg,
-            "crpix1": w / 2, "crpix2": h / 2,
-        }
-        if progress:
-            progress(1.0, f"Solved: RA={ra:.3f}° Dec={dec:.3f}° scale={scale:.2f}\"/px")
-        return PlateSolveResult(
-            success=True, ra_center=ra, dec_center=dec,
-            pixel_scale=scale, rotation=rotation, wcs_header=wcs_dict,
-        )
-
-    except urllib.request.HTTPError as e:
-        if e.code == 429:
-            log.warning("astrometry.net rate limited (429) after retries. Wait ~1 hour and try again.")
-        else:
-            log.warning("astrometry.net HTTP %d: %s", e.code, e.reason)
-        return PlateSolveResult(success=False)
-    except Exception as e:
-        log.warning("astrometry.net solve error: %s", e)
-        return PlateSolveResult(success=False)
+    finally:
+        path.unlink(missing_ok=True)
+    if progress:
+        progress(1.0, "astrometry.net solve complete" if d else "astrometry.net solve failed")
+    return _result_from_solver_dict(d, image)
 
 
 def plate_solve_auto(

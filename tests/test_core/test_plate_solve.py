@@ -3,6 +3,7 @@
 import pytest
 import numpy as np
 
+from cosmica.core import plate_solve as ps
 from cosmica.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
 
 
@@ -49,3 +50,36 @@ class TestPlateSolve:
         if result.success:
             # Rotation should be a finite number
             assert np.isfinite(result.rotation)
+
+
+class TestExternalSolverAdapters:
+    """The array-based astap/net wrappers delegate to star_catalog and
+    convert its dict into a PlateSolveResult with a canonical wcs_header."""
+
+    def test_astap_delegates_and_converts_fits_header(self, monkeypatch):
+        img = np.zeros((64, 64), dtype=np.float32)
+        fake = {
+            "ra": 10.0, "dec": 41.0, "scale": 2.0, "rotation": 5.0,
+            "wcs_header": {
+                "CRVAL1": 10.0, "CRVAL2": 41.0,
+                "CD1_1": 2.0 / 3600, "CD2_2": 2.0 / 3600,
+                "CRPIX1": 32, "CRPIX2": 32,
+            },
+        }
+        from cosmica.core import star_catalog
+        monkeypatch.setattr(star_catalog, "plate_solve_astap", lambda *a, **k: fake)
+        result = ps.plate_solve_astap(img)
+        assert result.success
+        assert abs(result.ra_center - 10.0) < 1e-6
+        assert "ra_center" in result.wcs_header  # canonical format for consumers
+
+    def test_conversion_handles_flat_dict_and_none(self):
+        img = np.zeros((32, 32), dtype=np.float32)
+        flat = {"ra": 5.0, "dec": -3.0, "scale": 1.5, "rotation": 0.0, "wcs_header": {}}
+        result = ps._result_from_solver_dict(flat, img)
+        assert result.success and abs(result.pixel_scale - 1.5) < 1e-6
+        assert ps._result_from_solver_dict(None, img).success is False
+
+    def test_net_requires_api_key(self):
+        img = np.zeros((32, 32), dtype=np.float32)
+        assert ps.plate_solve_astrometry_net(img, api_key=None).success is False
