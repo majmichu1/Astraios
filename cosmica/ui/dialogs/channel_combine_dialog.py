@@ -177,6 +177,7 @@ class ChannelCombineDialog(QDialog):
         self._preview_timer.timeout.connect(self._update_preview)
 
         # Options
+        options_group = QGroupBox("Options")
         opt_layout = QFormLayout(options_group)
 
         self._bit_depth_combo = QComboBox()
