@@ -712,6 +712,10 @@ class MainWindow(QMainWindow):
         nb_act.triggered.connect(self._show_narrowband_dialog)
         tools_menu.addAction(nb_act)
 
+        blend_act = QAction("Image &Blend...", self)
+        blend_act.triggered.connect(self._show_blend_dialog)
+        tools_menu.addAction(blend_act)
+
         hdr_act = QAction("&HDR Composition...", self)
         hdr_act.triggered.connect(self._show_hdr_dialog)
         tools_menu.addAction(hdr_act)
@@ -1549,6 +1553,21 @@ class MainWindow(QMainWindow):
         self._update_current_image(data, "Narrowband combine complete")
         if self._project:
             self._project.add_history("Narrowband Combine", {})
+
+    def _show_blend_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first to use as the blend base.", "warning")
+            return
+        from cosmica.ui.dialogs.blend_dialog import BlendDialog
+
+        dialog = BlendDialog(base_image=self._current_image.data, parent=self)
+        dialog.result_ready.connect(self._on_blend_result)
+        dialog.exec()
+
+    def _on_blend_result(self, data):
+        self._update_current_image(data, "Image blend complete")
+        if self._project:
+            self._project.add_history("Image Blend", {})
 
     def _show_mosaic_dialog(self):
         from cosmica.ui.dialogs.mosaic_dialog import MosaicDialog
