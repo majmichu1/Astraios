@@ -3752,7 +3752,7 @@ class MainWindow(QMainWindow):
             if aligned:
                 paths = [str(p) for p in aligned]
 
-        dialog = BlinkDialog(self, frame_paths=paths or None)
+        dialog = BlinkDialog(frame_paths=paths or None, parent=self)
         dialog.exec()
 
     @pyqtSlot()

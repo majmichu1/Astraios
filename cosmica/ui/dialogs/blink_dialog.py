@@ -33,9 +33,9 @@ class BlinkDialog(QDialog):
     FPS_MAX = 5.0
     FPS_DEFAULT = 2.0
 
-    def __init__(self, frame_paths: list[str], parent=None):
+    def __init__(self, frame_paths: list[str] | None = None, parent=None):
         super().__init__(parent)
-        self._frame_paths = list(frame_paths)
+        self._frame_paths = list(frame_paths) if frame_paths else []
         self._current_idx = 0
         self._rejected: set[str] = set()
         self._auto_active = False
