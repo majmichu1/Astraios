@@ -747,6 +747,14 @@ class SmartProcessor:
                 t = analysis.primary_target
                 hint_r = t.processing_hints.get("bg_protection_radius_arcmin")
                 radius_arcmin = float(hint_r) if hint_r else max(t.major_axis_arcmin / 2.0, 1.0)
+                # Protect the bright CORE, not the whole nebula: a mask covering
+                # most of the frame starves the background fit of sky samples, so
+                # the vignette is left uncorrected. Cap the radius so the outer
+                # frame still has samples — the model clamp in extract_background
+                # keeps the core safe even with this smaller mask.
+                max_r_px = 0.28 * min(analysis.width, analysis.height)
+                max_r_arcmin = max_r_px * analysis.plate_scale_arcsec / 60.0
+                radius_arcmin = min(radius_arcmin, max_r_arcmin)
                 objects.append({
                     "center_x": analysis.width / 2.0,
                     "center_y": analysis.height / 2.0,

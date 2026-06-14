@@ -140,6 +140,18 @@ def _extract_single_channel(
 
     bg_model = bg_model.astype(np.float32)
 
+    # Clamp the model to the observed SKY-sample range. The background is sky —
+    # it cannot physically be brighter than the brightest measured sky sample.
+    # Without this, a low-order surface fit to vignette-darkened corner samples
+    # EXTRAPOLATES a peak under a masked/rejected bright object (the corners are
+    # dark, so the parabola bulges up at the centre) and subtracts the object's
+    # core into a black hole. Inside the sampled region the clamp is a no-op;
+    # it only tames runaway extrapolation into the object gap.
+    lo = float(np.percentile(samples_val, 1))
+    hi = float(np.percentile(samples_val, 99))
+    span = max(hi - lo, 1e-6)
+    bg_model = np.clip(bg_model, lo - 0.25 * span, hi + 0.25 * span).astype(np.float32)
+
     # Subtract and re-normalize (GPU path for large images)
     corrected = _subtract_and_floor_gpu(channel, bg_model)
 
