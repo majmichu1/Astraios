@@ -1178,6 +1178,7 @@ class MainWindow(QMainWindow):
         tp.run_denoise.connect(self._on_run_denoise)
         tp.request_auto_denoise.connect(self._on_auto_denoise)
         tp.run_frequency_separation.connect(self._on_run_frequency_separation)
+        tp.run_star_stretch.connect(self._on_run_star_stretch)
         tp.run_star_reduction.connect(self._on_run_star_reduction)
         tp.open_narrowband_dialog.connect(self._show_narrowband_dialog)
         tp.open_pixelmath_dialog.connect(self._show_pixelmath_dialog)
@@ -3088,6 +3089,9 @@ class MainWindow(QMainWindow):
         elif tool_name == "frequency_separation":
             from cosmica.core.frequency_separation import frequency_separation
             return frequency_separation(data, tp.get_frequency_separation_params())
+        elif tool_name == "star_stretch":
+            from cosmica.core.star_stretch import star_stretch
+            return star_stretch(data, tp.get_star_stretch_params())
         elif tool_name == "scnr":
             return scnr(data, tp.get_scnr_params())
         elif tool_name == "color_adjust":
@@ -4351,6 +4355,32 @@ class MainWindow(QMainWindow):
                     "FrequencySeparation",
                     {"sigma": _p.sigma, "hf_boost": _p.hf_boost,
                      "lf_smooth": _p.lf_smooth, "method": _p.method.name},
+                )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_star_stretch(self):
+        if self._current_image is None:
+            return
+        from cosmica.core.star_stretch import star_stretch
+
+        params = self._tools_panel.get_star_stretch_params()
+        self._log_panel.log(
+            f"Star stretch (amount={params.amount:.2f}, colour×{params.color_boost:.2f})...",
+            "info",
+        )
+        _p = params
+
+        def _work(data, progress=None):
+            return star_stretch(data, _p, progress=progress)
+
+        def _done(result):
+            self._update_current_image(result, "Star stretch complete")
+            if self._project:
+                self._project.add_history(
+                    "StarStretch",
+                    {"amount": _p.amount, "color_boost": _p.color_boost},
                 )
 
         self._start_worker(_work, self._current_image.data, on_done=_done)

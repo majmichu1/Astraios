@@ -124,6 +124,7 @@ class ToolsPanel(QWidget):
     run_deconvolution        = pyqtSignal()
     run_ghs                  = pyqtSignal()
     run_arcsinh_stretch      = pyqtSignal()
+    run_star_stretch         = pyqtSignal()
     run_color_calibration    = pyqtSignal()
     run_pcc                  = pyqtSignal()
     run_denoise              = pyqtSignal()
@@ -596,6 +597,26 @@ class ToolsPanel(QWidget):
             self._arcsinh_bp_spin.setValue(0.0),
         ))
         lay.addWidget(arc)
+
+        # Star Stretch
+        sst = CollapsibleSection("Star Stretch")
+        sst.add_info(
+            "Colour-preserving stretch for star layers — lifts faint stars while "
+            "keeping their hue. Best run on an extracted star image, then screened back."
+        )
+        self._star_stretch_amount = sst.add_slider("Amount", 0.2, 0.0, 1.0, 0.05, 2)
+        self._star_stretch_color = sst.add_slider("Colour boost", 1.0, 0.0, 3.0, 0.05, 2)
+        self._star_stretch_preview_check = sst.add_check("Live split preview")
+        for _sl in (self._star_stretch_amount, self._star_stretch_color):
+            _sl.value_changed.connect(
+                lambda _, s=self._star_stretch_preview_check: self._fire_preview("star_stretch", s)
+            )
+        self._star_stretch_preview_check.toggled.connect(
+            lambda on: self.preview_requested.emit("star_stretch") if on
+            else self.preview_cancelled.emit()
+        )
+        sst.add_run("▶ Apply Star Stretch", self.run_star_stretch.emit)
+        lay.addWidget(sst)
 
         # GHS
         ghs = CollapsibleSection("Generalized Hyperbolic Stretch")
@@ -1623,6 +1644,14 @@ class ToolsPanel(QWidget):
             method=method,
             hf_boost=self._fs_hf_boost.value(),
             lf_smooth=self._fs_lf_smooth.value(),
+        )
+
+    def get_star_stretch_params(self):
+        from cosmica.core.star_stretch import StarStretchParams
+
+        return StarStretchParams(
+            amount=self._star_stretch_amount.value(),
+            color_boost=self._star_stretch_color.value(),
         )
 
     def get_star_reduction_params(self) -> StarReductionParams:
