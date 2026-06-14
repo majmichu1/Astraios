@@ -151,6 +151,11 @@ class ProcessingPlan:
     # Star-aware processing: separate stars, enhance the starless nebula, then
     # screen the stars back so an aggressive stretch/contrast doesn't bloat them.
     star_aware: bool = False
+    # Photometric color calibration (SPCC) was applied on the linear data. When
+    # true the stretch uses a single shared midtone (preserves the calibrated
+    # colour ratios) and the post-stretch ad-hoc gain balance is skipped.
+    color_calibrated: bool = False
+    shared_stretch_midtone: float | None = None
     # Summary
     notes: list[str] = field(default_factory=list)
 
@@ -1102,6 +1107,25 @@ class SmartProcessor:
                     f"(channel p99.9: {[f'{p:.4f}' for p in ch_peaks]})"
                 )
 
+            # --- Photometric colour calibration (SPCC) on linear data ---
+            # Runs here (pre-stretch, on merged linear colour) because colour
+            # ratios are only physically meaningful in linear space.
+            if (
+                n_ch >= 3
+                and not self._is_narrowband(analysis)
+                and "stretch" in self._enabled_stages
+            ):
+                progress(0.25, "Photometric colour calibration (SPCC)...")
+                calibrated = self._apply_color_calibration(working, analysis)
+                if calibrated is not None:
+                    working = calibrated
+                    plan.color_calibrated = True
+                    # Stretch every channel with one shared midtone so the
+                    # calibration survives (per-channel stretch would re-equalize).
+                    plan.shared_stretch_midtone = self._solve_shared_midtone(
+                        working, analysis, plan
+                    )
+
             # --- Pass 2: Remaining per-channel processing (skip BG) ---
             for ch in range(n_ch):
                 if ch < len(plan.channel_plans):
@@ -1165,7 +1189,17 @@ class SmartProcessor:
         is_narrowband = analysis.input_type in _narrowband_types
         if is_narrowband:
             self._log_msg("Skipping channel gain equalization (narrowband palette preserved)")
-        if working.ndim == 3 and working.shape[0] >= 3 and not is_narrowband:
+        elif plan.color_calibrated:
+            self._log_msg("Skipping channel gain equalization (SPCC already calibrated colour)")
+        else:
+            self._log_msg("Statistical colour balance (no SPCC — mono, narrowband, "
+                          "no plate solve, no catalog, or too few field stars)")
+        if (
+            working.ndim == 3
+            and working.shape[0] >= 3
+            and not is_narrowband
+            and not plan.color_calibrated
+        ):
             signal_levels = []
             for ch in range(min(3, working.shape[0])):
                 ch_data = working[ch]
@@ -1217,6 +1251,55 @@ class SmartProcessor:
         working = np.clip(working, 0, 1).astype(np.float32)
 
         return working
+
+    def _apply_color_calibration(
+        self, working: np.ndarray, analysis: ImageAnalysis
+    ) -> np.ndarray | None:
+        """Photometric colour calibration (SPCC) on linear data.
+
+        Uses the plate-solve WCS to query Gaia DR3 stars in the field and
+        calibrate the R/G/B balance from their physical colours — far more
+        correct than ad-hoc channel-gain matching. Best-effort: returns None
+        (caller falls back) on mono input, no/failed plate solve, no network,
+        or too few catalog stars.
+        """
+        ps = analysis.plate_solve_result
+        if working.ndim != 3 or working.shape[0] < 3:
+            return None
+        if not (ps and ps.success and ps.ra_center):
+            return None
+        try:
+            import math
+
+            from cosmica.core.color_calibration import photometric_color_calibrate
+            from cosmica.core.star_catalog import query_gaia_dr3
+
+            h, w = working.shape[1], working.shape[2]
+            scale = ps.pixel_scale if ps.pixel_scale > 0 else (analysis.plate_scale_arcsec or 1.0)
+            radius_deg = min(max(scale * math.hypot(h, w) / 3600.0 / 2.0, 0.05), 2.0)
+            self._log_msg(f"SPCC: querying Gaia DR3 ({radius_deg:.2f}° radius)...")
+            gaia = query_gaia_dr3(ps.ra_center, ps.dec_center, radius_deg=radius_deg, max_stars=400)
+            if len(gaia) < 5:
+                self._log_msg(f"SPCC: only {len(gaia)} catalog stars — statistical balance instead")
+                return None
+
+            raw_header = dict(ps.wcs_header or {})
+            wcs: dict[str, Any] = {"ra": ps.ra_center, "dec": ps.dec_center, "scale": scale}
+            if "CRVAL1" in raw_header:  # a real solved FITS header → use astropy WCS
+                wcs["wcs_header"] = raw_header
+
+            result = photometric_color_calibrate(
+                working, catalog_stars=gaia, wcs=wcs, neutralize_bg=True
+            )
+            f = result.correction_factors
+            self._log_msg(
+                f"SPCC: photometric calibration from {len(gaia)} Gaia stars, "
+                f"gains R/G/B = {f[0]:.3f}/{f[1]:.3f}/{f[2]:.3f}"
+            )
+            return result.data.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"SPCC failed ({exc}); using statistical colour balance")
+            return None
 
     def _separate_stars(self, image: np.ndarray) -> np.ndarray | None:
         """Return a starless version of ``image`` (StarNet binary if available,
@@ -1327,6 +1410,56 @@ class SmartProcessor:
             InputType.DUAL_NARROWBAND,
             InputType.TRIPLE_NARROWBAND,
         )
+
+    def _stretch_target_median(
+        self, analysis: ImageAnalysis, snr: float, full_plan: ProcessingPlan
+    ) -> float:
+        """Adaptive target background level for the stretch (LP/SNR/hints)."""
+        base_target = 0.25
+        if analysis.lp_severity == "severe":
+            base_target = 0.18
+        elif analysis.lp_severity == "moderate":
+            base_target = 0.22
+
+        hints = analysis.primary_target.processing_hints if analysis.primary_target else {}
+        stretch_hint = hints.get("stretch", "moderate")
+        if stretch_hint == "gentle":
+            base_target *= 0.75
+        elif stretch_hint == "aggressive":
+            base_target *= 1.2
+
+        if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+            base_target *= 0.55
+
+        if snr < 8:
+            base_target *= 0.8
+        elif snr > 50:
+            base_target *= 1.15
+        if analysis.has_blown_highlights:
+            base_target *= 0.85
+
+        return max(0.10, min(0.30, base_target))
+
+    def _solve_shared_midtone(
+        self, working: np.ndarray, analysis: ImageAnalysis, full_plan: ProcessingPlan
+    ) -> float | None:
+        """Solve one midtone (from luminance) that hits the stretch target — so a
+        colour-calibrated image is stretched with identical channel mapping."""
+        try:
+            from cosmica.core.stretch import _solve_midtone
+
+            lum = working.mean(axis=0) if working.ndim == 3 else working
+            snr = analysis.median_snr
+            target = self._stretch_target_median(analysis, snr, full_plan)
+            st = compute_channel_stats(lum)
+            shadow_clip = -2.0
+            shadow0 = max(0.0, st["median"] + shadow_clip * max(st["mad"], 1e-8))
+            scale0 = 1.0 / max(1e-10, 1.0 - shadow0)
+            scaled_med = max(1e-6, (st["median"] - shadow0) * scale0)
+            return _solve_midtone(scaled_med, target)
+        except Exception as exc:
+            self._log_msg(f"Shared-midtone solve failed ({exc})")
+            return None
 
     def _execute_channel(
         self,
@@ -1587,41 +1720,32 @@ class SmartProcessor:
 
             pre_stretch = working.copy()
 
-            # Adaptive target brightness based on LP severity, SNR, and catalog hints
-            base_target = 0.25
-            if analysis.lp_severity == "severe":
-                base_target = 0.18
-            elif analysis.lp_severity == "moderate":
-                base_target = 0.22
-
-            # Catalog stretch hint
-            hints = {}
-            if analysis.primary_target:
-                hints = analysis.primary_target.processing_hints
-            stretch_hint = hints.get("stretch", "moderate")
-            if stretch_hint == "gentle":
-                base_target *= 0.75  # less aggressive for high-DR targets
-            elif stretch_hint == "aggressive":
-                base_target *= 1.2
-
-            # Extreme-DR objects (M42 etc.) need the gentlest stretch to
-            # preserve both core and outer nebulosity without blowing out.
-            if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
-                base_target *= 0.55  # very conservative
-
-            if plan.snr < 8:
-                base_target *= 0.8
-            elif plan.snr > 50:
-                base_target *= 1.15
-
-            if analysis.has_blown_highlights:
-                base_target *= 0.85
-
-            target_median = max(0.10, min(0.30, base_target))
+            target_median = self._stretch_target_median(analysis, plan.snr, full_plan)
             self._log_msg(
                 f"[{name}] Adaptive stretch target: {target_median:.3f} "
                 f"(LP={analysis.lp_severity}, SNR={plan.snr:.1f})"
             )
+
+            # Colour-calibrated images use one shared midtone for every channel so
+            # the SPCC colour balance survives the stretch.
+            if full_plan.shared_stretch_midtone is not None:
+                working = auto_stretch(
+                    pre_stretch,
+                    StretchParams(
+                        midtone=full_plan.shared_stretch_midtone,
+                        shadow_clip=plan.stretch_params.shadow_clip,
+                        linked=False,
+                    ),
+                )
+                self._log_msg(
+                    f"[{name}] Linked stretch (shared midtone="
+                    f"{full_plan.shared_stretch_midtone:.4f}, colour-preserving)"
+                )
+                if plan.local_contrast_params is not None:
+                    progress(frac_start + frac_range * 0.9, f"Local contrast [{name}]...")
+                    working = local_contrast_enhance(working, plan.local_contrast_params)
+                return np.clip(working, 0, 1).astype(np.float32)
+
             midtone = plan.stretch_params.midtone
             shadow_clip = plan.stretch_params.shadow_clip
 

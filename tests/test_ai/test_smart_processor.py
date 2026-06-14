@@ -485,3 +485,64 @@ def test_smart_dialog_wires_star_reduction(qtbot):
     # Disabling star-aware disables the reduction control.
     dlg._stage_star_aware.setChecked(False)
     assert not dlg._star_reduction_spin.isEnabled()
+
+
+class TestSPCCColorCalibration:
+    """Photometric color calibration (SPCC) when plate-solved + Gaia available,
+    with graceful statistical fallback otherwise."""
+
+    @staticmethod
+    def _color(h=80, w=80):
+        rng = np.random.default_rng(3)
+        img = np.clip(rng.random((3, h, w)) * 0.4 + 0.05, 0, 1).astype(np.float32)
+        # Give it a colour cast so calibration has something to correct.
+        img[0] *= 1.3
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    _WCS = {"ra_center": 83.8, "dec_center": -5.39, "scale": 2.0}
+
+    def test_spcc_applied_when_plate_solved_and_catalog(self, processor_no_equipment, monkeypatch):
+        from cosmica.core import color_calibration, star_catalog
+        from cosmica.core.color_calibration import ColorCalibrationResult
+
+        fake_stars = [
+            star_catalog.StarCatalogEntry(83.8 + i * 0.001, -5.39, 12.0, 12.3, 11.7, str(i))
+            for i in range(20)
+        ]
+        monkeypatch.setattr(star_catalog, "query_gaia_dr3", lambda *a, **k: fake_stars)
+
+        def fake_pcc(image, **kw):
+            return ColorCalibrationResult(data=image.astype(np.float32),
+                                          correction_factors=(1.1, 1.0, 0.9))
+        monkeypatch.setattr(color_calibration, "photometric_color_calibrate", fake_pcc)
+
+        result = processor_no_equipment.process(
+            self._color(), input_type_hint=InputType.OSC_RGB, wcs_dict=self._WCS,
+        )
+        log = "\n".join(result.processing_log)
+        assert result.plan.color_calibrated is True
+        assert "SPCC: photometric calibration" in log
+        assert "Skipping channel gain equalization (SPCC" in log
+
+    def test_falls_back_to_statistical_when_no_plate_solve(self, processor_no_equipment):
+        # No WCS, plate solve fails on synthetic data -> statistical balance.
+        result = processor_no_equipment.process(self._color(), input_type_hint=InputType.OSC_RGB)
+        assert result.plan.color_calibrated is False
+        assert "Statistical colour balance (no SPCC" in "\n".join(result.processing_log)
+
+    def test_falls_back_when_too_few_catalog_stars(self, processor_no_equipment, monkeypatch):
+        from cosmica.core import star_catalog
+        monkeypatch.setattr(star_catalog, "query_gaia_dr3", lambda *a, **k: [])
+        result = processor_no_equipment.process(
+            self._color(), input_type_hint=InputType.OSC_RGB, wcs_dict=self._WCS,
+        )
+        assert result.plan.color_calibrated is False
+        log = "\n".join(result.processing_log)
+        assert "Statistical colour balance" in log
+
+    def test_no_spcc_for_mono(self, processor_no_equipment):
+        mono = np.clip(np.abs(np.random.default_rng(0).normal(0, 0.05, (64, 64))), 0, 1).astype(np.float32)
+        result = processor_no_equipment.process(
+            mono, input_type_hint=InputType.MONO_LUMINANCE, wcs_dict=self._WCS,
+        )
+        assert result.plan.color_calibrated is False
