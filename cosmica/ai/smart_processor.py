@@ -144,6 +144,10 @@ class ProcessingPlan:
     # Object-aware background
     use_object_aware_bg: bool = False
     exclusion_mask: np.ndarray | None = field(default=None, repr=False)
+    # Object fills much of the frame (M42 etc.): cap the background polynomial
+    # order and skip the iterate-to-higher-order refinement, or the fit eats the
+    # bright core into a dark hole.
+    bg_object_dominated: bool = False
     # HDR merge hint for extreme-dynamic-range objects like M42
     needs_hdr_merge: bool = False
     hdr_operator: str = "core_blend"  # "reinhard" | "drago" | "core_blend"
@@ -715,27 +719,43 @@ class SmartProcessor:
         # Object-aware background
         use_obj_bg = False
         exclusion_mask = None
-        if (
-            analysis.primary_target
-            and analysis.plate_scale_arcsec
-            and analysis.plate_solve_result
-            and analysis.plate_solve_result.success
-        ):
-            # Build exclusion mask from catalog objects
+        if analysis.primary_target and analysis.plate_scale_arcsec:
+            have_wcs = bool(
+                analysis.plate_solve_result and analysis.plate_solve_result.success
+            )
             objects = []
-            for t in analysis.targets:
-                if t.major_axis_arcmin > 1.0:
-                    # Convert RA/Dec offset to pixel position
-                    cx, cy = self._target_to_pixel(
-                        t, analysis.plate_solve_result, analysis.plate_scale_arcsec,
-                        analysis.width, analysis.height,
-                    )
-                    if 0 <= cx < analysis.width and 0 <= cy < analysis.height:
-                        objects.append({
-                            "center_x": cx,
-                            "center_y": cy,
-                            "radius_arcmin": t.major_axis_arcmin / 2.0,
-                        })
+            if have_wcs:
+                # Position every catalog object in the field via the WCS solution.
+                for t in analysis.targets:
+                    if t.major_axis_arcmin > 1.0:
+                        cx, cy = self._target_to_pixel(
+                            t, analysis.plate_solve_result, analysis.plate_scale_arcsec,
+                            analysis.width, analysis.height,
+                        )
+                        if 0 <= cx < analysis.width and 0 <= cy < analysis.height:
+                            objects.append({
+                                "center_x": cx,
+                                "center_y": cy,
+                                "radius_arcmin": t.major_axis_arcmin / 2.0,
+                            })
+            else:
+                # No WCS (offline / local solver can't solve): assume the named
+                # primary target is centered — the overwhelmingly common framing —
+                # and protect its extent so background extraction can't subtract
+                # the bright core. Far better than eating the core for lack of a
+                # solve. Use the catalog's bg-protection hint when present.
+                t = analysis.primary_target
+                hint_r = t.processing_hints.get("bg_protection_radius_arcmin")
+                radius_arcmin = float(hint_r) if hint_r else max(t.major_axis_arcmin / 2.0, 1.0)
+                objects.append({
+                    "center_x": analysis.width / 2.0,
+                    "center_y": analysis.height / 2.0,
+                    "radius_arcmin": radius_arcmin,
+                })
+                self._log_msg(
+                    f"Plan: no plate solve — protecting centered {t.id} "
+                    f"({radius_arcmin:.0f}' radius) from background subtraction"
+                )
 
             if objects:
                 exclusion_mask = create_object_exclusion_mask(
@@ -745,6 +765,38 @@ class SmartProcessor:
                 )
                 use_obj_bg = True
                 self._log_msg(f"Plan: Object-aware background with {len(objects)} object(s)")
+
+        # Object-dominated frame guard: a target that fills a large fraction of
+        # the frame (M42 etc.) must NOT get a high-order polynomial background —
+        # the fit Runge-oscillates across the masked object and bumps the model
+        # up under the bright core, subtracting it into a dark hole. Cap the
+        # order low and skip the iterate-to-higher-order refinement.
+        object_dominated = is_extreme_dr
+        if (
+            analysis.primary_target
+            and analysis.primary_target.major_axis_arcmin > 0
+            and analysis.plate_scale_arcsec
+        ):
+            obj_px = analysis.primary_target.major_axis_arcmin * 60.0 / analysis.plate_scale_arcsec
+            if obj_px > 0.33 * min(analysis.width, analysis.height):
+                object_dominated = True
+        if object_dominated:
+            for cp in channel_plans:
+                if cp.background_params is not None:
+                    bp = cp.background_params
+                    cp.background_params = BackgroundParams(
+                        grid_size=min(bp.grid_size, 8),
+                        box_size=bp.box_size,
+                        polynomial_order=min(bp.polynomial_order, 2),
+                        sigma_clip=bp.sigma_clip,
+                        smoothing=bp.smoothing,
+                        object_aware=bp.object_aware,
+                        exclusion_mask=bp.exclusion_mask,
+                    )
+            self._log_msg(
+                "Plan: object-dominated frame — background capped to order 2 "
+                "(protects the bright core from being subtracted)"
+            )
 
         needs_hdr = hints.get("hdr_merge_recommended", False) or is_extreme_dr
         if needs_hdr:
@@ -769,6 +821,7 @@ class SmartProcessor:
             color_adjust_params=color_params,
             use_object_aware_bg=use_obj_bg,
             exclusion_mask=exclusion_mask,
+            bg_object_dominated=object_dominated,
             needs_hdr_merge=needs_hdr,
             hdr_operator=self._hdr_operator,
             hdr_params=self._hdr_params,
@@ -1076,7 +1129,7 @@ class SmartProcessor:
                 frac = 0.15 + ch * bg_fraction
                 progress(frac, f"Background extraction [{cp.channel_name}]...")
                 working[ch] = self._extract_bg_only(
-                    working[ch], cp, analysis,
+                    working[ch], cp, analysis, plan.bg_object_dominated,
                 )
 
             # --- Linked signal rescaling (preserves color ratios) ---
@@ -1554,9 +1607,12 @@ class SmartProcessor:
 
             working, bg_model = extract_background(working, bg_params)
 
-            # Adaptive: measure residual gradient, iterate if not flat enough
+            # Adaptive: measure residual gradient, iterate if not flat enough.
+            # On object-dominated frames (M42 etc.) do NOT iterate to higher
+            # order — the std stays high because the OBJECT is the signal, not a
+            # gradient, and bumping the order up makes the fit eat the core.
             bg_residual = np.std(bg_model)
-            max_bg_passes = 3
+            max_bg_passes = 1 if full_plan.bg_object_dominated else 3
             bg_pass = 1
             while bg_residual >= 0.05 and bg_pass < max_bg_passes:
                 bg_pass += 1
@@ -2025,6 +2081,7 @@ class SmartProcessor:
         channel: np.ndarray,
         plan: ChannelPlan,
         analysis: ImageAnalysis,
+        object_dominated: bool = False,
     ) -> np.ndarray:
         """Run only the background extraction stage for a channel.
 
@@ -2041,9 +2098,10 @@ class SmartProcessor:
         self._log_msg(f"[{name}] Background extraction")
         working, bg_model = extract_background(working, bg_params)
 
-        # Iterative refinement
+        # Iterative refinement (skipped for object-dominated frames — see
+        # _execute_channel: bumping the order eats the bright core).
         bg_residual = np.std(bg_model)
-        max_bg_passes = 3
+        max_bg_passes = 1 if object_dominated else 3
         bg_pass = 1
         while bg_residual >= 0.05 and bg_pass < max_bg_passes:
             bg_pass += 1

@@ -673,3 +673,46 @@ class TestFinalQualityPass:
         )
         # No background neutralization applied for narrowband.
         assert "neutralized residual colour cast" not in "\n".join(processor_no_equipment._log)
+
+
+class TestExtremeDRCoreNotEaten:
+    """Regression: M42-class extreme-DR targets came out with a black HOLE in the
+    bright core. With no plate solve the object wasn't protected, and the
+    background loop iterated to a high-order polynomial that Runge-oscillated
+    across the masked object and subtracted the core into a dark hole.
+    """
+
+    @staticmethod
+    def _frame_filling_m42(h=400, w=560, seed=13):
+        rng = np.random.default_rng(seed)
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        cy, cx = h / 2, w / 2
+        r2 = (yy - cy) ** 2 + (xx - cx) ** 2
+        img = np.full((h, w), 0.04, np.float32)
+        img += np.exp(-r2 / (2 * (0.24 * h) ** 2)) * 0.7   # large bright core
+        img += np.exp(-r2 / (2 * (0.46 * h) ** 2)) * 0.12
+        img = np.clip(img + rng.normal(0, 0.012, (h, w)).astype(np.float32), 0, 1)
+        return img.astype(np.float32), r2
+
+    def test_core_stays_brightest_no_plate_solve(self, processor_no_equipment):
+        from cosmica.ai.smart_processor import InputType
+
+        img, r2 = self._frame_filling_m42()
+        res = processor_no_equipment.process(
+            img, input_type_hint=InputType.MONO_LUMINANCE,
+            target_name="M42", star_reduction=0.0,
+        )
+        out = res.image
+        core = r2 < (0.085 * img.shape[0]) ** 2
+        mid = (r2 > (0.16 * img.shape[0]) ** 2) & (r2 < (0.34 * img.shape[0]) ** 2)
+        # The bright core must remain brighter than the mid nebula — not a hole.
+        assert float(out[core].mean()) > float(out[mid].mean())
+
+    def test_plan_flags_object_dominated_for_m42(self, processor_no_equipment):
+        from cosmica.ai.smart_processor import InputType
+
+        img, _ = self._frame_filling_m42()
+        res = processor_no_equipment.process(
+            img, input_type_hint=InputType.MONO_LUMINANCE, target_name="M42",
+        )
+        assert res.plan.bg_object_dominated is True
