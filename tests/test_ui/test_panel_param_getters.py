@@ -104,3 +104,17 @@ def test_every_zero_arg_getter_is_callable(panel):
         except Exception as e:  # noqa: BLE001
             broken.append(f"{name}: {type(e).__name__}: {e}")
     assert not broken, "broken getters: " + "; ".join(broken)
+
+
+def test_geometric_params_use_enums(panel):
+    """rotate/flip/bin handlers call params.<field>.name, so the getters must
+    return enum values, not raw ints/strings."""
+    from cosmica.core.transforms import BinMode, CropParams, FlipAxis, RotateAngle
+
+    assert isinstance(panel.get_rotate_params().angle, RotateAngle)
+    assert isinstance(panel.get_flip_params().axis, FlipAxis)
+    assert isinstance(panel.get_bin_params().mode, BinMode)
+    # Crop width/height must be ints (0 = full), never None.
+    cp = panel.get_crop_params()
+    assert isinstance(cp, CropParams)
+    assert cp.width is not None and cp.height is not None

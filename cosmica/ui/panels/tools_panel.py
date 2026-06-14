@@ -1762,26 +1762,45 @@ class ToolsPanel(QWidget):
         )
 
     def get_crop_params(self) -> CropParams:
+        # CropParams uses width/height == 0 to mean "full remaining"; the old
+        # ``or None`` turned 0 into None and broke ``width > 0`` comparisons.
         return CropParams(
             x=int(self._crop_x_spin.value()),
             y=int(self._crop_y_spin.value()),
-            width=int(self._crop_w_spin.value()) or None,
-            height=int(self._crop_h_spin.value()) or None,
+            width=int(self._crop_w_spin.value()),
+            height=int(self._crop_h_spin.value()),
         )
 
     def get_rotate_params(self) -> RotateParams:
-        preset_map = {
-            "90° CW": 90, "180°": 180, "270° CW": 270
+        from cosmica.core.transforms import RotateAngle
+
+        angle_map = {
+            "90° CW": RotateAngle.CW_90,
+            "180°": RotateAngle.CW_180,
+            "270° CW": RotateAngle.CW_270,
         }
         text = self._rotate_combo.currentText()
-        angle = preset_map.get(text, float(self._rotate_angle_spin.value()))
+        if text in angle_map:
+            return RotateParams(
+                angle=angle_map[text], expand=self._rotate_expand_check.isChecked()
+            )
         return RotateParams(
-            angle=angle,
+            angle=RotateAngle.ARBITRARY,
+            arbitrary_degrees=float(self._rotate_angle_spin.value()),
             expand=self._rotate_expand_check.isChecked(),
         )
 
     def get_flip_params(self) -> FlipParams:
-        return FlipParams(axis=self._flip_combo.currentText().lower())
+        from cosmica.core.transforms import FlipAxis
+
+        axis_map = {
+            "horizontal": FlipAxis.HORIZONTAL,
+            "vertical": FlipAxis.VERTICAL,
+            "both": FlipAxis.BOTH,
+        }
+        return FlipParams(
+            axis=axis_map.get(self._flip_combo.currentText().lower(), FlipAxis.HORIZONTAL)
+        )
 
     def get_resize_params(self) -> ResizeParams:
         return ResizeParams(
@@ -1790,10 +1809,13 @@ class ToolsPanel(QWidget):
         )
 
     def get_bin_params(self) -> BinParams:
+        from cosmica.core.transforms import BinMode
+
         factor_map = {"2x2": 2, "3x3": 3, "4x4": 4}
+        mode_map = {"average": BinMode.AVERAGE, "sum": BinMode.SUM}
         return BinParams(
             factor=factor_map.get(self._bin_factor_combo.currentText(), 2),
-            mode=self._bin_mode_combo.currentText().lower(),
+            mode=mode_map.get(self._bin_mode_combo.currentText().lower(), BinMode.AVERAGE),
         )
 
     def get_abe_params(self) -> ABEParams:
