@@ -179,7 +179,7 @@ class EquipmentDialog(QDialog):
         # Restore current profile selections if available
         if self._current:
             self._select_by_name(self._camera_combo, self._current.camera.name)
-            self._select_by_name(self._telescope_combo, self._current.telescope.name)
+            self._restore_telescope(self._current.telescope)
             for slot, filt in self._current.filters.items():
                 if slot in self._filter_combos:
                     self._select_by_name(self._filter_combos[slot], filt.name)
@@ -190,6 +190,25 @@ class EquipmentDialog(QDialog):
         idx = combo.findText(name)
         if idx >= 0:
             combo.setCurrentIndex(idx)
+
+    def _restore_telescope(self, scope: TelescopeProfile) -> None:
+        """Select *scope* in the combo, or restore it into the custom-entry
+        fields when it is not a database telescope (e.g. a user-defined lens).
+
+        Without this, loading a profile with a custom scope silently dropped it
+        — findText() returns -1 for a name like 'Custom 268mm f/3.6', so the
+        combo kept its default and the focal length/aperture were never filled.
+        """
+        idx = self._telescope_combo.findText(scope.name)
+        if 0 <= idx < len(self._telescopes):
+            self._telescope_combo.setCurrentIndex(idx)
+            return
+        # Not in the database → populate the manual fields and switch to custom.
+        self._manual_scope_name.setText(scope.name)
+        self._manual_focal_spin.setValue(scope.focal_length_mm)
+        self._manual_aperture_spin.setValue(scope.aperture_mm)
+        self._telescope_combo.setCurrentIndex(len(self._telescopes))  # "-- Custom Entry --"
+        self._manual_scope_widget.setVisible(True)
 
     def _on_camera_changed(self):
         self._update_info()
@@ -325,7 +344,7 @@ class EquipmentDialog(QDialog):
             profile = EquipmentProfile.load(Path(path))
             self._current = profile
             self._select_by_name(self._camera_combo, profile.camera.name)
-            self._select_by_name(self._telescope_combo, profile.telescope.name)
+            self._restore_telescope(profile.telescope)
             for slot, filt in profile.filters.items():
                 if slot in self._filter_combos:
                     self._select_by_name(self._filter_combos[slot], filt.name)
