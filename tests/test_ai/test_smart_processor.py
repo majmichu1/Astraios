@@ -622,3 +622,54 @@ class TestFullPipelineIntegration:
             or "Statistical colour balance" in log
         # The result should be stretched (brighter than the near-black linear input).
         assert float(np.median(result.image)) > float(np.median(img))
+
+
+class TestFinalQualityPass:
+    """The processor inspects its own output and self-corrects objective
+    defects: residual background colour cast and blown highlights."""
+
+    @staticmethod
+    def _analysis(input_type=InputType.OSC_RGB):
+        from types import SimpleNamespace
+        return SimpleNamespace(input_type=input_type)
+
+    def test_neutralizes_residual_colour_cast(self, processor_no_equipment):
+        rng = np.random.default_rng(0)
+        base = np.abs(rng.normal(0, 0.02, (64, 64))).astype(np.float32) + 0.05
+        img = np.stack([base, base, base])
+        img[1] += 0.04  # strong green background cast
+        img = np.clip(img, 0, 1).astype(np.float32)
+
+        out = processor_no_equipment._final_quality_pass(img.copy(), self._analysis())
+
+        def bg(a, c):
+            ch = a[c]; thr = np.percentile(ch, 15); return float(np.median(ch[ch <= thr]))
+        before = max(bg(img, c) for c in range(3)) - min(bg(img, c) for c in range(3))
+        after = max(bg(out, c) for c in range(3)) - min(bg(out, c) for c in range(3))
+        assert after < before
+        assert after < 0.012
+        assert "neutralized residual colour cast" in "\n".join(processor_no_equipment._log)
+
+    def test_tames_blown_highlights(self, processor_no_equipment):
+        img = np.full((3, 64, 64), 0.3, np.float32)
+        img[:, :40, :40] = 1.0  # large pure-white region (over-stretch)
+        out = processor_no_equipment._final_quality_pass(img.copy(), self._analysis())
+        assert float(np.mean(out > 0.995)) < float(np.mean(img > 0.995))
+
+    def test_clean_image_untouched(self, processor_no_equipment):
+        rng = np.random.default_rng(1)
+        base = np.abs(rng.normal(0, 0.02, (48, 48))).astype(np.float32) + 0.1
+        img = np.stack([base, base, base]).astype(np.float32)  # neutral, no blowout
+        out = processor_no_equipment._final_quality_pass(img.copy(), self._analysis())
+        np.testing.assert_allclose(out, img, atol=1e-5)
+
+    def test_narrowband_cast_not_touched(self, processor_no_equipment):
+        # Narrowband channel imbalance is intentional — don't neutralize it.
+        rng = np.random.default_rng(2)
+        base = np.abs(rng.normal(0, 0.02, (48, 48))).astype(np.float32) + 0.05
+        img = np.stack([base * 1.5, base, base * 0.7]).astype(np.float32)
+        out = processor_no_equipment._final_quality_pass(
+            img.copy(), self._analysis(InputType.NARROWBAND_SHO)
+        )
+        # No background neutralization applied for narrowband.
+        assert "neutralized residual colour cast" not in "\n".join(processor_no_equipment._log)

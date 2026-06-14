@@ -1240,6 +1240,10 @@ class SmartProcessor:
         if plan.star_aware:
             working = self._apply_star_aware(working, analysis, plan, progress)
 
+        # Self-correcting final-quality pass (residual cast / blown highlights)
+        progress(0.99, "Final quality check...")
+        working = self._final_quality_pass(working, analysis)
+
         # Final clamp
         working = np.clip(working, 0, 1).astype(np.float32)
 
@@ -2092,6 +2096,78 @@ class SmartProcessor:
             f"  QC [{stage.value}] {metric_name}={value:.4f} "
             f"(threshold={threshold:.4f}) → {status}"
         )
+
+    def _final_quality_pass(
+        self, working: np.ndarray, analysis: ImageAnalysis
+    ) -> np.ndarray:
+        """Inspect the finished image and self-correct objective defects.
+
+        Two automatic guards (recorded as quality checks):
+        1. Residual background colour cast — the dark background should be
+           neutral grey; if the per-channel background medians diverge,
+           re-neutralize. Star-aware contrast/saturation can reintroduce a cast.
+        2. Blown highlights — if a large fraction of the frame is pure white
+           (over-stretch, not just star cores), soft-compress the top end.
+        """
+        is_color = working.ndim == 3 and working.shape[0] >= 3
+
+        def _bg_medians(img: np.ndarray) -> list[float]:
+            out = []
+            for c in range(3):
+                ch = img[c]
+                thr = float(np.percentile(ch, 15))
+                sel = ch[ch <= thr]
+                out.append(float(np.median(sel)) if sel.size else 0.0)
+            return out
+
+        if is_color and not self._is_narrowband(analysis):
+            bgs = _bg_medians(working)
+            spread = max(bgs) - min(bgs)
+            if spread > 0.012:
+                target = min(bgs)
+                for c in range(3):
+                    off = bgs[c] - target
+                    if off > 0.002:
+                        working[c] = np.clip(working[c] - off, 0.0, 1.0)
+                new_spread = max(_bg_medians(working)) - min(_bg_medians(working))
+                self._log_msg(
+                    f"Final: neutralized residual colour cast "
+                    f"(bg spread {spread:.3f} → {new_spread:.3f})"
+                )
+                self._quality_check(
+                    ProcessingStage.FINAL_ADJUSTMENTS, "bg_colour_cast",
+                    new_spread, threshold=0.012, passed=new_spread < 0.012,
+                    adjustment="Re-neutralized background",
+                )
+            else:
+                self._quality_check(
+                    ProcessingStage.FINAL_ADJUSTMENTS, "bg_colour_cast",
+                    spread, threshold=0.012, passed=True,
+                )
+
+        near_white = float(np.mean(working > 0.995))
+        if near_white > 0.03:
+            knee = 0.85
+            working = np.where(
+                working > knee, knee + (working - knee) * 0.6, working
+            ).astype(np.float32)
+            new_white = float(np.mean(working > 0.995))
+            self._log_msg(
+                f"Final: highlight rolloff (pure-white {near_white*100:.1f}% "
+                f"→ {new_white*100:.1f}%)"
+            )
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "blown_highlights",
+                new_white, threshold=0.03, passed=new_white < near_white,
+                adjustment="Soft highlight compression",
+            )
+        else:
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "blown_highlights",
+                near_white, threshold=0.03, passed=True,
+            )
+
+        return np.clip(working, 0.0, 1.0).astype(np.float32)
 
     def _check_color_balance(self, image: np.ndarray, stage: ProcessingStage) -> None:
         """Check if color channels are reasonably balanced after processing."""
