@@ -82,28 +82,56 @@ def _remove_stars_morph(
 
     mask = binary > 0
 
-    # ── 4. Composite result ─────────────────────────────────────────
+    # ── 4. Reconstruct the sky under the stars by diffusion inpainting ──
+    # Replacing star pixels with the median background leaves residual halos
+    # and dark holes (the median kernel partly contains the star itself).
+    # Diffusion inpainting fills each masked region purely from the
+    # surrounding nebula/sky, in float precision — a much cleaner starless.
     if is_color:
-        # Scale each channel proportionally to the luminance change
-        scale = np.clip(bg / (lum + 1e-10), 0.1, 1.0)
         result = img.copy()
-        for c in range(3):
-            result[c][mask] = img[c][mask] * scale[mask]
+        for c in range(min(3, img.shape[0])):
+            result[c] = _diffuse_inpaint(img[c], mask)
+        if img.shape[0] > 3:
+            for c in range(3, img.shape[0]):
+                result[c] = _diffuse_inpaint(img[c], mask)
     else:
-        result = img.copy()
-        result[mask] = bg[mask]
+        result = _diffuse_inpaint(lum, mask)
 
-    # ── 5. Feather edges of the mask ────────────────────────────────
-    # Light Gaussian blend at star boundaries to avoid hard cutoffs
+    # ── 5. Feather edges so star boundaries blend smoothly ──────────────
     if np.any(mask):
-        blurred = cv2.GaussianBlur(binary.astype(np.float32), (0, 0), sigmaX=radius * 0.8)
-        blend = blurred / 255.0
+        blend = cv2.GaussianBlur(binary.astype(np.float32), (0, 0), sigmaX=radius * 0.8) / 255.0
         blend = np.clip(blend, 0, 1)
-        blend = cv2.erode(blend.astype(np.float32), kernel, iterations=1)
         if is_color:
-            for c in range(3):
+            for c in range(img.shape[0]):
                 result[c] = img[c] * (1.0 - blend) + result[c] * blend
         else:
             result = img * (1.0 - blend) + result * blend
 
     return np.clip(result, 0, 1).astype(image.dtype)
+
+
+def _diffuse_inpaint(
+    channel: NDArray,
+    mask: NDArray,
+    iterations: int = 40,
+    sigma: float = 3.0,
+) -> NDArray:
+    """Fill ``mask`` (True = remove) by diffusing surrounding values inward.
+
+    Repeatedly blurs the image and re-imposes the known (unmasked) pixels, so
+    the masked star regions converge to a smooth interpolation of the
+    surrounding sky/nebula. Float precision, no 8-bit quantisation.
+    """
+    if not np.any(mask):
+        return channel.astype(np.float64, copy=True)
+
+    known = ~mask
+    result = channel.astype(np.float64, copy=True)
+    # Seed holes with the local mean so diffusion starts from a sane value.
+    if np.any(known):
+        result[mask] = float(np.median(channel[known]))
+    for _ in range(iterations):
+        blurred = cv2.GaussianBlur(result.astype(np.float32), (0, 0), sigmaX=sigma)
+        result[mask] = blurred[mask]
+        result[known] = channel[known]
+    return result
