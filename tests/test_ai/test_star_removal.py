@@ -58,3 +58,47 @@ class TestRemoveStarsBuiltin:
         out = remove_stars_builtin(color, threshold=0.5)
         assert out.shape == color.shape
         assert out.min() >= 0.0 and out.max() <= 1.0
+
+
+class TestDoesNotDestroyImage:
+    """Regressions for the catastrophic 'whole image blown to white / dark hole
+    in the nebula core' bugs.
+
+    1. On a smooth background the positive-clipped residual collapsed the noise
+       estimate to ~0, the star mask covered the whole frame, and the inpainter
+       flooded everything with a saturated core's value (~1.0).
+    2. A large bright nebula core was classified as a giant 'star' and inpainted
+       away, leaving a dark hole.
+    """
+
+    def test_saturated_core_does_not_blow_background(self):
+        rng = np.random.default_rng(0)
+        img = np.clip(rng.normal(0.1, 0.01, (300, 300)).astype(np.float32), 0, 1)
+        img[140:160, 140:160] = 0.99  # saturated core blob
+        out = remove_stars_builtin(img, threshold=0.5)
+        # Background corner must stay dark, not flood toward white.
+        assert float(out[:40, :40].mean()) < 0.2
+        assert float(np.median(out)) < 0.2
+
+    def test_large_bright_core_preserved(self):
+        h, w = 600, 800
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        r2 = (yy - h / 2) ** 2 + (xx - w / 2) ** 2
+        img = np.full((h, w), 0.08, np.float32)
+        img += np.exp(-r2 / (2 * 50 ** 2)) * 0.9  # large bright core (~100px)
+        rng = np.random.default_rng(1)
+        for _ in range(60):
+            sy, sx = int(rng.integers(20, h - 20)), int(rng.integers(20, w - 20))
+            img[sy - 1:sy + 2, sx - 1:sx + 2] += 0.7
+        img = np.clip(img, 0, 1).astype(np.float32)
+        out = remove_stars_builtin(img, threshold=0.5)
+        core = r2 < 25 ** 2
+        # The bright core must survive (not become a dark hole).
+        assert float(out[core].mean()) > 0.6
+
+    def test_smooth_background_returned_unchanged(self):
+        rng = np.random.default_rng(2)
+        img = np.clip(rng.normal(0.05, 0.008, (200, 200)).astype(np.float32), 0, 1)
+        out = remove_stars_builtin(img, threshold=0.5)
+        # No stars present → median must not move.
+        assert abs(float(np.median(out)) - float(np.median(img))) < 0.01

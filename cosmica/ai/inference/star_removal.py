@@ -101,6 +101,26 @@ def _remove_stars_morph(
         )
         return image.astype(image.dtype, copy=True)
 
+    # ── 2b. Drop blobs too LARGE to be stars (nebula cores) ──────────
+    # A star — even a bloated one — is a small compact feature. A bright nebula
+    # core (M42's Trapezium region, the Lagoon's core) is a large blob and must
+    # NOT be inpainted away, or it leaves a dark hole where the core should be.
+    # Reject connected components whose equivalent diameter exceeds ~4% of the
+    # short side (at any realistic plate scale that is far bigger than a star).
+    from scipy import ndimage
+
+    labels, n_blob = ndimage.label(binary > 0)
+    if n_blob > 0:
+        max_star_diam = max(20.0, min(orig_h, orig_w) * 0.04)
+        max_area = np.pi * (max_star_diam / 2.0) ** 2
+        areas = ndimage.sum(np.ones_like(labels, dtype=np.float64), labels,
+                            index=np.arange(1, n_blob + 1))
+        too_big = np.nonzero(areas > max_area)[0] + 1
+        if too_big.size:
+            binary[np.isin(labels, too_big)] = 0
+            log.debug("Star removal: kept %d oversized blob(s) as nebula, not stars",
+                      int(too_big.size))
+
     # ── 3. Dilate mask to cover halos ───────────────────────────────
     radius = max(3, min(orig_h, orig_w) // 200)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1, radius * 2 + 1))
