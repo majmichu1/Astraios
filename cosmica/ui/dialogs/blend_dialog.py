@@ -53,17 +53,25 @@ class BlendDialog(QDialog):
 
         self._base = base_image
         self._layer: np.ndarray | None = None
+        self._extracted_stars: np.ndarray | None = None
 
         layout = QVBoxLayout(self)
 
         # Blend layer selection
         layer_group = QGroupBox("Blend Layer")
-        layer_layout = QHBoxLayout(layer_group)
+        layer_outer = QVBoxLayout(layer_group)
+        layer_row = QHBoxLayout()
         self._layer_label = QLabel("No image selected")
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse)
-        layer_layout.addWidget(self._layer_label, 1)
-        layer_layout.addWidget(browse_btn)
+        layer_row.addWidget(self._layer_label, 1)
+        layer_row.addWidget(browse_btn)
+        layer_outer.addLayout(layer_row)
+        # Shortcut for the StarNet starless+stars workflow.
+        self._use_stars_btn = QPushButton("Use extracted stars (from StarNet)")
+        self._use_stars_btn.clicked.connect(self._use_extracted_stars)
+        self._use_stars_btn.setVisible(False)
+        layer_outer.addWidget(self._use_stars_btn)
         layout.addWidget(layer_group)
 
         # Mode + opacity
@@ -100,6 +108,19 @@ class BlendDialog(QDialog):
 
     def set_base_image(self, image: np.ndarray) -> None:
         self._base = image
+
+    def set_extracted_stars(self, stars: np.ndarray) -> None:
+        """Offer a StarNet-extracted star layer as a one-click blend source."""
+        self._extracted_stars = stars
+        self._use_stars_btn.setVisible(True)
+
+    def _use_extracted_stars(self) -> None:
+        if self._extracted_stars is None:
+            return
+        self._layer = self._extracted_stars.astype(np.float32)
+        self._layer_label.setText("Extracted stars (StarNet)")
+        self._apply_btn.setEnabled(self._base is not None)
+        self._status.setText("")
 
     def _browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

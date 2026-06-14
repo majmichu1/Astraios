@@ -357,6 +357,9 @@ class MainWindow(QMainWindow):
         self._macro_recorder = MacroRecorder()
         self._current_macro = None  # last recorded/loaded Pipeline
 
+        # Star layer extracted by StarNet (for the starless+stars blend workflow)
+        self._extracted_stars: np.ndarray | None = None
+
         # Equipment profile for Smart Processor
         self._equipment_profile: EquipmentProfile | None = None
 
@@ -1562,6 +1565,8 @@ class MainWindow(QMainWindow):
         from cosmica.ui.dialogs.blend_dialog import BlendDialog
 
         dialog = BlendDialog(base_image=self._current_image.data, parent=self)
+        if self._extracted_stars is not None:
+            dialog.set_extracted_stars(self._extracted_stars)
         dialog.result_ready.connect(self._on_blend_result)
         dialog.exec()
 
@@ -4961,6 +4966,13 @@ class MainWindow(QMainWindow):
             self._log_panel.log(f"StarNet failed: {result.message}", "error")
             return
         self._update_current_image(result.starless, "StarNet complete: stars removed")
+        if result.stars_only is not None:
+            self._extracted_stars = result.stars_only
+            self._log_panel.log(
+                "Extracted star layer kept — stretch the starless image, then "
+                "Tools → Image Blend (Screen) to add the stars back.",
+                "info",
+            )
         if self._project:
             self._project.add_history("StarNet", {})
         self._macro_recorder.record_step("starnet")
