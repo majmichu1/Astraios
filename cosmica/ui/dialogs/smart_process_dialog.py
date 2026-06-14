@@ -48,6 +48,7 @@ class SmartProcessWorker(QThread):
         enabled_stages=None,
         hdr_operator="core_blend",
         hdr_params=None,
+        star_reduction=0.3,
     ):
         super().__init__()
         self._processor = processor
@@ -61,6 +62,7 @@ class SmartProcessWorker(QThread):
         self._enabled_stages = enabled_stages
         self._hdr_operator = hdr_operator
         self._hdr_params = hdr_params
+        self._star_reduction = star_reduction
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -80,6 +82,7 @@ class SmartProcessWorker(QThread):
                 enabled_stages=self._enabled_stages,
                 hdr_operator=self._hdr_operator,
                 hdr_params=self._hdr_params,
+                star_reduction=self._star_reduction,
                 progress=self._emit_progress,
             )
             if self._cancel_requested:
@@ -212,6 +215,22 @@ class SmartProcessDialog(QDialog):
             "and local contrast don't bloat them, then screens the stars back in."
         )
         stages_layout.addWidget(self._stage_star_aware)
+
+        sr_row = QHBoxLayout()
+        sr_row.addSpacing(20)
+        sr_row.addWidget(QLabel("Star reduction"))
+        self._star_reduction_spin = QDoubleSpinBox()
+        self._star_reduction_spin.setRange(0.0, 1.0)
+        self._star_reduction_spin.setSingleStep(0.05)
+        self._star_reduction_spin.setValue(0.3)
+        self._star_reduction_spin.setToolTip(
+            "How much to shrink the isolated stars before screening them back. "
+            "0 = leave star sizes unchanged."
+        )
+        self._stage_star_aware.toggled.connect(self._star_reduction_spin.setEnabled)
+        sr_row.addWidget(self._star_reduction_spin)
+        sr_row.addStretch(1)
+        stages_layout.addLayout(sr_row)
 
         hdr_op_layout = QHBoxLayout()
         hdr_op_layout.setContentsMargins(20, 0, 0, 0)
@@ -377,6 +396,7 @@ class SmartProcessDialog(QDialog):
             wcs=getattr(self, "_wcs", None),
             enabled_stages=enabled_stages,
             hdr_operator=hdr_op,
+            star_reduction=self._star_reduction_spin.value(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)

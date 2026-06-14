@@ -234,6 +234,7 @@ class SmartProcessor:
         enabled_stages: set[str] | None = None,
         hdr_operator: str = "core_blend",
         hdr_params: dict | None = None,
+        star_reduction: float = 0.3,
         progress: ProgressCallback | None = None,
     ) -> SmartProcessorResult:
         """Run the full Smart Processing pipeline.
@@ -286,6 +287,7 @@ class SmartProcessor:
         self._user_dec_hint = dec_hint
         self._hdr_operator = hdr_operator
         self._hdr_params = hdr_params
+        self._star_reduction = float(max(0.0, min(1.0, star_reduction)))
 
         # Phase 1: Analyze
         progress(0.0, "Analyzing image...")
@@ -1247,13 +1249,50 @@ class SmartProcessor:
         plan: ProcessingPlan,
         progress: ProgressCallback,
     ) -> np.ndarray:
-        """Separate stars, enhance the starless nebula, screen the stars back."""
-        progress(0.97, "Star-aware: separating stars...")
+        """Separate stars, enhance the starless nebula, optionally shrink the
+        isolated stars, then screen them back."""
+        progress(0.95, "Star-aware: separating stars...")
         starless = self._separate_stars(working)
         if starless is None:
             return working  # graceful fallback — keep the non-star-aware result
 
+        # Star layer = what the remover took out. Screening it back over the
+        # (enhanced) starless reconstructs the image without clipping.
         stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
+        is_color = working.ndim == 3 and working.shape[0] >= 3
+        has_stars = float(np.mean(stars > 0.05)) > 1e-4
+
+        # Independent star reduction — only possible because the stars are
+        # isolated here; far cleaner than eroding them in the full image where
+        # nebula detail would be damaged too.
+        reduced = False
+        if self._star_reduction > 0.0 and has_stars:
+            try:
+                from cosmica.core.star_reduction import StarReductionParams, reduce_stars
+
+                progress(0.96, "Star-aware: reducing star bloat...")
+                sr_iters = 1 + int(round(self._star_reduction * 3))
+                stars = reduce_stars(
+                    stars,
+                    params=StarReductionParams(
+                        amount=self._star_reduction,
+                        iterations=sr_iters,
+                        protect_core=True,
+                    ),
+                ).astype(np.float32)
+                reduced = True
+                self._log_msg(
+                    f"Star-aware: reduced star sizes (amount={self._star_reduction:.2f})"
+                )
+            except Exception as exc:
+                self._log_msg(f"Star reduction skipped ({exc})")
+
+        # Gentle star colour boost so star colours pop (colour, non-narrowband).
+        if is_color and not self._is_narrowband(analysis):
+            try:
+                stars = color_adjust(stars, ColorAdjustParams(saturation=1.2)).astype(np.float32)
+            except Exception:
+                pass
 
         # Enhance the starless nebula — local contrast + (for colour) saturation.
         # Safe here because there are no stars to bloat or ring.
@@ -1261,7 +1300,7 @@ class SmartProcessor:
         enhanced = local_contrast_enhance(
             starless, LocalContrastParams(clip_limit=2.2, tile_size=8, amount=0.5)
         )
-        if enhanced.ndim == 3 and enhanced.shape[0] >= 3 and not self._is_narrowband(analysis):
+        if is_color and not self._is_narrowband(analysis):
             enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
 
         # Screen the stars back on top.
@@ -1273,7 +1312,8 @@ class SmartProcessor:
         )
         star_frac = float(np.mean(stars > 0.05))
         self._log_msg(
-            f"Star-aware complete: enhanced starless nebula, screened stars back "
+            f"Star-aware complete: nebula enhanced, stars "
+            f"{'reduced & ' if reduced else ''}recombined "
             f"({star_frac * 100:.1f}% star pixels)"
         )
         return result

@@ -437,3 +437,51 @@ class TestStarAwareProcessing:
         assert starless.shape == img.shape
         # Starless should have lower peak (stars removed) than the original.
         assert float(starless.max()) <= float(img.max()) + 1e-6
+
+
+class TestStarAwareStarReduction:
+    """Star-aware mode can shrink the isolated star layer before recombining."""
+
+    @staticmethod
+    def _nebula_with_stars(h=120, w=120):
+        rng = np.random.default_rng(1)
+        yy, xx = np.mgrid[0:h, 0:w]
+        img = (0.06 * np.exp(-(((xx - w/2)**2 + (yy - h/2)**2) / (2 * 30**2)))).astype(np.float32)
+        img = np.stack([img, img, img])
+        img += (np.abs(rng.normal(0, 0.01, (3, h, w))) + 0.02).astype(np.float32)
+        for _ in range(30):
+            sy, sx = int(rng.integers(6, h - 6)), int(rng.integers(6, w - 6))
+            img[:, sy-2:sy+3, sx-2:sx+3] += rng.uniform(0.4, 0.9)
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    def test_star_reduction_applied_by_default(self, processor_no_equipment):
+        img = self._nebula_with_stars()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
+        assert "reduced star sizes" in "\n".join(result.processing_log)
+        assert result.image.shape == img.shape
+
+    def test_star_reduction_zero_skips(self, processor_no_equipment):
+        img = self._nebula_with_stars()
+        result = processor_no_equipment.process(
+            img, input_type_hint=InputType.OSC_RGB, star_reduction=0.0,
+        )
+        assert "reduced star sizes" not in "\n".join(result.processing_log)
+
+    def test_star_reduction_clamped(self, processor_no_equipment):
+        img = self._nebula_with_stars()
+        # Out-of-range values are clamped, not crash.
+        result = processor_no_equipment.process(
+            img, input_type_hint=InputType.OSC_RGB, star_reduction=5.0,
+        )
+        assert result.image.min() >= 0.0 and result.image.max() <= 1.0
+
+
+def test_smart_dialog_wires_star_reduction(qtbot):
+    from cosmica.ui.dialogs.smart_process_dialog import SmartProcessDialog
+
+    dlg = SmartProcessDialog()
+    assert dlg._stage_star_aware.isChecked()
+    assert abs(dlg._star_reduction_spin.value() - 0.3) < 1e-9
+    # Disabling star-aware disables the reduction control.
+    dlg._stage_star_aware.setChecked(False)
+    assert not dlg._star_reduction_spin.isEnabled()
