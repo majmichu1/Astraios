@@ -1798,11 +1798,44 @@ class ToolsPanel(QWidget):
         )
 
     def get_morphology_params(self) -> MorphologyParams:
+        from cosmica.core.morphology import MorphOp, StructuringElement
+
+        op_map = {
+            "Erosion": MorphOp.ERODE, "Dilation": MorphOp.DILATE,
+            "Opening": MorphOp.OPEN, "Closing": MorphOp.CLOSE,
+            "Gradient": MorphOp.DILATE,
+        }
+        el_map = {
+            "Disk": StructuringElement.CIRCLE, "Square": StructuringElement.SQUARE,
+            "Diamond": StructuringElement.DIAMOND,
+        }
         return MorphologyParams(
-            operation=self._morph_op.currentText(),
-            element=self._morph_kernel.currentText(),
+            operation=op_map.get(self._morph_op.currentText(), MorphOp.ERODE),
+            element=el_map.get(self._morph_kernel.currentText(), StructuringElement.CIRCLE),
             iterations=int(self._morph_iters.value()),
         )
+
+    def get_median_filter_params(self):
+        from cosmica.core.filters import MedianFilterParams
+
+        # Median strength rides on the denoise "Amount" slider (no dedicated UI).
+        kernel = 3 + 2 * int(round(self._denoise_amount.value() * 3))  # 3,5,7,9
+        return MedianFilterParams(kernel_size=kernel)
+
+    def get_mlt_params(self) -> WaveletParams:
+        # MLT (multiscale linear transform) reuses the wavelet controls.
+        return self.get_wavelet_params()
+
+    def get_ca_params(self):
+        from cosmica.core.chromatic_aberration import CAParams
+
+        return CAParams(auto_detect=True)
+
+    def reset_stretch_params(self) -> None:
+        self._midtone_slider.setValue(0.25)
+
+    def reset_ghs_params(self) -> None:
+        pass  # GHS sliders intentionally retain their values after applying
 
     def get_color_calibration_params(self) -> ColorCalibrationParams:
         method_map = {
