@@ -56,27 +56,56 @@ class TGVParams:
 import torch.nn.functional as _F
 
 
+def _pad_replicate(x: torch.Tensor, pad: tuple[int, ...]) -> torch.Tensor:
+    """Replicate-pad the last two dims, working for 2-D inputs too.
+
+    torch's replicate padding with 4 pad values requires a 3-D/4-D tensor; a
+    bare (H, W) channel would raise NotImplementedError. Add a singleton
+    leading dim for 2-D input and remove it afterwards.
+    """
+    if x.dim() == 2:
+        return _F.pad(x.unsqueeze(0), pad, mode="replicate").squeeze(0)
+    return _F.pad(x, pad, mode="replicate")
+
+
 def _grad(u: torch.Tensor) -> torch.Tensor:
     """Forward-difference gradient → shape (..., H, W, 2).
 
     Uses Neumann (reflective) boundary: edge differences are zero.
     """
     *_, h, w = u.shape
-    u_pad = _F.pad(u, (0, 1, 0, 1), mode="replicate")
+    u_pad = _pad_replicate(u, (0, 1, 0, 1))
     dy = u_pad[..., 1:, :w] - u
     dx = u_pad[..., :h, 1:] - u
     return torch.stack([dy, dx], dim=-1)
 
 
+def _bw_h(a: torch.Tensor) -> torch.Tensor:
+    """Backward difference along H — the adjoint building block of forward-diff
+    grad (so ``<forward_H(u), a> = <u, -_bw_h(a)>``)."""
+    o = torch.zeros_like(a)
+    o[..., 1:, :] = a[..., 1:, :] - a[..., :-1, :]
+    o[..., 0, :] = a[..., 0, :]
+    o[..., -1, :] = -a[..., -2, :]
+    return o
+
+
+def _bw_w(a: torch.Tensor) -> torch.Tensor:
+    """Backward difference along W (adjoint building block, see _bw_h)."""
+    o = torch.zeros_like(a)
+    o[..., :, 1:] = a[..., :, 1:] - a[..., :, :-1]
+    o[..., :, 0] = a[..., :, 0]
+    o[..., :, -1] = -a[..., :, -2]
+    return o
+
+
 def _div(p: torch.Tensor) -> torch.Tensor:
-    """Adjoint of _grad (backward-difference divergence). p: (..., H, W, 2)."""
-    d0 = torch.zeros_like(p[..., 0])
-    d0[..., :-1, :] = p[..., :-1, 0] - p[..., 1:, 0]
-    d0[..., -1, :] = -p[..., -1, 0]
-    d1 = torch.zeros_like(p[..., 1])
-    d1[..., :, :-1] = p[..., :, :-1, 1] - p[..., :, 1:, 1]
-    d1[..., :, -1] = -p[..., :, -1, 1]
-    return d0 + d1
+    """Negative adjoint of _grad: ``div = -gradᵀ`` so ``<grad u, p> = <u, -div p>``.
+
+    The previous implementation used the wrong difference operator (and sliced
+    the wrong axis), so TGV never converged. Verified by the adjoint identity.
+    """
+    return _bw_h(p[..., 0]) + _bw_w(p[..., 1])
 
 
 def _sym_grad(p: torch.Tensor) -> torch.Tensor:
@@ -87,10 +116,10 @@ def _sym_grad(p: torch.Tensor) -> torch.Tensor:
     """
     py = p[..., 0]
     px = p[..., 1]
-    py_pad = _F.pad(py, (0, 0, 0, 1), mode="replicate")
-    px_pad = _F.pad(px, (0, 1, 0, 0), mode="replicate")
-    pyx_pad = _F.pad(py, (0, 1, 0, 0), mode="replicate")
-    pxy_pad = _F.pad(px, (0, 0, 0, 1), mode="replicate")
+    py_pad = _pad_replicate(py, (0, 0, 0, 1))
+    px_pad = _pad_replicate(px, (0, 1, 0, 0))
+    pyx_pad = _pad_replicate(py, (0, 1, 0, 0))
+    pxy_pad = _pad_replicate(px, (0, 0, 0, 1))
 
     pyy = py_pad[1:, :] - py
     pxx = px_pad[:, 1:] - px
@@ -99,20 +128,17 @@ def _sym_grad(p: torch.Tensor) -> torch.Tensor:
 
 
 def _div_sym(e: torch.Tensor) -> torch.Tensor:
-    """Adjoint of _sym_grad. e: (..., H, W, 3) → (..., H, W, 2)."""
+    """Negative adjoint of _sym_grad. e: (..., H, W, 3) → (..., H, W, 2).
+
+    _sym_grad gives e0=∂y(py), e1=∂x(px), e2=½(∂x py + ∂y px) with forward
+    differences, so the adjoint uses the matching backward-difference operators
+    (_bw_h / _bw_w). Verified by the adjoint identity.
+    """
     e0 = e[..., 0]
     e1 = e[..., 1]
     e2 = e[..., 2]
-    d0 = torch.zeros_like(e0)
-    d0[..., :-1, :] = e0[..., :-1, :] - e0[..., 1:, :]
-    d0[..., -1, :] = -e0[..., -1, :]
-    d0[..., :, :-1] += 0.5 * (e2[..., :, :-1] - e2[..., :, 1:])
-    d0[..., :, -1] += -0.5 * e2[..., :, -1]
-    d1 = torch.zeros_like(e1)
-    d1[..., :, :-1] = e1[..., :, :-1] - e1[..., :, 1:]
-    d1[..., :, -1] = -e1[..., :, -1]
-    d1[..., :-1, :] += 0.5 * (e2[..., :-1, :] - e2[..., 1:, :])
-    d1[..., -1, :] += -0.5 * e2[..., -1, :]
+    d0 = _bw_h(e0) + 0.5 * _bw_w(e2)
+    d1 = _bw_w(e1) + 0.5 * _bw_h(e2)
     return torch.stack([d0, d1], dim=-1)
 
 
