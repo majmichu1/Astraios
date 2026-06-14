@@ -1232,7 +1232,7 @@ class SmartProcessor:
                 tile_size=8,
                 amount=0.25,
             )
-            working = local_contrast_enhance(working, hdr_lce)
+            working = self._bg_preserving_local_contrast(working, hdr_lce, "HDR LCE")
 
         # Star-aware enhancement: separate stars, enhance the starless nebula,
         # then screen the stars back. Done last (on the stretched image) because
@@ -1395,8 +1395,10 @@ class SmartProcessor:
         # Enhance the starless nebula — local contrast + (for colour) saturation.
         # Safe here because there are no stars to bloat or ring.
         progress(0.98, "Star-aware: enhancing nebula...")
-        enhanced = local_contrast_enhance(
-            starless, LocalContrastParams(clip_limit=2.2, tile_size=8, amount=0.5)
+        enhanced = self._bg_preserving_local_contrast(
+            starless,
+            LocalContrastParams(clip_limit=2.2, tile_size=8, amount=0.5),
+            "Star-aware LCE",
         )
         if is_color and not self._is_narrowband(analysis):
             enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
@@ -1415,6 +1417,29 @@ class SmartProcessor:
             f"({star_frac * 100:.1f}% star pixels)"
         )
         return result
+
+    def _bg_preserving_local_contrast(
+        self, image: np.ndarray, params: LocalContrastParams, label: str = ""
+    ) -> np.ndarray:
+        """Apply local contrast WITHOUT inflating the sky background.
+
+        CLAHE equalizes each tile's histogram, which on sky-dominated nebulae
+        (M42 etc.) pumps the background DC level up — a milky veil that
+        compounds badly when several passes stack. Local contrast should add
+        high-frequency *detail*, not a low-frequency pedestal, so we measure the
+        sky level before/after and subtract any lift the operator introduced.
+        Faint nebulosity (brighter than the p10 sky) keeps its enhanced
+        contrast while the sky returns to a properly dark level.
+        """
+        bg_before = float(np.percentile(image, 10))
+        out = local_contrast_enhance(image, params)
+        bg_after = float(np.percentile(out, 10))
+        lift = bg_after - bg_before
+        if lift > 0.005:
+            out = np.clip(out - lift, 0.0, 1.0).astype(np.float32)
+            if label:
+                self._log_msg(f"{label}: restored sky background (LCE lifted +{lift:.3f})")
+        return out
 
     @staticmethod
     def _is_narrowband(analysis: ImageAnalysis) -> bool:
@@ -1443,14 +1468,21 @@ class SmartProcessor:
         elif stretch_hint == "aggressive":
             base_target *= 1.2
 
-        if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
-            base_target *= 0.55
+        hdr_active = full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages
+        if hdr_active:
+            # Stretch extreme-DR targets only modestly more gently than normal —
+            # the HDR core-protection pass tames the bright core, so we don't
+            # need to crush the whole stretch (which buries the faint outer
+            # nebulosity). Previously 0.55, which left the faint signal invisible.
+            base_target *= 0.85
 
         if snr < 8:
             base_target *= 0.8
         elif snr > 50:
             base_target *= 1.15
-        if analysis.has_blown_highlights:
+        # Pull back for blown highlights only when HDR core-protection ISN'T
+        # already handling them — otherwise this double-darkens the image.
+        if analysis.has_blown_highlights and not hdr_active:
             base_target *= 0.85
 
         return max(0.10, min(0.30, base_target))
@@ -1854,12 +1886,18 @@ class SmartProcessor:
             else:
                 working = auto_stretch(pre_stretch, plan.stretch_params)
 
-            # Background lift: raise the floor slightly so the background
-            # isn't completely black.  Common astrophotography technique.
+            # Sky-veil cleanup: extreme-DR targets (M42 etc.) are stretched
+            # conservatively, which leaves a milky low-level glow over the sky
+            # and flattens contrast. Pull the background down toward — but not
+            # all the way to — black so the nebula gains separation from the sky,
+            # while leaving a small pedestal so the faint outer nebulosity and
+            # shadow detail aren't crushed.
             if full_plan.needs_hdr_merge:
-                bg_pedestal = 0.005
-                working = np.clip(working + bg_pedestal, 0, 1)
-                self._log_msg(f"[{name}] Background lift: +{bg_pedestal:.3f}")
+                sky = float(np.percentile(working, 10))
+                pull = max(0.0, sky - 0.02) * 0.7  # leave ~0.02 floor
+                if pull > 0.001:
+                    working = np.clip(working - pull, 0, 1)
+                    self._log_msg(f"[{name}] Sky-veil pull: -{pull:.3f} (sky was {sky:.3f})")
 
             final_median = float(np.median(working))
             final_signal = float(np.mean(working[working > 0.02])) if np.any(working > 0.02) else 0.0
@@ -1877,32 +1915,47 @@ class SmartProcessor:
                 adjustment=f"Adaptively chose midtone={best_midtone:.3f}",
             )
 
-        # Core protection for HDR objects: apply the selected tonemap operator
-        # to the linear pre-stretch data and blend.  Preserves Trapezium /
-        # bright core detail while bringing out faint outer nebulosity.
+        # Core protection for HDR objects: swap the selected tonemap into ONLY
+        # the bright core (Trapezium etc.) while the faint outer nebulosity keeps
+        # the adaptive stretch we just computed.  This is what makes M42's core
+        # detail survive without burying the faint signal.
+        #
+        # IMPORTANT: every operator — including core_blend — must blend over the
+        # core mask, NOT replace the whole frame.  A full replace discards the
+        # adaptive target-median stretch AND the sky-veil pull, which is exactly
+        # why faint nebulosity used to vanish (the image looked "too dark").
         if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
             from cosmica.core.hdr_operators import apply_hdr
+
             operator = full_plan.hdr_operator
             params = full_plan.hdr_params
-            hdr_result = apply_hdr(pre_stretch, operator, params)
-            # Blend with existing working via the core protection mask
-            if operator == "core_blend":
-                working = hdr_result
+
+            # Soft mask of the bright core, measured on the LINEAR data so the
+            # threshold isn't fooled by the non-linear stretch.
+            p99 = float(np.percentile(pre_stretch, 99))
+            core_linear = (pre_stretch > p99 * 0.3).astype(np.float32)
+            if np.any(core_linear):
+                from scipy.ndimage import gaussian_filter
+
+                # min over the SPATIAL dims only — min(shape) on (C, H, W) would
+                # collapse to the channel count and make sigma tiny.
+                sigma = max(8.0, min(working.shape[-2], working.shape[-1]) * 0.015)
+                core_mask = gaussian_filter(core_linear, sigma=sigma)
+                core_mask = np.clip(core_mask, 0, 1)
+                cm = core_mask[np.newaxis, ...] if working.ndim == 3 else core_mask
+
+                hdr_result = apply_hdr(pre_stretch, operator, params)
+                working = working * (1.0 - cm) + hdr_result * cm
+                self._log_msg(
+                    f"[{name}] HDR ({operator}) core-protect over "
+                    f"{float(np.mean(core_mask)):.4f} of the frame"
+                )
             else:
-                p99 = float(np.percentile(pre_stretch, 99))
-                core_linear = (pre_stretch > p99 * 0.3).astype(np.float32)
-                if np.any(core_linear):
-                    from scipy.ndimage import gaussian_filter
-                    core_mask = gaussian_filter(core_linear, sigma=max(8, min(working.shape) * 0.015))
-                    core_mask = np.clip(core_mask, 0, 1)
-                    working = working * (1.0 - core_mask) + hdr_result * core_mask
-                    core_blend_frac = float(np.mean(core_mask))
-                    self._log_msg(
-                        f"[{name}] HDR ({operator}) applied over "
-                        f"{core_blend_frac:.4f} of the frame"
-                    )
-                else:
-                    working = hdr_result
+                # No bright core to protect — keep the adaptive stretch as-is.
+                self._log_msg(
+                    f"[{name}] HDR ({operator}): no bright core detected; "
+                    f"keeping adaptive stretch"
+                )
 
         # Stage 5: Local contrast
         if plan.local_contrast_params is not None:
