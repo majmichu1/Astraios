@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from enum import Enum, auto
 
 import cv2
 import numpy as np
@@ -263,4 +264,74 @@ def median_filter(
                 image[ch], size=ksize,
             ).astype(np.float32)
 
+    return apply_mask(original, result, mask)
+
+
+# ---------------------------------------------------------------------------
+# Convolution (blur)
+# ---------------------------------------------------------------------------
+
+
+class ConvolutionKernel(Enum):
+    GAUSSIAN = auto()  # smooth Gaussian blur (radius = sigma)
+    BOX = auto()       # uniform box / mean blur
+
+
+@dataclass
+class ConvolutionParams:
+    """Parameters for a convolution (blur).
+
+    Attributes
+    ----------
+    kernel : ConvolutionKernel
+        ``GAUSSIAN`` (sigma = ``radius``) or ``BOX`` (mean over a
+        ``2*radius+1`` window).
+    radius : float
+        Blur radius in pixels.
+    amount : float
+        Blend with the original in ``[0, 1]``: 1 = full blur, 0 = unchanged.
+    """
+
+    kernel: ConvolutionKernel = ConvolutionKernel.GAUSSIAN
+    radius: float = 2.0
+    amount: float = 1.0
+
+
+def _blur_channel(channel: np.ndarray, params: ConvolutionParams) -> np.ndarray:
+    if params.radius <= 0:
+        return channel.astype(np.float32, copy=True)
+    if params.kernel == ConvolutionKernel.BOX:
+        ksize = int(round(params.radius)) * 2 + 1
+        return cv2.blur(channel, (ksize, ksize)).astype(np.float32)
+    dm = get_device_manager()
+    if dm.device.type != "cpu":
+        return _gaussian_blur_gpu(np.ascontiguousarray(channel), params.radius, dm)
+    ksize = int(np.ceil(params.radius * 3)) * 2 + 1
+    return cv2.GaussianBlur(channel, (ksize, ksize), params.radius).astype(np.float32)
+
+
+def convolve(
+    image: np.ndarray,
+    params: ConvolutionParams | None = None,
+    mask: Mask | None = None,
+) -> np.ndarray:
+    """Convolve (blur) an image with a Gaussian or box kernel — GPU-accelerated.
+
+    Useful for softening, feathering masks, or building synthetic PSFs. Handles
+    mono ``(H, W)`` and colour ``(C, H, W)`` float32 ``[0, 1]`` images.
+    """
+    if params is None:
+        params = ConvolutionParams()
+
+    original = image.copy()
+    if image.ndim == 2:
+        blurred = _blur_channel(image, params)
+    else:
+        blurred = np.empty_like(image)
+        for ch in range(image.shape[0]):
+            blurred[ch] = _blur_channel(image[ch], params)
+
+    amount = float(np.clip(params.amount, 0.0, 1.0))
+    result = original * (1.0 - amount) + blurred * amount
+    result = np.clip(result, 0.0, 1.0).astype(np.float32)
     return apply_mask(original, result, mask)

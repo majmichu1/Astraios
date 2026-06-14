@@ -114,7 +114,13 @@ def _register_default_tools():
     from cosmica.core.color_tools import ColorAdjustParams, SCNRParams, color_adjust, scnr
     from cosmica.core.cosmetic import cosmetic_correction
     from cosmica.core.denoise import DenoiseParams, denoise
-    from cosmica.core.filters import UnsharpMaskParams, unsharp_mask
+    from cosmica.core.filters import (
+        ConvolutionKernel,
+        ConvolutionParams,
+        UnsharpMaskParams,
+        convolve,
+        unsharp_mask,
+    )
     from cosmica.core.frequency_separation import (
         FrequencySeparationParams,
         SeparationMethod,
@@ -212,6 +218,12 @@ def _register_default_tools():
         return morphology_transform(data, params)
 
     register_tool("morphology", _morphology_tool)
+
+    def _convolve_tool(data, kernel="GAUSSIAN", radius=2.0, amount=1.0, **kw):
+        k = ConvolutionKernel[kernel.upper()] if isinstance(kernel, str) else kernel
+        return convolve(data, ConvolutionParams(kernel=k, radius=radius, amount=amount))
+
+    register_tool("convolve", _convolve_tool)
 
 
 def apply_pipeline_to_image(
