@@ -113,6 +113,11 @@ def _register_default_tools():
     from cosmica.core.cosmetic import cosmetic_correction
     from cosmica.core.denoise import DenoiseParams, denoise
     from cosmica.core.filters import UnsharpMaskParams, unsharp_mask
+    from cosmica.core.frequency_separation import (
+        FrequencySeparationParams,
+        SeparationMethod,
+        frequency_separation,
+    )
     from cosmica.core.histogram_transform import HistogramTransformParams, histogram_transform
     from cosmica.core.local_contrast import LocalContrastParams, local_contrast_enhance
     from cosmica.core.morphology import (
@@ -121,11 +126,16 @@ def _register_default_tools():
         StructuringElement,
         morphology_transform,
     )
+    from cosmica.core.star_stretch import StarStretchParams, star_stretch
     from cosmica.core.stretch import (
+        ArcsinhStretchParams,
         GHSParams,
+        StatisticalStretchParams,
         StretchParams,
+        arcsinh_stretch,
         auto_stretch,
         generalized_hyperbolic_stretch,
+        statistical_stretch,
     )
     from cosmica.core.transforms import invert
     from cosmica.core.wavelets import WaveletParams, wavelet_sharpen
@@ -159,6 +169,27 @@ def _register_default_tools():
         "unsharp_mask", lambda data, **kw: unsharp_mask(data, _p(UnsharpMaskParams, kw))
     )
     register_tool("invert", lambda data, **kw: invert(data))
+    register_tool(
+        "arcsinh_stretch", lambda data, **kw: arcsinh_stretch(data, _p(ArcsinhStretchParams, kw))
+    )
+    register_tool(
+        "statistical_stretch",
+        lambda data, **kw: statistical_stretch(data, _p(StatisticalStretchParams, kw)),
+    )
+    register_tool(
+        "star_stretch", lambda data, **kw: star_stretch(data, _p(StarStretchParams, kw))
+    )
+
+    def _frequency_separation_tool(
+        data, method="SUBTRACT", sigma=5.0, hf_boost=1.0, lf_smooth=0.0, **kw
+    ):
+        m = SeparationMethod[method] if isinstance(method, str) else method
+        params = FrequencySeparationParams(
+            sigma=sigma, method=m, hf_boost=hf_boost, lf_smooth=lf_smooth
+        )
+        return frequency_separation(data, params)
+
+    register_tool("frequency_separation", _frequency_separation_tool)
 
     def _morphology_tool(
         data, operation="ERODE", kernel_size=3, iterations=1, element="DISK", **kw

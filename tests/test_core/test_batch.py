@@ -342,3 +342,66 @@ class TestBatchProcess:
         )
         # Final progress call should be at 1.0
         assert any(frac == 1.0 for frac, _ in calls)
+
+
+class TestNewToolsRegistered:
+    """The feature tools added for SASpro parity must be batch/macro/scriptable."""
+
+    def _color(self, h=48, w=48):
+        rng = np.random.default_rng(0)
+        return np.clip(rng.random((3, h, w)) * 0.4 + 0.1, 0, 1).astype(np.float32)
+
+    def test_new_tools_in_registry(self):
+        from cosmica.core.batch import _register_default_tools
+
+        _TOOL_REGISTRY.clear()
+        _register_default_tools()
+        tools = get_registered_tools()
+        for name in (
+            "arcsinh_stretch",
+            "statistical_stretch",
+            "star_stretch",
+            "frequency_separation",
+        ):
+            assert name in tools, f"{name} not registered"
+
+    def test_pipeline_runs_new_tools(self):
+        img = self._color()
+        p = Pipeline(name="features")
+        p.add_step("statistical_stretch", {"target_median": 0.3})
+        p.add_step("star_stretch", {"amount": 0.3, "color_boost": 1.2})
+        p.add_step("arcsinh_stretch", {"stretch_factor": 8.0})
+        out = apply_pipeline_to_image(img, p)
+        assert out.shape == img.shape
+        assert out.min() >= 0.0 and out.max() <= 1.0
+
+    def test_frequency_separation_enum_param_from_string(self):
+        # JSON-roundtripped macros pass the enum as a plain string.
+        img = self._color()
+        p = Pipeline(name="fs")
+        p.add_step("frequency_separation", {"method": "DIVIDE", "sigma": 4.0, "hf_boost": 1.5})
+        out = apply_pipeline_to_image(img, p)
+        assert out.shape == img.shape
+        assert out.min() >= 0.0 and out.max() <= 1.0
+
+
+class TestMacroRoundTrip:
+    """Interactive record -> save -> replay must work for the new tools."""
+
+    def test_recorded_macro_replays(self):
+        from cosmica.core.scripting import MacroRecorder, play_macro
+
+        rec = MacroRecorder()
+        rec.start("feature macro")
+        rec.record_step("statistical_stretch", {"target_median": 0.25, "linked": True})
+        rec.record_step("frequency_separation", {"method": "SUBTRACT", "sigma": 4.0, "hf_boost": 1.3})
+        rec.record_step("star_stretch", {"amount": 0.3, "color_boost": 1.2})
+        macro = rec.stop()
+        assert [s.tool_name for s in macro.steps] == [
+            "statistical_stretch", "frequency_separation", "star_stretch",
+        ]
+
+        img = np.clip(np.random.default_rng(0).random((3, 48, 48)) * 0.4 + 0.1, 0, 1).astype(np.float32)
+        out = play_macro(img, macro)
+        assert out.shape == img.shape
+        assert out.min() >= 0.0 and out.max() <= 1.0

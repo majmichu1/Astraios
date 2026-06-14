@@ -4373,12 +4373,13 @@ class MainWindow(QMainWindow):
 
         def _done(result):
             self._update_current_image(result, "Frequency separation complete")
+            step_params = {
+                "sigma": _p.sigma, "method": _p.method.name,
+                "hf_boost": _p.hf_boost, "lf_smooth": _p.lf_smooth,
+            }
             if self._project:
-                self._project.add_history(
-                    "FrequencySeparation",
-                    {"sigma": _p.sigma, "hf_boost": _p.hf_boost,
-                     "lf_smooth": _p.lf_smooth, "method": _p.method.name},
-                )
+                self._project.add_history("FrequencySeparation", step_params)
+            self._macro_recorder.record_step("frequency_separation", step_params)
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
@@ -4401,11 +4402,14 @@ class MainWindow(QMainWindow):
 
         def _done(result):
             self._update_current_image(result, "Statistical stretch complete")
+            step_params = {
+                "target_median": _p.target_median,
+                "shadow_clip": _p.shadow_clip,
+                "linked": _p.linked,
+            }
             if self._project:
-                self._project.add_history(
-                    "StatisticalStretch",
-                    {"target_median": _p.target_median, "linked": _p.linked},
-                )
+                self._project.add_history("StatisticalStretch", step_params)
+            self._macro_recorder.record_step("statistical_stretch", step_params)
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
@@ -4427,11 +4431,10 @@ class MainWindow(QMainWindow):
 
         def _done(result):
             self._update_current_image(result, "Star stretch complete")
+            step_params = {"amount": _p.amount, "color_boost": _p.color_boost}
             if self._project:
-                self._project.add_history(
-                    "StarStretch",
-                    {"amount": _p.amount, "color_boost": _p.color_boost},
-                )
+                self._project.add_history("StarStretch", step_params)
+            self._macro_recorder.record_step("star_stretch", step_params)
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
