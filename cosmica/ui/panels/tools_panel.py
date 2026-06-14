@@ -1418,7 +1418,9 @@ class ToolsPanel(QWidget):
     def _parse_norm(self, text: str) -> NormalizationMethod:
         nmap = {
             "Additive + Scaling": NormalizationMethod.ADDITIVE_SCALING,
-            "Linear Fit":        NormalizationMethod.LINEAR_FIT,
+            # "Linear Fit" is a rejection method, not a normalization one;
+            # normalize_stack_linear_fit() is just an alias for ADDITIVE_SCALING.
+            "Linear Fit":        NormalizationMethod.ADDITIVE_SCALING,
             "Local":             NormalizationMethod.LOCAL,
             "Additive":          NormalizationMethod.ADDITIVE,
             "Multiplicative":    NormalizationMethod.MULTIPLICATIVE,
@@ -1734,16 +1736,22 @@ class ToolsPanel(QWidget):
         )
 
     def get_curves_params(self) -> CurvesParams:
-        channel_map = {
-            "Master (L)": "luminance",
-            "Red": "red", "Green": "green", "Blue": "blue",
-        }
-        return CurvesParams(
-            channel=channel_map.get(
-                self._curve_channel_combo.currentText(), "luminance"
-            ),
-            points=self._curve_editor.get_points(),
-        )
+        # CurvesParams holds a CurvePoints per channel (master/red/green/blue);
+        # apply the editor's points to the channel selected in the combo.
+        from cosmica.core.curves import CurvePoints
+
+        cp = CurvePoints(points=list(self._curve_editor.get_points()))
+        params = CurvesParams()
+        channel = self._curve_channel_combo.currentText()
+        if channel == "Red":
+            params.red = cp
+        elif channel == "Green":
+            params.green = cp
+        elif channel == "Blue":
+            params.blue = cp
+        else:  # "Master (L)"
+            params.master = cp
+        return params
 
     def get_wavelet_params(self) -> WaveletParams:
         n = int(self._wavelet_layers.value())

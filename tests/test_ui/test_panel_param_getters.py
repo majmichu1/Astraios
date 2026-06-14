@@ -60,3 +60,47 @@ def test_color_adjust_params_neutral_default(panel):
 def test_reset_methods_exist(panel):
     panel.reset_stretch_params()
     panel.reset_ghs_params()
+
+
+def test_curves_params_assigns_to_channel(panel):
+    from cosmica.core.curves import CurvesParams, CurvePoints
+
+    p = panel.get_curves_params()
+    assert isinstance(p, CurvesParams)
+    assert isinstance(p.master, CurvePoints)
+    assert not hasattr(p, "channel")  # used to pass a bogus 'channel' kwarg
+
+
+def test_stacking_params_normalization_valid(panel):
+    from cosmica.core.stacking import NormalizationMethod, StackingParams
+
+    p = panel.get_stacking_params()
+    assert isinstance(p, StackingParams)
+    assert isinstance(p.normalization, NormalizationMethod)
+
+
+def test_every_zero_arg_getter_is_callable(panel):
+    """No tools-panel get_*/is_* method should crash with default UI state —
+    this is the bug class that broke color_adjust/morphology/median/mlt/ca/
+    curves/stacking via wrong kwargs or missing enum members."""
+    import inspect
+
+    broken = []
+    for name in dir(panel):
+        if not (name.startswith("get_") or name.startswith("is_")):
+            continue
+        m = getattr(panel, name)
+        if not callable(m):
+            continue
+        sig = inspect.signature(m)
+        if any(
+            pr.default is pr.empty
+            and pr.kind in (pr.POSITIONAL_OR_KEYWORD, pr.POSITIONAL_ONLY)
+            for pr in sig.parameters.values()
+        ):
+            continue
+        try:
+            m()
+        except Exception as e:  # noqa: BLE001
+            broken.append(f"{name}: {type(e).__name__}: {e}")
+    assert not broken, "broken getters: " + "; ".join(broken)
