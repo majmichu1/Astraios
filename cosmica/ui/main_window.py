@@ -4806,7 +4806,21 @@ class MainWindow(QMainWindow):
             self._skip_graph_auto_add = False
 
     def _process_graph_step(self, process_name: str, params: dict, image):
-        """Execute a single processing graph step."""
+        """Execute a single processing graph step.
+
+        Delegates to the shared batch/macro tool registry so the
+        processing graph, batch pipelines and recorded macros all run through
+        one execution path. Falls back to the legacy hardcoded names (and
+        finally a no-op) for description-style nodes that predate the registry.
+        """
+        from cosmica.core.batch import get_registered_tools
+
+        tools = get_registered_tools()
+        func = tools.get(process_name)
+        if func is not None:
+            return func(image, **(params or {}))
+
+        # Legacy fallbacks for older graphs / description-named nodes.
         from cosmica.core.background import extract_background
         from cosmica.core.denoise import DenoiseParams, denoise
         from cosmica.core.filters import unsharp_mask

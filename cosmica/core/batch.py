@@ -93,7 +93,9 @@ def register_tool(name: str, func: Callable):
 
 
 def get_registered_tools() -> dict[str, Callable]:
-    """Get all registered tools."""
+    """Get all registered tools (registering the built-in defaults on first use)."""
+    if not _TOOL_REGISTRY:
+        _register_default_tools()
     return dict(_TOOL_REGISTRY)
 
 
