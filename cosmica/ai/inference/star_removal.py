@@ -65,15 +65,41 @@ def _remove_stars_morph(
     bg = bg_u8.astype(np.float64) / 255.0
 
     # ── 2. Residuals (star signal) ──────────────────────────────────
-    diff = np.clip(lum - bg, 0, None)
+    resid = lum - bg
+    diff = np.clip(resid, 0, None)
 
-    # Noise estimate from MAD of residuals
-    mad = np.median(np.abs(diff - np.median(diff)))
-    noise_est = max(mad * 1.4826, 1e-6)
+    # Noise estimate from the SYMMETRIC residual, not the clipped one.
+    # Clipping negatives to zero collapses the median/MAD to ~0 on a smooth
+    # background, which drives the threshold to nil and masks the ENTIRE frame —
+    # the inpainter then replaces the whole image (a saturated core's value
+    # floods everything, blowing the background to ~1.0). Using the unclipped
+    # residual keeps the noise estimate honest, and an absolute floor guards the
+    # clean-background case.
+    mad = np.median(np.abs(resid - np.median(resid)))
+    noise_est = max(mad * 1.4826, 1e-4)
 
     # threshold maps 0..1 → sigma 12..1 (lower slider = more aggressive)
     sigma = 1.0 + (1.0 - threshold) * 12.0
-    binary = (diff > sigma * noise_est).astype(np.uint8) * 255
+    star_thresh = sigma * noise_est
+    binary = (diff > star_thresh).astype(np.uint8) * 255
+
+    # Safety: stars occupy a small fraction of any real frame. If the mask
+    # explodes (degenerate/smooth data), raise the threshold until it is sane
+    # rather than inpainting the whole image. If it still won't converge, the
+    # detection is unreliable — return the image untouched instead of wrecking it.
+    star_frac = float(np.mean(binary > 0))
+    bump = 0
+    while star_frac > 0.10 and bump < 6:
+        star_thresh *= 1.8
+        binary = (diff > star_thresh).astype(np.uint8) * 255
+        star_frac = float(np.mean(binary > 0))
+        bump += 1
+    if star_frac > 0.10:
+        log.warning(
+            "Star mask covers %.0f%% of frame — detection unreliable, "
+            "skipping star removal", star_frac * 100,
+        )
+        return image.astype(image.dtype, copy=True)
 
     # ── 3. Dilate mask to cover halos ───────────────────────────────
     radius = max(3, min(orig_h, orig_w) // 200)
