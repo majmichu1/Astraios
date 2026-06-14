@@ -101,30 +101,45 @@ def _remove_stars_morph(
         )
         return image.astype(image.dtype, copy=True)
 
-    # ── 2b. Drop blobs too LARGE to be stars (nebula cores) ──────────
-    # A star — even a bloated one — is a small compact feature. A bright nebula
-    # core (M42's Trapezium region, the Lagoon's core) is a large blob and must
-    # NOT be inpainted away, or it leaves a dark hole where the core should be.
-    # Reject connected components whose equivalent diameter exceeds ~4% of the
-    # short side (at any realistic plate scale that is far bigger than a star).
+    # ── 2b. Keep only blobs that are STAR-SIZED ─────────────────────
+    # Too SMALL = noise: background grain throws tens of thousands of 1–2px
+    # specks above threshold; left in, dilation merges them into a mask covering
+    # most of the frame, and the inpainter floods the dark sky with the bright
+    # nebula's value. Too LARGE = nebula core (M42's Trapezium region): inpainting
+    # it leaves a dark hole. A real star is a small compact blob in between.
     from scipy import ndimage
 
     labels, n_blob = ndimage.label(binary > 0)
     if n_blob > 0:
+        min_star_area = 4.0  # px — below this is background grain, not a star
         max_star_diam = max(20.0, min(orig_h, orig_w) * 0.04)
         max_area = np.pi * (max_star_diam / 2.0) ** 2
         areas = ndimage.sum(np.ones_like(labels, dtype=np.float64), labels,
                             index=np.arange(1, n_blob + 1))
-        too_big = np.nonzero(areas > max_area)[0] + 1
-        if too_big.size:
-            binary[np.isin(labels, too_big)] = 0
-            log.debug("Star removal: kept %d oversized blob(s) as nebula, not stars",
-                      int(too_big.size))
+        drop = np.nonzero((areas < min_star_area) | (areas > max_area))[0] + 1
+        if drop.size:
+            binary[np.isin(labels, drop)] = 0
+            log.debug("Star removal: dropped %d/%d non-star blobs (noise or nebula)",
+                      int(drop.size), n_blob)
 
     # ── 3. Dilate mask to cover halos ───────────────────────────────
     radius = max(3, min(orig_h, orig_w) // 200)
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1, radius * 2 + 1))
     binary = cv2.dilate(binary, kernel, iterations=2)
+
+    # Final runaway backstop AFTER dilation: the min-area filter above already
+    # removes the noise specks that used to dilate into a frame-covering mask, so
+    # this only fires on a genuine catastrophe (the inpainter would then fill the
+    # masked majority with the bright object's value and flood the sky). A dense
+    # but legitimate star field can reach ~30-40% after dilation, so keep the
+    # threshold high enough not to disable real star removal.
+    dilated_frac = float(np.mean(binary > 0))
+    if dilated_frac > 0.45:
+        log.warning(
+            "Star mask covers %.0f%% of frame after dilation — unreliable, "
+            "skipping star removal", dilated_frac * 100,
+        )
+        return image.astype(image.dtype, copy=True)
 
     mask = binary > 0
 

@@ -102,3 +102,32 @@ class TestDoesNotDestroyImage:
         out = remove_stars_builtin(img, threshold=0.5)
         # No stars present → median must not move.
         assert abs(float(np.median(out)) - float(np.median(img))) < 0.01
+
+
+class TestNoiseSpecksDoNotFloodBackground:
+    """Regression: on a frame with a dark, noisy background and a bright object,
+    background grain threw tens of thousands of 1-2px specks above threshold.
+    The size filter only removed LARGE blobs, so the specks survived; dilation
+    then merged them into a mask covering most of the frame, and the inpainter
+    flooded the dark sky with the bright object's median (~0.45). Result: the
+    'starless' background was 6x brighter than the input.
+    """
+
+    @staticmethod
+    def _dark_bg_bright_object(h=700, w=1000, seed=23):
+        rng = np.random.default_rng(seed)
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        r2 = (yy - h / 2) ** 2 + (xx - w / 2) ** 2
+        img = np.clip(rng.normal(0.07, 0.02, (h, w)).astype(np.float32), 0, 1)
+        img[r2 < (0.22 * h) ** 2] = 0.5  # bright object core (~16% of frame)
+        for _ in range(80):
+            sy, sx = int(rng.integers(15, h - 15)), int(rng.integers(15, w - 15))
+            img[sy - 1:sy + 2, sx - 1:sx + 2] = 0.9
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    def test_dark_background_not_inflated(self):
+        img = self._dark_bg_bright_object()
+        out = remove_stars_builtin(img, threshold=0.5)
+        # The starless background median must stay near the input, not balloon
+        # toward the bright object's value.
+        assert abs(float(np.median(out)) - float(np.median(img))) < 0.04
