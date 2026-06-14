@@ -194,11 +194,18 @@ def _register_default_tools():
     register_tool("frequency_separation", _frequency_separation_tool)
 
     def _morphology_tool(
-        data, operation="ERODE", kernel_size=3, iterations=1, element="DISK", **kw
+        data, operation="ERODE", kernel_size=3, iterations=1, element="CIRCLE", **kw
     ):
+        # StructuringElement members are CIRCLE / SQUARE / DIAMOND. Accept the
+        # common alias "DISK" for CIRCLE rather than raising KeyError.
+        if isinstance(element, str):
+            element = "CIRCLE" if element.upper() == "DISK" else element.upper()
+            element = StructuringElement[element]
+        if isinstance(operation, str):
+            operation = MorphOp[operation.upper()]
         params = MorphologyParams(
-            operation=MorphOp[operation] if isinstance(operation, str) else operation,
-            element=StructuringElement[element] if isinstance(element, str) else element,
+            operation=operation,
+            element=element,
             kernel_size=kernel_size,
             iterations=iterations,
         )

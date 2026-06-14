@@ -405,3 +405,27 @@ class TestMacroRoundTrip:
         out = play_macro(img, macro)
         assert out.shape == img.shape
         assert out.min() >= 0.0 and out.max() <= 1.0
+
+
+class TestMorphologyToolRegistration:
+    """Regression: the registered morphology tool used a default element 'DISK'
+    that isn't a StructuringElement member (CIRCLE/SQUARE/DIAMOND) -> it raised
+    KeyError on every call via batch/macro/scripting/graph."""
+
+    def test_morphology_runs_with_defaults(self):
+        from cosmica.core.batch import get_registered_tools
+
+        tool = get_registered_tools()["morphology"]
+        img = np.random.default_rng(0).random((32, 32)).astype(np.float32)
+        out = tool(img)
+        assert out.shape == img.shape
+        assert np.all(np.isfinite(out))
+
+    def test_morphology_accepts_disk_alias_and_lowercase(self):
+        from cosmica.core.batch import get_registered_tools
+
+        tool = get_registered_tools()["morphology"]
+        img = np.random.default_rng(0).random((32, 32)).astype(np.float32)
+        # 'DISK' alias and lowercase operation must not raise.
+        assert tool(img, element="DISK", operation="dilate").shape == img.shape
+        assert tool(img, element="square", operation="OPEN").shape == img.shape
