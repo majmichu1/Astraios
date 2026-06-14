@@ -716,3 +716,40 @@ class TestExtremeDRCoreNotEaten:
             img, input_type_hint=InputType.MONO_LUMINANCE, target_name="M42",
         )
         assert res.plan.bg_object_dominated is True
+
+
+class TestHDRCoreNotDarkened:
+    """Regression: the HDR core-protect re-stretched the LINEAR data through a
+    tonemap with a fixed default midtone (~0.25). On a dark sky the main adaptive
+    stretch is far more aggressive (tiny midtone), so the tonemap rendered the
+    faint core nearly black; blended over the bright core it carved a dark hole.
+    The fix is a highlight-only rolloff on the already-stretched image, which
+    cannot darken a core that isn't blown.
+    """
+
+    @staticmethod
+    def _faint_m42(h=420, w=600, seed=4):
+        rng = np.random.default_rng(seed)
+        yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+        r2 = (yy - h / 2) ** 2 + (xx - w / 2) ** 2
+        # Very dark sky (LP none) + faint bright core — the regime that broke.
+        img = np.full((h, w), 0.004, np.float32)
+        img += np.exp(-r2 / (2 * (0.10 * h) ** 2)) * 0.05   # faint core (linear)
+        img += np.exp(-r2 / (2 * (0.30 * h) ** 2)) * 0.012
+        img = np.clip(img + rng.normal(0, 0.001, (h, w)).astype(np.float32), 0, 1)
+        return img.astype(np.float32), r2
+
+    def test_core_brighter_than_nebula_after_hdr(self, processor_no_equipment):
+        from cosmica.ai.smart_processor import InputType
+
+        img, r2 = self._faint_m42()
+        res = processor_no_equipment.process(
+            img, input_type_hint=InputType.MONO_LUMINANCE,
+            target_name="M42", star_reduction=0.0,
+            enabled_stages={"stretch", "hdr_merge"},
+        )
+        out = res.image
+        core = r2 < (0.06 * img.shape[0]) ** 2
+        mid = (r2 > (0.14 * img.shape[0]) ** 2) & (r2 < (0.26 * img.shape[0]) ** 2)
+        # The bright core must stay brighter than the surrounding nebula.
+        assert float(out[core].mean()) > float(out[mid].mean())

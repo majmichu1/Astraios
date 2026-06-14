@@ -1114,7 +1114,6 @@ class SmartProcessor:
     ) -> np.ndarray:
         """Execute the processing plan with quality checks."""
         working = data.copy()
-        n_stages = 5  # bg, nr, deconv, stretch, post
 
         # ---- Per-channel processing ----
         if working.ndim == 2:
@@ -1990,21 +1989,20 @@ class SmartProcessor:
                 adjustment=f"Adaptively chose midtone={best_midtone:.3f}",
             )
 
-        # Core protection for HDR objects: swap the selected tonemap into ONLY
-        # the bright core (Trapezium etc.) while the faint outer nebulosity keeps
-        # the adaptive stretch we just computed.  This is what makes M42's core
-        # detail survive without burying the faint signal.
+        # Core protection for HDR objects: gently compress ONLY the blown
+        # highlights of the bright core (Trapezium etc.) so its detail survives,
+        # WITHOUT darkening a well-exposed core.
         #
-        # IMPORTANT: every operator — including core_blend — must blend over the
-        # core mask, NOT replace the whole frame.  A full replace discards the
-        # adaptive target-median stretch AND the sky-veil pull, which is exactly
-        # why faint nebulosity used to vanish (the image looked "too dark").
+        # The previous approach re-stretched the LINEAR data through a tonemap
+        # (apply_hdr) and blended that over the core. But the tonemap stretches
+        # with a fixed default midtone (~0.25), while on a dark sky the main
+        # adaptive stretch is far more aggressive (midtone ~0.006). So the
+        # tonemap rendered the faint core nearly BLACK, and blending it in carved
+        # a dark hole — only the Trapezium peak (bright enough to survive the
+        # gentle curve) poked through. Operating on the already-stretched
+        # ``working`` with a highlight-only rolloff cannot darken the core: a core
+        # below the knee is left exactly as the main stretch produced it.
         if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
-            from cosmica.core.hdr_operators import apply_hdr
-
-            operator = full_plan.hdr_operator
-            params = full_plan.hdr_params
-
             # Soft mask of the bright core, measured on the LINEAR data so the
             # threshold isn't fooled by the non-linear stretch.
             p99 = float(np.percentile(pre_stretch, 99))
@@ -2019,16 +2017,22 @@ class SmartProcessor:
                 core_mask = np.clip(core_mask, 0, 1)
                 cm = core_mask[np.newaxis, ...] if working.ndim == 3 else core_mask
 
-                hdr_result = apply_hdr(pre_stretch, operator, params)
-                working = working * (1.0 - cm) + hdr_result * cm
+                # Highlight-only rolloff: values above the knee are pulled toward
+                # detail; values below are untouched. A core that isn't blown
+                # stays exactly as bright as the main stretch made it.
+                knee = 0.82
+                compressed = np.where(
+                    working > knee, knee + (working - knee) * 0.55, working
+                ).astype(np.float32)
+                working = (working * (1.0 - cm) + compressed * cm).astype(np.float32)
                 self._log_msg(
-                    f"[{name}] HDR ({operator}) core-protect over "
+                    f"[{name}] HDR core-protect: highlight rolloff over "
                     f"{float(np.mean(core_mask)):.4f} of the frame"
                 )
             else:
                 # No bright core to protect — keep the adaptive stretch as-is.
                 self._log_msg(
-                    f"[{name}] HDR ({operator}): no bright core detected; "
+                    f"[{name}] HDR core-protect: no bright core detected; "
                     f"keeping adaptive stretch"
                 )
 
