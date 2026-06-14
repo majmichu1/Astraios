@@ -1131,8 +1131,21 @@ class SmartProcessor:
                     f")"
                 )
 
-        # Per-channel gain correction for color balance
-        if working.ndim == 3 and working.shape[0] >= 3:
+        # Per-channel gain correction for color balance.
+        # Skipped for narrowband: in SHO/HOO palettes the channel intensity
+        # ratios (Ha is usually far stronger than SII/OIII) are intentional and
+        # define the palette — equalizing the signal levels would mute it.
+        _narrowband_types = (
+            InputType.NARROWBAND_SHO,
+            InputType.NARROWBAND_HOO,
+            InputType.NARROWBAND_CUSTOM,
+            InputType.DUAL_NARROWBAND,
+            InputType.TRIPLE_NARROWBAND,
+        )
+        is_narrowband = analysis.input_type in _narrowband_types
+        if is_narrowband:
+            self._log_msg("Skipping channel gain equalization (narrowband palette preserved)")
+        if working.ndim == 3 and working.shape[0] >= 3 and not is_narrowband:
             signal_levels = []
             for ch in range(min(3, working.shape[0])):
                 ch_data = working[ch]

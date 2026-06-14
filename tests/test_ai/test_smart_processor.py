@@ -356,3 +356,31 @@ class TestImageSizes:
         data = _make_mono_image(h=64, w=128)
         result = processor.process(data, input_type_hint=InputType.MONO_LUMINANCE)
         assert result.image.shape == (64, 128)
+
+
+class TestNarrowbandPalettePreservation:
+    """Narrowband channel intensity ratios are intentional (SHO/HOO palettes),
+    so the per-channel signal-gain equalization must be skipped for them."""
+
+    @staticmethod
+    def _imbalanced_color(h=96, w=96):
+        # Ha-dominant: ch0 strong, ch1/ch2 weak — like an SHO stack.
+        rng = np.random.default_rng(0)
+        img = np.zeros((3, h, w), np.float32)
+        img[0] = np.clip(0.05 + rng.random((h, w)) * 0.4, 0, 1)   # strong
+        img[1] = np.clip(0.02 + rng.random((h, w)) * 0.08, 0, 1)  # weak
+        img[2] = np.clip(0.02 + rng.random((h, w)) * 0.06, 0, 1)  # weak
+        return img.astype(np.float32)
+
+    def test_gain_equalization_skipped_for_narrowband(self, processor_no_equipment):
+        img = self._imbalanced_color()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.NARROWBAND_SHO)
+        log = "\n".join(result.processing_log)
+        assert "Skipping channel gain equalization" in log
+        assert "Color gain correction" not in log
+
+    def test_gain_equalization_applied_for_rgb(self, processor_no_equipment):
+        img = self._imbalanced_color()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
+        log = "\n".join(result.processing_log)
+        assert "Skipping channel gain equalization" not in log
