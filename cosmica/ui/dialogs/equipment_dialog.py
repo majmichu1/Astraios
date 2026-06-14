@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -292,24 +293,45 @@ class EquipmentDialog(QDialog):
         if not profile:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "Save Equipment Profile", "", "JSON (*.json)"
+            self, "Save Equipment Profile", "equipment.json", "JSON (*.json)"
         )
-        if path:
-            profile.save(Path(path))
+        if not path:
+            return
+        # Qt on Linux does NOT auto-append the filter's extension, so a name like
+        # "178mm" would be saved with no suffix — and then hidden by the
+        # "*.json" filter on load, making it look like the save never happened.
+        p = Path(path)
+        if p.suffix.lower() != ".json":
+            p = p.with_suffix(".json")
+        try:
+            profile.save(p)
+            QMessageBox.information(
+                self, "Profile Saved", f"Equipment profile saved to:\n{p}"
+            )
+        except Exception as exc:  # disk error, permissions, etc.
+            QMessageBox.warning(
+                self, "Save Failed", f"Could not save profile:\n{exc}"
+            )
 
     def _load_profile(self):
+        # Also surface extensionless legacy files (saved before the .json fix)
+        # so users can still recover them.
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load Equipment Profile", "", "JSON (*.json)"
+            self, "Load Equipment Profile", "", "JSON (*.json);;All files (*)"
         )
-        if path:
-            try:
-                profile = EquipmentProfile.load(Path(path))
-                self._current = profile
-                self._select_by_name(self._camera_combo, profile.camera.name)
-                self._select_by_name(self._telescope_combo, profile.telescope.name)
-                for slot, filt in profile.filters.items():
-                    if slot in self._filter_combos:
-                        self._select_by_name(self._filter_combos[slot], filt.name)
-                self._update_info()
-            except Exception:
-                pass
+        if not path:
+            return
+        try:
+            profile = EquipmentProfile.load(Path(path))
+            self._current = profile
+            self._select_by_name(self._camera_combo, profile.camera.name)
+            self._select_by_name(self._telescope_combo, profile.telescope.name)
+            for slot, filt in profile.filters.items():
+                if slot in self._filter_combos:
+                    self._select_by_name(self._filter_combos[slot], filt.name)
+            self._update_info()
+        except Exception as exc:
+            QMessageBox.warning(
+                self, "Load Failed",
+                f"Could not load profile from:\n{path}\n\n{exc}",
+            )
