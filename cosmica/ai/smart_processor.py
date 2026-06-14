@@ -148,6 +148,9 @@ class ProcessingPlan:
     needs_hdr_merge: bool = False
     hdr_operator: str = "core_blend"  # "reinhard" | "drago" | "core_blend"
     hdr_params: dict | None = None
+    # Star-aware processing: separate stars, enhance the starless nebula, then
+    # screen the stars back so an aggressive stretch/contrast doesn't bloat them.
+    star_aware: bool = False
     # Summary
     notes: list[str] = field(default_factory=list)
 
@@ -274,7 +277,10 @@ class SmartProcessor:
         self._log = []
         self._quality_checks = []
         self._existing_wcs = wcs_dict
-        self._enabled_stages = enabled_stages or {"background", "denoise", "deconv", "stretch", "local_contrast", "hdr_merge"}
+        self._enabled_stages = enabled_stages or {
+            "background", "denoise", "deconv", "stretch",
+            "local_contrast", "hdr_merge", "star_aware",
+        }
         self._user_target_name = target_name
         self._user_ra_hint = ra_hint
         self._user_dec_hint = dec_hint
@@ -730,6 +736,17 @@ class SmartProcessor:
         if needs_hdr:
             self._log_msg("Plan: HDR-merge hint active — extreme dynamic range detected")
 
+        star_aware = "star_aware" in self._enabled_stages
+        if star_aware:
+            # Local contrast is deferred to the starless layer (see _execute),
+            # so it enhances nebula detail without amplifying star halos.
+            for cp in channel_plans:
+                cp.local_contrast_params = None
+            self._log_msg(
+                "Plan: star-aware processing enabled "
+                "(stars separated, nebula enhanced, stars recombined)"
+            )
+
         plan = ProcessingPlan(
             channel_plans=channel_plans,
             do_scnr=do_scnr,
@@ -741,6 +758,7 @@ class SmartProcessor:
             needs_hdr_merge=needs_hdr,
             hdr_operator=self._hdr_operator,
             hdr_params=self._hdr_params,
+            star_aware=star_aware,
         )
 
         # Summary notes
@@ -1187,10 +1205,88 @@ class SmartProcessor:
             )
             working = local_contrast_enhance(working, hdr_lce)
 
+        # Star-aware enhancement: separate stars, enhance the starless nebula,
+        # then screen the stars back. Done last (on the stretched image) because
+        # the star-removal models expect non-linear data.
+        if plan.star_aware:
+            working = self._apply_star_aware(working, analysis, plan, progress)
+
         # Final clamp
         working = np.clip(working, 0, 1).astype(np.float32)
 
         return working
+
+    def _separate_stars(self, image: np.ndarray) -> np.ndarray | None:
+        """Return a starless version of ``image`` (StarNet binary if available,
+        else the built-in morphological remover). None on failure."""
+        try:
+            from cosmica.ai.inference.starnet import find_starnet_binary, run_starnet
+
+            if find_starnet_binary() is not None:
+                res = run_starnet(image, extract_stars=False)
+                if res.success:
+                    self._log_msg("Star separation: StarNet")
+                    return res.starless.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"StarNet unavailable ({exc}); using built-in remover")
+
+        try:
+            from cosmica.ai.inference.star_removal import remove_stars_builtin
+
+            starless = remove_stars_builtin(image, threshold=0.5).astype(np.float32)
+            self._log_msg("Star separation: built-in morphological")
+            return starless
+        except Exception as exc:
+            self._log_msg(f"Star removal failed ({exc}); skipping star-aware step")
+            return None
+
+    def _apply_star_aware(
+        self,
+        working: np.ndarray,
+        analysis: ImageAnalysis,
+        plan: ProcessingPlan,
+        progress: ProgressCallback,
+    ) -> np.ndarray:
+        """Separate stars, enhance the starless nebula, screen the stars back."""
+        progress(0.97, "Star-aware: separating stars...")
+        starless = self._separate_stars(working)
+        if starless is None:
+            return working  # graceful fallback — keep the non-star-aware result
+
+        stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
+
+        # Enhance the starless nebula — local contrast + (for colour) saturation.
+        # Safe here because there are no stars to bloat or ring.
+        progress(0.98, "Star-aware: enhancing nebula...")
+        enhanced = local_contrast_enhance(
+            starless, LocalContrastParams(clip_limit=2.2, tile_size=8, amount=0.5)
+        )
+        if enhanced.ndim == 3 and enhanced.shape[0] >= 3 and not self._is_narrowband(analysis):
+            enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
+
+        # Screen the stars back on top.
+        progress(0.99, "Star-aware: recombining stars...")
+        from cosmica.core.image_blend import BlendMode, BlendParams, blend_images
+
+        result = blend_images(
+            enhanced, stars, BlendParams(mode=BlendMode.SCREEN, opacity=1.0)
+        )
+        star_frac = float(np.mean(stars > 0.05))
+        self._log_msg(
+            f"Star-aware complete: enhanced starless nebula, screened stars back "
+            f"({star_frac * 100:.1f}% star pixels)"
+        )
+        return result
+
+    @staticmethod
+    def _is_narrowband(analysis: ImageAnalysis) -> bool:
+        return analysis.input_type in (
+            InputType.NARROWBAND_SHO,
+            InputType.NARROWBAND_HOO,
+            InputType.NARROWBAND_CUSTOM,
+            InputType.DUAL_NARROWBAND,
+            InputType.TRIPLE_NARROWBAND,
+        )
 
     def _execute_channel(
         self,

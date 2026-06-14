@@ -384,3 +384,56 @@ class TestNarrowbandPalettePreservation:
         result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
         log = "\n".join(result.processing_log)
         assert "Skipping channel gain equalization" not in log
+
+
+class TestStarAwareProcessing:
+    """Star-aware mode: separate stars, enhance the starless nebula, screen
+    the stars back. On by default; must degrade gracefully and be disable-able."""
+
+    @staticmethod
+    def _nebula_with_stars(h=120, w=120):
+        rng = np.random.default_rng(0)
+        yy, xx = np.mgrid[0:h, 0:w]
+        img = (0.06 * np.exp(-(((xx - w/2)**2 + (yy - h/2)**2) / (2 * 30**2)))).astype(np.float32)
+        img = np.stack([img, img, img])
+        img += (np.abs(rng.normal(0, 0.01, (3, h, w))) + 0.02).astype(np.float32)
+        for _ in range(25):
+            sy, sx = int(rng.integers(6, h - 6)), int(rng.integers(6, w - 6))
+            img[:, sy-1:sy+2, sx-1:sx+2] += rng.uniform(0.3, 0.8)
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    def test_star_aware_on_by_default(self, processor_no_equipment):
+        img = self._nebula_with_stars()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
+        log = "\n".join(result.processing_log)
+        assert result.plan.star_aware is True
+        assert "Star separation" in log
+        assert "Star-aware complete" in log
+        assert result.image.shape == img.shape
+        assert result.image.min() >= 0.0 and result.image.max() <= 1.0
+
+    def test_star_aware_can_be_disabled(self, processor_no_equipment):
+        img = self._nebula_with_stars()
+        result = processor_no_equipment.process(
+            img, input_type_hint=InputType.OSC_RGB,
+            enabled_stages={"background", "denoise", "stretch", "local_contrast"},
+        )
+        assert result.plan.star_aware is False
+        assert "Star separation" not in "\n".join(result.processing_log)
+
+    def test_graceful_fallback_when_separation_fails(self, processor_no_equipment, monkeypatch):
+        # If star removal returns None, the non-star-aware result is kept.
+        monkeypatch.setattr(processor_no_equipment, "_separate_stars", lambda img: None)
+        img = self._nebula_with_stars()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
+        assert result.image.shape == img.shape
+        assert result.image.min() >= 0.0 and result.image.max() <= 1.0
+
+    def test_separate_stars_uses_builtin_without_starnet(self, processor_no_equipment):
+        # No StarNet binary in CI -> built-in morphological remover, valid output.
+        img = self._nebula_with_stars()
+        starless = processor_no_equipment._separate_stars(img)
+        assert starless is not None
+        assert starless.shape == img.shape
+        # Starless should have lower peak (stars removed) than the original.
+        assert float(starless.max()) <= float(img.max()) + 1e-6

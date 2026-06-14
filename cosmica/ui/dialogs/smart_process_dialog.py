@@ -205,6 +205,14 @@ class SmartProcessDialog(QDialog):
         self._stage_hdr.setChecked(True)
         stages_layout.addWidget(self._stage_hdr)
 
+        self._stage_star_aware = QCheckBox("Star-aware (remove stars, enhance nebula, recombine)")
+        self._stage_star_aware.setChecked(True)
+        self._stage_star_aware.setToolTip(
+            "Separates stars before enhancing the nebula so an aggressive stretch "
+            "and local contrast don't bloat them, then screens the stars back in."
+        )
+        stages_layout.addWidget(self._stage_star_aware)
+
         hdr_op_layout = QHBoxLayout()
         hdr_op_layout.setContentsMargins(20, 0, 0, 0)
         hdr_op_layout.addWidget(QLabel("Operator:"))
@@ -353,6 +361,8 @@ class SmartProcessDialog(QDialog):
             enabled_stages.add("local_contrast")
         if self._stage_hdr.isChecked():
             enabled_stages.add("hdr_merge")
+        if self._stage_star_aware.isChecked():
+            enabled_stages.add("star_aware")
 
         processor = SmartProcessor(equipment=self._equipment)
         hdr_op = self._hdr_operator_combo.currentData()
