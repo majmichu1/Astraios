@@ -189,13 +189,22 @@ def create_object_exclusion_mask(
 def _generate_sample_points(
     h: int, w: int, params: BackgroundParams
 ) -> list[tuple[int, int]]:
-    """Generate grid sample points plus any manual points."""
-    points = []
-    margin = params.box_size
-    grid = params.grid_size
+    """Generate grid sample points plus any manual points.
 
-    ys = np.linspace(margin, h - margin, grid).astype(int)
-    xs = np.linspace(margin, w - margin, grid).astype(int)
+    The outermost grid lines are anchored close to the image borders so the
+    fitted polynomial is *constrained* at the edges rather than extrapolated
+    beyond the sampled region. Extrapolation was the cause of the bright
+    gradient left along all four edges after extraction. ``_measure_sample``
+    clips the measurement box at the borders, so near-edge samples are valid.
+    """
+    points = []
+    grid = params.grid_size
+    # Small inset: enough that an edge sample box keeps a usable number of
+    # pixels, but close enough to the border to anchor the fit there.
+    margin = int(max(2, min(params.box_size // 4, min(h, w) // (grid * 2))))
+
+    ys = np.linspace(margin, h - 1 - margin, grid).astype(int)
+    xs = np.linspace(margin, w - 1 - margin, grid).astype(int)
 
     for y in ys:
         for x in xs:
@@ -362,14 +371,19 @@ def _gaussian_smooth_gpu(model: np.ndarray, sigma: float) -> np.ndarray:
         kernel_1d = torch.exp(-0.5 * (kernel_1d / sigma) ** 2)
         kernel_1d /= kernel_1d.sum()
 
-        # Separable 2D via two 1D convolutions
+        # Separable 2D via two 1D convolutions. Use replicate (edge-clamp)
+        # padding, NOT zero-padding: zero-padding averages the model with zeros
+        # at the borders, darkening its edges and leaving a bright gradient on
+        # all four edges after subtraction.
         t = torch.from_numpy(model).to(device=device, dtype=torch.float32)
         t = t.unsqueeze(0).unsqueeze(0)  # (1, 1, H, W)
 
         kh = kernel_1d.view(1, 1, -1, 1)
         kw = kernel_1d.view(1, 1, 1, -1)
-        t = F.conv2d(t, kh, padding=(radius, 0))
-        t = F.conv2d(t, kw, padding=(0, radius))
+        t = F.pad(t, (0, 0, radius, radius), mode="replicate")
+        t = F.conv2d(t, kh)
+        t = F.pad(t, (radius, radius, 0, 0), mode="replicate")
+        t = F.conv2d(t, kw)
 
         return t.squeeze().cpu().numpy()
 
