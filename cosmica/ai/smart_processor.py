@@ -1395,9 +1395,12 @@ class SmartProcessor:
         # Enhance the starless nebula — local contrast + (for colour) saturation.
         # Safe here because there are no stars to bloat or ring.
         progress(0.98, "Star-aware: enhancing nebula...")
+        # Gentle: a strong CLAHE here amplifies background grain into a milky
+        # veil on noisy data. Keep the local-contrast subtle; the sky background
+        # is also preserved so only real structure gains contrast.
         enhanced = self._bg_preserving_local_contrast(
             starless,
-            LocalContrastParams(clip_limit=2.2, tile_size=8, amount=0.5),
+            LocalContrastParams(clip_limit=1.6, tile_size=8, amount=0.25),
             "Star-aware LCE",
         )
         if is_color and not self._is_narrowband(analysis):
@@ -1424,18 +1427,22 @@ class SmartProcessor:
         """Apply local contrast WITHOUT inflating the sky background.
 
         CLAHE equalizes each tile's histogram, which on sky-dominated nebulae
-        (M42 etc.) pumps the background DC level up — a milky veil that
-        compounds badly when several passes stack. Local contrast should add
-        high-frequency *detail*, not a low-frequency pedestal, so we measure the
-        sky level before/after and subtract any lift the operator introduced.
-        Faint nebulosity (brighter than the p10 sky) keeps its enhanced
-        contrast while the sky returns to a properly dark level.
+        (M42 etc.) pumps the background level up — a milky veil that compounds
+        badly when several passes stack. Local contrast should add high-frequency
+        *detail*, not a low-frequency pedestal, so we measure the background
+        level before/after and subtract any lift the operator introduced.
+
+        We anchor on the MEDIAN, not just the p10 floor: holding only the floor
+        still lets CLAHE pump the whole noise band upward (the floor stays dark
+        but the bulk goes milky). For a sky-dominated frame the median *is* the
+        sky, so preserving it keeps the background genuinely dark while faint
+        nebulosity (brighter than the median) keeps its enhanced contrast.
         """
-        bg_before = float(np.percentile(image, 10))
+        bg_before = float(np.median(image))
         out = local_contrast_enhance(image, params)
-        bg_after = float(np.percentile(out, 10))
+        bg_after = float(np.median(out))
         lift = bg_after - bg_before
-        if lift > 0.005:
+        if lift > 0.003:
             out = np.clip(out - lift, 0.0, 1.0).astype(np.float32)
             if label:
                 self._log_msg(f"{label}: restored sky background (LCE lifted +{lift:.3f})")
@@ -1470,11 +1477,13 @@ class SmartProcessor:
 
         hdr_active = full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages
         if hdr_active:
-            # Stretch extreme-DR targets only modestly more gently than normal —
-            # the HDR core-protection pass tames the bright core, so we don't
-            # need to crush the whole stretch (which buries the faint outer
-            # nebulosity). Previously 0.55, which left the faint signal invisible.
-            base_target *= 0.85
+            # Stretch extreme-DR targets (M42 etc.) more gently: the HDR
+            # core-protection pass tames the bright core, and the downstream
+            # local-contrast passes add midtone brightness, so a hot target here
+            # over-brightens the whole frame into a milky veil. 0.55 was too dark
+            # (faint signal invisible); 0.85 was far too bright — 0.65 keeps the
+            # background controlled while the faint nebulosity stays visible.
+            base_target *= 0.65
 
         if snr < 8:
             base_target *= 0.8
@@ -1845,9 +1854,11 @@ class SmartProcessor:
                     sky_dominated = False
 
                 # For HDR objects cap the effective target so the stretch
-                # doesn't over-brighten the nebula and blow the core.
+                # doesn't over-brighten the nebula and blow the core. On noisy
+                # real data the "signal" mask catches background noise, so a high
+                # cap pushes the whole sky bright — keep it conservative.
                 if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
-                    effective_target = min(effective_target, 0.30)
+                    effective_target = min(effective_target, 0.22)
 
                 error = abs(metric - effective_target)
 
