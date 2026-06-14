@@ -74,48 +74,55 @@ def detect_stars_gpu(
     if len(coords) == 0:
         return []
 
-    rows = coords[:, 0]
-    cols = coords[:, 1]
-    fluxes = image[rows, cols]
+    # Collapse each connected cluster of local maxima to ONE detection at its
+    # centroid. max_pool flags every pixel of a saturated flat-top plateau as a
+    # local maximum, so a bright saturated star would otherwise be reported as
+    # hundreds of detections. Labeling the maxima mask and taking the centroid
+    # per connected component yields one sub-pixel star per blob — matching the
+    # CPU contour-centroid detector and handling saturated stars correctly.
+    from scipy import ndimage
 
-    # Sort by flux descending and truncate BEFORE the patch loop —
-    # avoids computing FWHM for stars we'd discard anyway.
-    order = torch.argsort(fluxes, descending=True)[:max_stars]
-    rows = rows[order]
-    cols = cols[order]
-    fluxes = fluxes[order]
+    is_max_np = is_max.cpu().numpy()
+    image_np = image.detach().cpu().numpy()
+    labels, n_comp = ndimage.label(is_max_np)
+    if n_comp == 0:
+        return []
+
+    comp_ids = range(1, n_comp + 1)
+    centroids = ndimage.center_of_mass(is_max_np, labels, comp_ids)  # (row, col) sub-pixel
+    cys = np.array([c[0] for c in centroids], dtype=np.float64)
+    cxs = np.array([c[1] for c in centroids], dtype=np.float64)
+    comp_flux = np.asarray(ndimage.maximum(image_np, labels, comp_ids), dtype=np.float64)
+
+    keep = np.argsort(-comp_flux)[:max_stars]
+    cys, cxs, comp_flux = cys[keep], cxs[keep], comp_flux[keep]
 
     H, W = image.shape
     patch_r = 5
     patch_size = 2 * patch_r + 1
 
-    # Extract all star patches in one GPU operation via unfold instead of per-star Python loop.
-    # F.unfold expects (1, 1, H, W) → output (1, patch_size², H*W); we squeeze to (patch_size², H*W).
+    # Extract all star patches in one GPU operation via unfold (patch centered on
+    # the rounded centroid) and estimate FWHM from the half-maximum area.
     padded = functional.pad(
         image.unsqueeze(0).unsqueeze(0),
         (patch_r, patch_r, patch_r, patch_r),
         mode="constant", value=0.0,
     )
     patches = functional.unfold(padded, kernel_size=patch_size, stride=1).squeeze(0)
-    # (patch_size², H*W) — column star_idx gives the patch centered on that pixel
 
-    star_idx = (rows * W + cols).long()           # (N_stars,)
-    star_patches = patches[:, star_idx]            # (patch_size², N_stars)
-
-    # Area = pixels above half-maximum; FWHM from equivalent-circle diameter
-    area = (star_patches > fluxes.unsqueeze(0) * 0.5).float().sum(dim=0)
+    ri = np.clip(np.round(cys).astype(np.int64), 0, H - 1)
+    ci = np.clip(np.round(cxs).astype(np.int64), 0, W - 1)
+    star_idx = torch.from_numpy(ri * W + ci).to(image.device).long()
+    peak = torch.from_numpy(comp_flux).to(image.device, dtype=image.dtype)
+    star_patches = patches[:, star_idx]
+    area = (star_patches > peak.unsqueeze(0) * 0.5).float().sum(dim=0)
     fwhm_vals = (2.0 * (area.clamp(min=1.0) / 3.14159).sqrt()).clamp(1.5, patch_r * 2.0)
-
-    # Single CPU transfer for all stars combined
-    rows_cpu   = rows.cpu().tolist()
-    cols_cpu   = cols.cpu().tolist()
-    fluxes_cpu = fluxes.cpu().tolist()
-    fwhm_cpu   = fwhm_vals.cpu().tolist()
+    fwhm_cpu = fwhm_vals.cpu().tolist()
 
     return [
-        Star(x=float(cols_cpu[i]), y=float(rows_cpu[i]),
-             flux=float(fluxes_cpu[i]), fwhm=float(fwhm_cpu[i]))
-        for i in range(len(rows_cpu))
+        Star(x=float(cxs[i]), y=float(cys[i]),
+             flux=float(comp_flux[i]), fwhm=float(fwhm_cpu[i]))
+        for i in range(len(cxs))
     ]
 
 
