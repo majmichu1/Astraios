@@ -589,3 +589,36 @@ def test_smart_dialog_wires_ai_denoise(qtbot):
     assert dlg._ai_denoise_cb.isChecked()
     dlg._stage_denoise.setChecked(False)
     assert not dlg._ai_denoise_cb.isEnabled()
+
+
+class TestFullPipelineIntegration:
+    """End-to-end: the default 'do everything' run on a colour nebula+stars
+    image completes with every smart stage and a valid result."""
+
+    @staticmethod
+    def _scene(h=128, w=128):
+        rng = np.random.default_rng(7)
+        yy, xx = np.mgrid[0:h, 0:w]
+        neb = (0.07 * np.exp(-(((xx - w/2)**2 + (yy - h/2)**2) / (2 * 28**2)))).astype(np.float32)
+        img = np.stack([neb * 1.2, neb, neb * 0.8])
+        img += (np.abs(rng.normal(0, 0.012, (3, h, w))) + 0.03).astype(np.float32)
+        for _ in range(35):
+            sy, sx = int(rng.integers(5, h - 5)), int(rng.integers(5, w - 5))
+            img[:, sy-1:sy+2, sx-1:sx+2] += rng.uniform(0.3, 0.8)
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    def test_everything_on_produces_valid_result(self, processor_no_equipment):
+        img = self._scene()
+        result = processor_no_equipment.process(img, input_type_hint=InputType.OSC_RGB)
+        assert result.image.shape == img.shape
+        assert result.image.dtype == np.float32
+        assert result.image.min() >= 0.0 and result.image.max() <= 1.0
+        log = "\n".join(result.processing_log)
+        # AI denoise, star-aware separation+recombine, and a colour-balance
+        # decision must all appear; statistical fallback since no plate solve.
+        assert "Noise reduction (AI)" in log
+        assert "Star separation" in log and "Star-aware complete" in log
+        assert "colour balance" in log.lower() or "color balance" in log.lower() \
+            or "Statistical colour balance" in log
+        # The result should be stretched (brighter than the near-black linear input).
+        assert float(np.median(result.image)) > float(np.median(img))

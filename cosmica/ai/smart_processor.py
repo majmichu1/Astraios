@@ -999,20 +999,6 @@ class SmartProcessor:
             return "light"
         return "minimal"
 
-    def _auto_stretch_level(self, analysis: ImageAnalysis) -> str:
-        """Determine stretch aggressiveness based on the image."""
-        if analysis.primary_target:
-            bc = analysis.primary_target.brightness_class
-            if bc in ("very_faint", "faint"):
-                return "aggressive"
-            if bc == "very_bright":
-                return "gentle"
-        if analysis.median_snr < 8:
-            return "aggressive"
-        if analysis.median_snr > 50:
-            return "gentle"
-        return "moderate"
-
     def _get_saturation_target(self, analysis: ImageAnalysis, hints: dict) -> float:
         """Determine target saturation multiplier."""
         level = hints.get("color_saturation", "moderate")
