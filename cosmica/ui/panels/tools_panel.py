@@ -807,7 +807,6 @@ class ToolsPanel(QWidget):
         self._hue_slider        = ca.add_slider("Hue shift",   0, -180, 180, 1, 0)
         self._sat_slider        = ca.add_slider("Saturation",  0, -100, 100, 1, 0)
         self._vibrance_slider   = ca.add_slider("Vibrance",    0, -100, 100, 1, 0)
-        self._lightness_slider  = ca.add_slider("Lightness",   0, -100, 100, 1, 0)
         ca.add_run("▶ Apply Color Adjust", self.run_color_adjust.emit)
         lay.addWidget(ca)
 
@@ -1726,11 +1725,12 @@ class ToolsPanel(QWidget):
         )
 
     def get_color_adjust_params(self) -> ColorAdjustParams:
+        # ColorAdjustParams fields are saturation (multiplier, 1.0=neutral),
+        # hue_shift (degrees) and vibrance (0-1). The sliders are centred on 0.
         return ColorAdjustParams(
-            hue=self._hue_slider.value(),
-            saturation=self._sat_slider.value() / 100.0,
-            vibrance=self._vibrance_slider.value() / 100.0,
-            lightness=self._lightness_slider.value() / 100.0,
+            hue_shift=float(self._hue_slider.value()),
+            saturation=1.0 + self._sat_slider.value() / 100.0,
+            vibrance=max(0.0, self._vibrance_slider.value() / 100.0),
         )
 
     def get_curves_params(self) -> CurvesParams:
