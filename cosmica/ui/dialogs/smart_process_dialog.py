@@ -49,6 +49,7 @@ class SmartProcessWorker(QThread):
         hdr_operator="core_blend",
         hdr_params=None,
         star_reduction=0.3,
+        use_ai_denoise=True,
     ):
         super().__init__()
         self._processor = processor
@@ -63,6 +64,7 @@ class SmartProcessWorker(QThread):
         self._hdr_operator = hdr_operator
         self._hdr_params = hdr_params
         self._star_reduction = star_reduction
+        self._use_ai_denoise = use_ai_denoise
         self._cancel_requested = False
 
     def request_cancel(self):
@@ -83,6 +85,7 @@ class SmartProcessWorker(QThread):
                 hdr_operator=self._hdr_operator,
                 hdr_params=self._hdr_params,
                 star_reduction=self._star_reduction,
+                use_ai_denoise=self._use_ai_denoise,
                 progress=self._emit_progress,
             )
             if self._cancel_requested:
@@ -191,6 +194,19 @@ class SmartProcessDialog(QDialog):
         self._stage_denoise = QCheckBox("Noise reduction")
         self._stage_denoise.setChecked(True)
         stages_layout.addWidget(self._stage_denoise)
+
+        ai_row = QHBoxLayout()
+        ai_row.addSpacing(20)
+        self._ai_denoise_cb = QCheckBox("Use AI denoise (falls back to wavelet if no model)")
+        self._ai_denoise_cb.setChecked(True)
+        self._ai_denoise_cb.setToolTip(
+            "Denoise with the trained Noise2Self model when available — cleaner "
+            "than classical wavelet. Automatically falls back to wavelet otherwise."
+        )
+        self._stage_denoise.toggled.connect(self._ai_denoise_cb.setEnabled)
+        ai_row.addWidget(self._ai_denoise_cb)
+        ai_row.addStretch(1)
+        stages_layout.addLayout(ai_row)
 
         self._stage_deconv = QCheckBox("Deconvolution")
         self._stage_deconv.setChecked(True)
@@ -397,6 +413,7 @@ class SmartProcessDialog(QDialog):
             enabled_stages=enabled_stages,
             hdr_operator=hdr_op,
             star_reduction=self._star_reduction_spin.value(),
+            use_ai_denoise=self._ai_denoise_cb.isChecked(),
         )
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)

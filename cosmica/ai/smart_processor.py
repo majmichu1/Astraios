@@ -222,6 +222,11 @@ class SmartProcessor:
         self.catalog = catalog or CatalogDB()
         self._log: list[str] = []
         self._quality_checks: list[QualityCheck] = []
+        # Runtime options (overridden per-call in process()); defaults here keep
+        # internal helpers usable even when called directly.
+        self._enabled_stages: set[str] = set()
+        self._star_reduction: float = 0.3
+        self._use_ai_denoise: bool = True
 
     # ------------------------------------------------------------------ #
     #  Main entry point                                                   #
@@ -240,6 +245,7 @@ class SmartProcessor:
         hdr_operator: str = "core_blend",
         hdr_params: dict | None = None,
         star_reduction: float = 0.3,
+        use_ai_denoise: bool = True,
         progress: ProgressCallback | None = None,
     ) -> SmartProcessorResult:
         """Run the full Smart Processing pipeline.
@@ -293,6 +299,7 @@ class SmartProcessor:
         self._hdr_operator = hdr_operator
         self._hdr_params = hdr_params
         self._star_reduction = float(max(0.0, min(1.0, star_reduction)))
+        self._use_ai_denoise = bool(use_ai_denoise)
 
         # Phase 1: Analyze
         progress(0.0, "Analyzing image...")
@@ -1301,6 +1308,24 @@ class SmartProcessor:
             self._log_msg(f"SPCC failed ({exc}); using statistical colour balance")
             return None
 
+    def _run_denoise(self, channel: np.ndarray, dparams: DenoiseParams) -> np.ndarray:
+        """Denoise one channel with the AI model when enabled (and available),
+        else classical wavelet. ``ai_denoise`` itself falls back to wavelet if no
+        trained model is on disk, so this is always safe."""
+        if self._use_ai_denoise:
+            try:
+                from cosmica.ai.inference.denoise import AIDenoiseParams, ai_denoise
+
+                ai_params = AIDenoiseParams(
+                    strength=float(min(1.0, max(0.0, dparams.strength))),
+                    protect_stars=0.8,
+                    protect_threshold=0.15,
+                )
+                return ai_denoise(channel, params=ai_params).astype(np.float32)
+            except Exception as exc:
+                self._log_msg(f"AI denoise failed ({exc}); using wavelet")
+        return denoise(channel, dparams)
+
     def _separate_stars(self, image: np.ndarray) -> np.ndarray | None:
         """Return a starless version of ``image`` (StarNet binary if available,
         else the built-in morphological remover). None on failure."""
@@ -1557,12 +1582,12 @@ class SmartProcessor:
             frac = frac_start + frac_range * 0.2
             progress(frac, f"Noise reduction [{name}]...")
             self._log_msg(
-                f"[{name}] Noise reduction: "
+                f"[{name}] Noise reduction ({'AI' if self._use_ai_denoise else 'wavelet'}): "
                 f"strength={plan.denoise_params.strength:.2f}"
             )
 
             before_stats = compute_channel_stats(working)
-            working = denoise(working, plan.denoise_params)
+            working = self._run_denoise(working, plan.denoise_params)
             after_stats = compute_channel_stats(working)
 
             # Quality check: NR shouldn't destroy detail (std shouldn't drop too much)
@@ -1578,7 +1603,7 @@ class SmartProcessor:
                     strength=plan.denoise_params.strength * 0.5,
                     detail_preservation=min(plan.denoise_params.detail_preservation + 0.2, 0.9),
                 )
-                working = denoise(channel.copy(), reduced_params)
+                working = self._run_denoise(channel.copy(), reduced_params)
                 after_stats = compute_channel_stats(working)
                 detail_ratio = after_stats["std"] / max(before_stats["std"], 1e-10)
                 self._quality_check(

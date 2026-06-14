@@ -546,3 +546,46 @@ class TestSPCCColorCalibration:
             mono, input_type_hint=InputType.MONO_LUMINANCE, wcs_dict=self._WCS,
         )
         assert result.plan.color_calibrated is False
+
+
+class TestAIDenoise:
+    """Noise reduction routes through the AI model (with wavelet fallback)."""
+
+    @staticmethod
+    def _mono():
+        return np.clip(np.abs(np.random.default_rng(0).normal(0, 0.04, (64, 64))) + 0.05,
+                       0, 1).astype(np.float32)
+
+    def test_ai_denoise_routed_by_default(self, processor_no_equipment):
+        result = processor_no_equipment.process(
+            self._mono(), input_type_hint=InputType.MONO_LUMINANCE,
+            enabled_stages={"denoise", "stretch"},
+        )
+        nr = [ln for ln in result.processing_log if "Noise reduction" in ln]
+        assert nr and "(AI)" in nr[0]
+        assert result.image.shape == (64, 64)
+
+    def test_wavelet_when_ai_disabled(self, processor_no_equipment):
+        result = processor_no_equipment.process(
+            self._mono(), input_type_hint=InputType.MONO_LUMINANCE,
+            enabled_stages={"denoise", "stretch"}, use_ai_denoise=False,
+        )
+        nr = [ln for ln in result.processing_log if "Noise reduction" in ln]
+        assert nr and "(wavelet)" in nr[0]
+
+    def test_run_denoise_falls_back_on_error(self, processor_no_equipment, monkeypatch):
+        # If the AI path raises, it must fall back to wavelet, not crash.
+        import cosmica.ai.inference.denoise as aidn
+        monkeypatch.setattr(aidn, "ai_denoise", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+        from cosmica.core.denoise import DenoiseParams
+        out = processor_no_equipment._run_denoise(self._mono(), DenoiseParams())
+        assert out.shape == (64, 64)
+
+
+def test_smart_dialog_wires_ai_denoise(qtbot):
+    from cosmica.ui.dialogs.smart_process_dialog import SmartProcessDialog
+
+    dlg = SmartProcessDialog()
+    assert dlg._ai_denoise_cb.isChecked()
+    dlg._stage_denoise.setChecked(False)
+    assert not dlg._ai_denoise_cb.isEnabled()
