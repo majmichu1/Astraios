@@ -1182,6 +1182,7 @@ class MainWindow(QMainWindow):
         tp.run_denoise.connect(self._on_run_denoise)
         tp.request_auto_denoise.connect(self._on_auto_denoise)
         tp.run_frequency_separation.connect(self._on_run_frequency_separation)
+        tp.run_statistical_stretch.connect(self._on_run_statistical_stretch)
         tp.run_star_stretch.connect(self._on_run_star_stretch)
         tp.run_star_reduction.connect(self._on_run_star_reduction)
         tp.open_narrowband_dialog.connect(self._show_narrowband_dialog)
@@ -3111,6 +3112,9 @@ class MainWindow(QMainWindow):
         elif tool_name == "star_stretch":
             from cosmica.core.star_stretch import star_stretch
             return star_stretch(data, tp.get_star_stretch_params())
+        elif tool_name == "statistical_stretch":
+            from cosmica.core.stretch import statistical_stretch
+            return statistical_stretch(data, tp.get_statistical_stretch_params())
         elif tool_name == "scnr":
             return scnr(data, tp.get_scnr_params())
         elif tool_name == "color_adjust":
@@ -4374,6 +4378,33 @@ class MainWindow(QMainWindow):
                     "FrequencySeparation",
                     {"sigma": _p.sigma, "hf_boost": _p.hf_boost,
                      "lf_smooth": _p.lf_smooth, "method": _p.method.name},
+                )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_statistical_stretch(self):
+        if self._current_image is None:
+            return
+        from cosmica.core.stretch import statistical_stretch
+
+        params = self._tools_panel.get_statistical_stretch_params()
+        self._log_panel.log(
+            f"Statistical stretch (target median={params.target_median:.2f}, "
+            f"{'linked' if params.linked else 'per-channel'})...",
+            "info",
+        )
+        _p = params
+
+        def _work(data, progress=None):
+            return statistical_stretch(data, _p)
+
+        def _done(result):
+            self._update_current_image(result, "Statistical stretch complete")
+            if self._project:
+                self._project.add_history(
+                    "StatisticalStretch",
+                    {"target_median": _p.target_median, "linked": _p.linked},
                 )
 
         self._start_worker(_work, self._current_image.data, on_done=_done)

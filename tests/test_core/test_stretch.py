@@ -4,12 +4,53 @@ import numpy as np
 import pytest
 
 from cosmica.core.stretch import (
+    StatisticalStretchParams,
     StretchParams,
+    _solve_midtone,
     auto_stretch,
     compute_channel_stats,
     compute_histogram,
     midtone_transfer_function,
+    statistical_stretch,
 )
+
+
+class TestStatisticalStretch:
+    @staticmethod
+    def _linear_image(median=0.02, shape=(64, 64)):
+        rng = np.random.default_rng(0)
+        # Skewed, mostly-dark image like linear astro data.
+        img = np.abs(rng.normal(0, median, shape)).astype(np.float32)
+        return np.clip(img, 0, 1)
+
+    def test_solve_midtone_maps_median_to_target(self):
+        for x in (0.01, 0.05, 0.2):
+            m = _solve_midtone(x, 0.25)
+            got = float(midtone_transfer_function(np.array([x], np.float32), m)[0])
+            assert abs(got - 0.25) < 1e-3
+
+    def test_result_median_hits_target_mono(self):
+        img = self._linear_image()
+        out = statistical_stretch(img, StatisticalStretchParams(target_median=0.25))
+        assert out.shape == img.shape
+        assert out.min() >= 0.0 and out.max() <= 1.0
+        med = float(np.median(out[out > 0]))
+        assert abs(med - 0.25) < 0.03
+
+    def test_different_targets(self):
+        img = self._linear_image()
+        lo = statistical_stretch(img, StatisticalStretchParams(target_median=0.15))
+        hi = statistical_stretch(img, StatisticalStretchParams(target_median=0.4))
+        assert float(np.median(hi[hi > 0])) > float(np.median(lo[lo > 0]))
+
+    def test_color_linked_preserves_relative_channels(self):
+        rng = np.random.default_rng(1)
+        base = np.abs(rng.normal(0, 0.02, (64, 64))).astype(np.float32)
+        img = np.clip(np.stack([base * 1.4, base, base * 0.7]), 0, 1).astype(np.float32)
+        out = statistical_stretch(img, StatisticalStretchParams(target_median=0.25, linked=True))
+        assert out.shape == img.shape
+        # R was brightest, B dimmest — ordering should survive a linked stretch.
+        assert out[0].mean() > out[1].mean() > out[2].mean()
 
 
 class TestMTF:

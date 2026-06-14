@@ -122,6 +122,86 @@ def _stretch_channel_gpu(channel: np.ndarray, params: StretchParams) -> np.ndarr
 
 
 @dataclass
+class StatisticalStretchParams:
+    """Parameters for a statistical (target-median) stretch.
+
+    Unlike :class:`StretchParams`, where you tune an abstract ``midtone``, here
+    you specify the *output* background level you want and the midtone needed to
+    hit it is solved automatically — SASpro's "Statistical Stretch" behaviour.
+    """
+
+    target_median: float = 0.25  # desired post-stretch background level
+    shadow_clip: float = -2.8     # MAD units below median for the black point
+    linked: bool = True           # one stretch for all channels (preserves colour)
+
+
+def _solve_midtone(median: float, target: float) -> float:
+    """Solve the MTF midtone ``m`` that maps ``median`` to ``target``.
+
+    Inverts ``MTF(x, m) = (m-1)x / ((2m-1)x - m)`` for ``m`` given ``x=median``
+    and ``MTF=target``. This is the standard PixInsight/Siril auto-stretch math.
+    """
+    x = float(median)
+    if x <= 0.0 or x >= 1.0:
+        return 0.5
+    denom = 2.0 * target * x - target - x
+    if abs(denom) < 1e-10:
+        return 0.5
+    m = x * (target - 1.0) / denom
+    return float(np.clip(m, 1e-4, 1.0 - 1e-4))
+
+
+def _statistical_stretch_channels(
+    data: np.ndarray, params: StatisticalStretchParams, shared: bool
+) -> np.ndarray:
+    """Apply target-median stretch to a (C, H, W) stack.
+
+    When ``shared`` is True a single black-point/midtone (from the brightest
+    channel) is applied to every channel, preserving colour balance.
+    """
+    n_ch = data.shape[0]
+    result = np.empty_like(data)
+    stats = [compute_channel_stats(data[ch]) for ch in range(n_ch)]
+
+    def _params_for(ref: dict, channel: np.ndarray):
+        shadow = max(0.0, ref["median"] + params.shadow_clip * max(ref["mad"], 1e-8))
+        scale = 1.0 / max(1e-10, 1.0 - shadow)
+        scaled = np.clip((channel - shadow) * scale, 0.0, 1.0)
+        med = float(np.median(scaled[scaled > 0])) if np.any(scaled > 0) else 0.0
+        return scaled, _solve_midtone(med, params.target_median)
+
+    if shared:
+        ref = stats[max(range(n_ch), key=lambda i: stats[i]["median"])]
+        for ch in range(n_ch):
+            scaled, midtone = _params_for(ref, data[ch])
+            result[ch] = midtone_transfer_function(scaled, midtone)
+    else:
+        for ch in range(n_ch):
+            scaled, midtone = _params_for(stats[ch], data[ch])
+            result[ch] = midtone_transfer_function(scaled, midtone)
+    return result
+
+
+def statistical_stretch(
+    data: np.ndarray,
+    params: StatisticalStretchParams | None = None,
+) -> np.ndarray:
+    """Stretch so the image background lands on a chosen target median.
+
+    Input/output: float32 in ``[0, 1]``, ``(H, W)`` or ``(C, H, W)``. Reuses the
+    GPU midtone-transfer function; only the small median reductions run on CPU.
+    """
+    if params is None:
+        params = StatisticalStretchParams()
+
+    if data.ndim == 2:
+        return _statistical_stretch_channels(data[None], params, shared=False)[0]
+    return _statistical_stretch_channels(
+        data, params, shared=(params.linked and data.shape[0] >= 3)
+    )
+
+
+@dataclass
 class ArcsinhStretchParams:
     """Parameters for arcsinh stretch.
 

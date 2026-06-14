@@ -113,6 +113,7 @@ class ToolsPanel(QWidget):
     run_stacking             = pyqtSignal()
     run_alignment            = pyqtSignal()
     run_stretch              = pyqtSignal()
+    run_statistical_stretch  = pyqtSignal()
     run_background           = pyqtSignal()
     stretch_params_changed   = pyqtSignal()
     run_cosmetic             = pyqtSignal()
@@ -567,6 +568,26 @@ class ToolsPanel(QWidget):
         btns[0].clicked.connect(self.run_stretch.emit)
         btns[1].clicked.connect(lambda: self._midtone_slider.setValue(0.25))
         lay.addWidget(aut)
+
+        # Statistical Stretch (target median)
+        sst2 = CollapsibleSection("Statistical Stretch")
+        sst2.add_info(
+            "Stretch the background to a chosen target level — the midtone is "
+            "solved for you. Lower target = darker background."
+        )
+        self._statstretch_target = sst2.add_slider("Target median", 0.25, 0.05, 0.6, 0.01, 2)
+        self._statstretch_shadow = sst2.add_spin("Shadow clip", -10.0, 0.0, -2.8, 0.1, 1)
+        self._statstretch_linked = sst2.add_check("Link RGB channels", True)
+        self._statstretch_preview_check = sst2.add_check("Live split preview")
+        self._statstretch_target.value_changed.connect(
+            lambda _: self._fire_preview("statistical_stretch", self._statstretch_preview_check)
+        )
+        self._statstretch_preview_check.toggled.connect(
+            lambda on: self.preview_requested.emit("statistical_stretch") if on
+            else self.preview_cancelled.emit()
+        )
+        sst2.add_run("▶ Apply Statistical Stretch", self.run_statistical_stretch.emit)
+        lay.addWidget(sst2)
 
         # Arcsinh (NEW)
         arc = CollapsibleSection("Arcsinh Stretch")
@@ -1652,6 +1673,15 @@ class ToolsPanel(QWidget):
         return StarStretchParams(
             amount=self._star_stretch_amount.value(),
             color_boost=self._star_stretch_color.value(),
+        )
+
+    def get_statistical_stretch_params(self):
+        from cosmica.core.stretch import StatisticalStretchParams
+
+        return StatisticalStretchParams(
+            target_median=self._statstretch_target.value(),
+            shadow_clip=self._statstretch_shadow.value(),
+            linked=self._statstretch_linked.isChecked(),
         )
 
     def get_star_reduction_params(self) -> StarReductionParams:
