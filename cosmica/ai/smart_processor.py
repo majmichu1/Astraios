@@ -1476,6 +1476,23 @@ class SmartProcessor:
             midtone = plan.stretch_params.midtone
             shadow_clip = plan.stretch_params.shadow_clip
 
+            # Seed the midtone analytically so the loop converges immediately
+            # instead of stepping geometrically from a fixed guess. auto_stretch
+            # applies the black point then the MTF, so solve for the midtone that
+            # maps the *scaled* median to the target (same math as
+            # statistical_stretch). The loop below still refines/guards against
+            # blown highlights and sky-dominated framing.
+            try:
+                from cosmica.core.stretch import _solve_midtone
+
+                _st = compute_channel_stats(pre_stretch)
+                _shadow0 = max(0.0, _st["median"] + shadow_clip * max(_st["mad"], 1e-8))
+                _scale0 = 1.0 / max(1e-10, 1.0 - _shadow0)
+                _scaled_med = max(1e-6, (_st["median"] - _shadow0) * _scale0)
+                midtone = _solve_midtone(_scaled_med, target_median)
+            except Exception as exc:
+                self._log_msg(f"[{name}] Analytical midtone seed failed ({exc}), using default")
+
             best_result = None
             best_midtone = midtone
             best_error = float("inf")
