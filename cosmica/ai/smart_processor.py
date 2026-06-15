@@ -2095,12 +2095,15 @@ class SmartProcessor:
                         f"({sky_frac * 100:.0f}% sky left un-sharpened)"
                     )
 
-            # Protect bright STAR cores from residual deconvolution ringing.
-            # Stars are small, very bright point sources — RL overshoot rings
-            # them. Restore the un-deconvolved original over compact bright blobs
-            # (feathered), while the EXTENDED nebula (a large blob) keeps its
-            # deconvolution. Size-filtered so the bright nebula core isn't frozen.
-            working = self._protect_star_cores_from_deconv(working, pre_deconv, name)
+            # Protect bright STAR cores from residual deconvolution ringing —
+            # but ONLY when the deconvolution was aggressive (sharp PSF). On a
+            # soft PSF the deconv is already gentle and barely rings, so the
+            # feathered restore just wraps a soft halo around every star (it made
+            # M42's stars look hazy). Skip it there.
+            if dp.psf_fwhm <= 5.0:
+                working = self._protect_star_cores_from_deconv(
+                    working, pre_deconv, name
+                )
 
             working = np.clip(working, 0, 1)
 
