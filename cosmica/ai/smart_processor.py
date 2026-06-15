@@ -1185,11 +1185,19 @@ class SmartProcessor:
                 analysis.plate_solve_result and analysis.plate_solve_result.success
             )
 
+            # A frame-FILLING object (M42 etc.) should use the full catalog
+            # ellipse, not the DSS2 reference — the reference only thresholds the
+            # bright core, leaving the faint outer nebula treated as "sky" by the
+            # object-aware stages. The ellipse from the catalog extent covers the
+            # whole subject (mask ~100%) which is correct here.
+            obj_px = analysis.primary_target.major_axis_arcmin * 60.0 / ps
+            object_fills_frame = obj_px > 0.5 * min(analysis.width, analysis.height)
+
             # Shape-accurate mask from a DSS2 reference, when we have a WCS to
             # render the matching field. This is the object's REAL outline rather
             # than the catalog ellipse. Best-effort network call; on any failure
             # we fall through to the elliptical mask below.
-            if have_wcs and analysis.plate_solve_result.ra_center:
+            if have_wcs and analysis.plate_solve_result.ra_center and not object_fills_frame:
                 try:
                     from cosmica.ai.reference_image import reference_object_mask
 
@@ -1493,11 +1501,16 @@ class SmartProcessor:
 
         # Post-stretch gradient / vignette cleanup — only engages when a residual
         # gradient actually survived into the stretched image (corner spread),
-        # since that's exactly when light pollution / imperfect flats show. Object-
-        # aware so the subject is never flattened. This is what the linear-space
-        # background extraction can't fully remove on object-filled frames.
-        progress(0.99, "Gradient / vignette cleanup...")
-        working = self._final_gradient_cleanup(working, plan)
+        # since that's exactly when light pollution / imperfect flats show.
+        #
+        # NOT for object-dominated frames (M42 etc.): there the subject fills the
+        # frame and its mask covers only the bright core, so the fit would treat
+        # the faint outer nebula as a "gradient" and subtract it — carving a dark
+        # patch through the nebula. Those frames rely on the (object-protected)
+        # linear background extraction instead.
+        if not plan.bg_object_dominated:
+            progress(0.99, "Gradient / vignette cleanup...")
+            working = self._final_gradient_cleanup(working, plan)
 
         # Self-correcting final-quality pass (residual cast / blown highlights)
         progress(0.99, "Final quality check...")
