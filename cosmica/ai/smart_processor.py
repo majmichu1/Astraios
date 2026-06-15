@@ -1091,9 +1091,20 @@ class SmartProcessor:
         return "minimal"
 
     def _get_saturation_target(self, analysis: ImageAnalysis, hints: dict) -> float:
-        """Determine target saturation multiplier."""
+        """Determine target saturation multiplier (colour data).
+
+        Refined by catalog hints: Ha-dominant emission nebulae carry strong,
+        structured colour that benefits from a firmer saturation so the red/Ha
+        detail reads; reflection nebulosity is subtle broadband colour that
+        over-saturates into garish blue, so keep it gentle.
+        """
         level = hints.get("color_saturation", "moderate")
-        return {"boost": 1.4, "moderate": 1.15, "preserve": 1.0}.get(level, 1.15)
+        base = {"boost": 1.4, "moderate": 1.15, "preserve": 1.0}.get(level, 1.15)
+        if hints.get("ha_dominant"):
+            base = max(base, 1.30)
+        if hints.get("reflection_nebulosity"):
+            base = min(base, 1.10)
+        return base
 
     def _count_stages(self, plan: ChannelPlan) -> int:
         """Count the number of active stages in a channel plan."""
