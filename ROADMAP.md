@@ -106,14 +106,15 @@ future extension, not built.)
 - Star-core deconv protection over-softened soft-PSF stars (M42) → gated to
   sharp PSFs only — `3c3c14f`.
 
+- Recipe book: `cosmica/resources/recipes.json` + `cosmica/core/recipe.py` —
+  per-type recipes + named overrides, resolved after plate solve, merged into
+  hints (`ae56f72`). NGC 7023 → chroma 2.0 + StarNet + gentle. The seam for #4.
+
 ### 🔜 Next
 
-- [ ] **Recipe book (per-target instruction set)** — the structural backbone.
-      ~8 TYPE recipes (emission/reflection nebula, galaxy, globular, open cluster,
-      planetary, SNR, dark nebula) + named overrides (M42 HDR, Veil bg-sensitive).
-      Merge order: `named override → type recipe → catalog hint → generic default`,
-      read after plate solve. Keyed on object TYPE, so NO image library needed.
-      This is where #4 (ML) plugs in: the model predicts/refines a recipe.
+- [ ] **Curate/tune recipes** as targets are tested (it's now one JSON edit per
+      target — e.g. tune the Iris, add Veil/M31/M81 overrides). This is the
+      ongoing knob now, replacing scattered heuristic edits.
 - [ ] **#4 — learning (ML)**: self-supervised denoise fine-tune on the user's raw
       subs (thousands available, Noise2Self infra exists: prepare_data_v2 +
       train_n2s_v2). HDD-friendly via one-time patch extraction → cached memmap.
