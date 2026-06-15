@@ -1181,6 +1181,35 @@ class SmartProcessor:
             have_wcs = bool(
                 analysis.plate_solve_result and analysis.plate_solve_result.success
             )
+
+            # Shape-accurate mask from a DSS2 reference, when we have a WCS to
+            # render the matching field. This is the object's REAL outline rather
+            # than the catalog ellipse. Best-effort network call; on any failure
+            # we fall through to the elliptical mask below.
+            if have_wcs and analysis.plate_solve_result.ra_center:
+                try:
+                    from cosmica.ai.reference_image import reference_object_mask
+
+                    psr = analysis.plate_solve_result
+                    scale = psr.pixel_scale if psr.pixel_scale > 0 else ps
+                    fov_deg = scale * analysis.width / 3600.0
+                    rot = getattr(psr, "rotation", 0.0) or 0.0
+                    ref_mask = reference_object_mask(
+                        psr.ra_center, psr.dec_center, fov_deg,
+                        analysis.width, analysis.height, rotation_deg=rot,
+                    )
+                    if ref_mask is not None:
+                        self._log_msg(
+                            f"Plan: object mask from DSS2 reference "
+                            f"(shape-accurate, {float(np.mean(ref_mask > 0.5)) * 100:.0f}% "
+                            f"of frame is subject)"
+                        )
+                        return ref_mask
+                except Exception as exc:
+                    self._log_msg(
+                        f"Reference-image mask unavailable ({exc}) — using ellipse"
+                    )
+
             objs: list[dict] = []
             if have_wcs:
                 rot = getattr(analysis.plate_solve_result, "rotation", 0.0) or 0.0
