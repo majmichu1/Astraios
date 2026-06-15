@@ -91,10 +91,19 @@ future extension, not built.)
 - Colour overstretch: per-channel local contrast made bg-preserving — `b4b641e`
 - Noisy/faint backgrounds: gentle background-floor pull for non-HDR frames — `2fae6f9`
 
+- Post-stretch gradient / flat (vignette) tool: `cosmica/core/gradient_removal.py`
+  + auto object-aware cleanup stage — `24562ef`. NGC 7023 corner spread 0.16 → 0.05.
+
 ### Known-hard cases / data-limited
 
-- **NGC 7023 (faint OSC colour, dense field):** heavy noise, colour vignette, IFN
-  filling the frame. The fixes above darkened the background and stopped the LC
-  inflation, but the residual noise + colour gradient are largely **data quality**
-  (faint subs, imperfect flats). A dedicated post-stretch gradient/flat tool and
-  stronger colour denoise would help — possible future work.
+- **NGC 7023 (faint OSC colour, dense field):** the LC, sky-veil, and gradient
+  fixes darkened + flattened the background (corner spread 0.16 → 0.05) and the
+  Iris nebula separates cleanly. Residual **colour noise** is the data floor
+  (faint subs) — stronger colour denoise is the remaining lever.
+
+### 🔜 Next
+
+- [ ] **#4 — learning (ML)**: the remaining big piece. Needs a (raw stack → expert
+      result) dataset. Plan the data pipeline + a small parameter-prediction model
+      (predict stretch/denoise/deconv params from image features + object metadata)
+      before training. Rule-based + reference-image system stands until then.
