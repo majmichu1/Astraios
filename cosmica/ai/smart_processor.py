@@ -1513,18 +1513,13 @@ class SmartProcessor:
         if starless is None:
             return working  # graceful fallback — keep the non-star-aware result
 
-        # Star layer = what the remover took out. Screening it back over the
-        # (enhanced) starless reconstructs the image without clipping.
+        # Star layer = exactly what the remover took out (no knee/threshold).
+        # The diffusion-inpaint starless sits slightly BELOW the true sky around
+        # each star, so this residual carries both the star AND the skirt that
+        # fills that depression. Keeping it intact is what avoids a dark ring
+        # around every star on recombine (an earlier soft-knee dropped the skirt
+        # and exposed the depression — the "dark moats" around stars).
         stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
-
-        # Suppress the soft HALO pedestal. The diffusion-inpaint starless leaves
-        # a soft skirt around each star, so ``working - starless`` carries a
-        # low-amplitude halo; screened back it lifts a fuzzy ring around every
-        # star (the "smoothing around stars" look). A soft-knee that zeroes the
-        # low residual and rescales the rest keeps the bright, sharp star cores
-        # while dropping the halo.
-        knee = 0.06
-        stars = np.clip((stars - knee) / (1.0 - knee), 0.0, 1.0).astype(np.float32)
 
         is_color = working.ndim == 3 and working.shape[0] >= 3
         has_stars = float(np.mean(stars > 0.05)) > 1e-4
@@ -1576,13 +1571,15 @@ class SmartProcessor:
         if is_color and not self._is_narrowband(analysis):
             enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
 
-        # Screen the stars back on top.
+        # Recombine ADDITIVELY: starless-nebula enhancement + the star layer.
+        #   result = starless + (enhanced - starless) + stars = enhanced + stars
+        # With no reduction this is exactly ``working + (enhanced - starless)`` —
+        # the ORIGINAL sharp stars and their skirts are preserved untouched while
+        # the nebula gains the local-contrast detail. Screen-blending instead
+        # left soft halos (and, with the dropped skirt, dark rings); additive
+        # reconstruction has neither.
         progress(0.99, "Star-aware: recombining stars...")
-        from cosmica.core.image_blend import BlendMode, BlendParams, blend_images
-
-        result = blend_images(
-            enhanced, stars, BlendParams(mode=BlendMode.SCREEN, opacity=1.0)
-        )
+        result = np.clip(enhanced + stars, 0.0, 1.0).astype(np.float32)
         star_frac = float(np.mean(stars > 0.05))
         self._log_msg(
             f"Star-aware complete: nebula enhanced, stars "
