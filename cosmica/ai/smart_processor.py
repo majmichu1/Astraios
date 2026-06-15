@@ -709,10 +709,30 @@ class SmartProcessor:
         hints = {}
         is_extreme_dr = False
         if analysis.primary_target:
-            hints = analysis.primary_target.processing_hints.copy()
-            if analysis.primary_target.dynamic_range == "extreme":
+            # Resolve the per-target recipe: TYPE recipe → catalog hints → named
+            # override. Keyed on object type, so every target gets a recipe.
+            from cosmica.core.recipe import get_recipe_book
+
+            t = analysis.primary_target
+            hints = get_recipe_book().resolve(t.object_type, t.id, t.processing_hints)
+            if t.dynamic_range == "extreme":
                 hints["dynamic_range"] = "extreme"
                 is_extreme_dr = True
+
+            # Recipe-level processor knobs override the per-call defaults (the
+            # recipe is the smart per-target choice).
+            if "chroma_strength" in hints:
+                self._chroma_strength = float(hints["chroma_strength"])
+            if "star_reduction" in hints:
+                self._star_reduction = float(max(0.0, min(1.0, hints["star_reduction"])))
+            recipe_name = "named" if get_recipe_book().has_named(t.id) else "type"
+            self._log_msg(
+                f"Plan: recipe applied ({recipe_name} '{t.object_type}'"
+                + (f", chroma={self._chroma_strength:.1f}"
+                   if "chroma_strength" in hints else "")
+                + (", StarNet" if hints.get("use_starnet") else "")
+                + ")"
+            )
 
         # Determine channel names
         ch_names = self._get_channel_names(analysis)

@@ -1,0 +1,77 @@
+{
+  "_comment": "Per-TYPE processing recipes + named per-target overrides. Resolved after plate solve and merged into the target's processing_hints. Merge order: type recipe -> catalog hints -> named override (later wins). Keys reuse the planner's hint vocabulary, plus: chroma_strength (float), star_reduction (0..1), use_starnet (bool), noise_reduction (minimal|moderate|strong).",
+  "types": {
+    "reflection_nebula": {
+      "stretch": "gentle",
+      "reflection_nebulosity": true,
+      "color_saturation": "moderate",
+      "chroma_strength": 1.6,
+      "noise_reduction": "strong",
+      "deconvolution": false
+    },
+    "emission_nebula": {
+      "stretch": "moderate",
+      "ha_dominant": true,
+      "color_saturation": "boost",
+      "chroma_strength": 1.2
+    },
+    "hii_region": {
+      "stretch": "moderate",
+      "ha_dominant": true,
+      "color_saturation": "boost"
+    },
+    "planetary_nebula": {
+      "stretch": "moderate",
+      "deconv_aggressive": true,
+      "hdr_merge_recommended": true,
+      "color_saturation": "boost"
+    },
+    "supernova_remnant": {
+      "stretch": "aggressive",
+      "bg_sensitive": true,
+      "ha_dominant": true,
+      "chroma_strength": 1.2
+    },
+    "dark_nebula": {
+      "stretch": "gentle",
+      "bg_sensitive": true,
+      "color_saturation": "preserve"
+    },
+    "galaxy_spiral": {
+      "stretch": "moderate",
+      "bg_sensitive": true,
+      "deconvolution": true,
+      "color_saturation": "moderate"
+    },
+    "galaxy_elliptical": {
+      "stretch": "moderate",
+      "bg_sensitive": true,
+      "color_saturation": "moderate"
+    },
+    "galaxy_irregular": {
+      "stretch": "moderate",
+      "bg_sensitive": true,
+      "color_saturation": "moderate"
+    },
+    "globular_cluster": {
+      "stretch": "moderate",
+      "hdr_merge_recommended": true,
+      "star_reduction": 0.0,
+      "color_saturation": "boost"
+    },
+    "open_cluster": {
+      "stretch": "gentle",
+      "star_reduction": 0.0,
+      "deconvolution": true,
+      "color_saturation": "boost"
+    }
+  },
+  "targets": {
+    "NGC 7023": {
+      "chroma_strength": 2.0,
+      "noise_reduction": "strong",
+      "use_starnet": true,
+      "star_reduction": 0.4
+    }
+  }
+}
