@@ -1632,6 +1632,52 @@ class SmartProcessor:
         )
         return result
 
+    def _protect_star_cores_from_deconv(
+        self, deconvolved: np.ndarray, original: np.ndarray, name: str
+    ) -> np.ndarray:
+        """Restore the un-deconvolved original over bright STAR cores.
+
+        Richardson-Lucy rings bright point sources. Detect compact bright blobs
+        (stars) in the pre-deconv data, size-filter out the large extended
+        nebula core, and blend the original back over the stars with a soft
+        feather so the deconvolution's ringing halo around each star is removed
+        while the nebula keeps its sharpening. Best-effort; returns the input
+        unchanged on any failure.
+        """
+        try:
+            from scipy import ndimage
+
+            gray = original if original.ndim == 2 else original.mean(0)
+            p = float(np.percentile(gray, 99.5))
+            if p <= 0:
+                return deconvolved
+            lbl, n = ndimage.label(gray > p)
+            if n == 0:
+                return deconvolved
+            areas = ndimage.sum(np.ones_like(lbl, dtype=np.float64), lbl,
+                                index=np.arange(1, n + 1))
+            # A star (even bloated) stays compact; reject blobs larger than a
+            # generous star size so the extended nebula core isn't frozen.
+            max_star_diam = max(16.0, min(gray.shape) * 0.02)
+            max_area = 3.14159 * (max_star_diam / 2.0) ** 2
+            small = np.nonzero(areas <= max_area)[0] + 1
+            if small.size == 0:
+                return deconvolved
+            star = np.isin(lbl, small).astype(np.float32)
+            # Dilate + feather to cover the ringing halo around each core.
+            star = ndimage.maximum_filter(star, size=5)
+            star = np.clip(ndimage.gaussian_filter(star, sigma=2.0), 0.0, 1.0)
+            sm = star if deconvolved.ndim == 2 else star[np.newaxis, ...]
+            out = (original * sm + deconvolved * (1.0 - sm)).astype(np.float32)
+            self._log_msg(
+                f"[{name}] Protected {int(small.size)} star core(s) from "
+                f"deconvolution ringing"
+            )
+            return out
+        except Exception as exc:
+            self._log_msg(f"[{name}] Star-core deconv protection skipped ({exc})")
+            return deconvolved
+
     def _bg_preserving_local_contrast(
         self, image: np.ndarray, params: LocalContrastParams, label: str = "",
         region_mask: np.ndarray | None = None,
@@ -2011,6 +2057,13 @@ class SmartProcessor:
                         f"[{name}] Deconvolution confined to subject "
                         f"({sky_frac * 100:.0f}% sky left un-sharpened)"
                     )
+
+            # Protect bright STAR cores from residual deconvolution ringing.
+            # Stars are small, very bright point sources — RL overshoot rings
+            # them. Restore the un-deconvolved original over compact bright blobs
+            # (feathered), while the EXTENDED nebula (a large blob) keeps its
+            # deconvolution. Size-filtered so the bright nebula core isn't frozen.
+            working = self._protect_star_cores_from_deconv(working, pre_deconv, name)
 
             working = np.clip(working, 0, 1)
 
