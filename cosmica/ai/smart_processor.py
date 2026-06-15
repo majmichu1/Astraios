@@ -148,6 +148,9 @@ class ProcessingPlan:
     # order and skip the iterate-to-higher-order refinement, or the fit eats the
     # bright core into a dark hole.
     bg_object_dominated: bool = False
+    # Soft [0,1] elliptical mask over the catalog object (1=subject, 0=sky), used
+    # to steer enhancement toward the subject. None = no object-aware steering.
+    object_mask: np.ndarray | None = field(default=None, repr=False)
     # HDR merge hint for extreme-dynamic-range objects like M42
     needs_hdr_merge: bool = False
     hdr_operator: str = "core_blend"  # "reinhard" | "drago" | "core_blend"
@@ -780,6 +783,13 @@ class SmartProcessor:
                 use_obj_bg = True
                 self._log_msg(f"Plan: Object-aware background with {len(objects)} object(s)")
 
+        # Soft elliptical object mask (the subject's true shape/extent), used to
+        # steer enhancement toward the object and away from empty sky. Built from
+        # the SAME positioning logic; uses the object's full major/minor extent
+        # (not the capped bg-protection radius). Best-effort — None ⇒ the rest of
+        # the pipeline simply runs whole-image as before.
+        object_mask = self._build_object_mask(analysis)
+
         # Object-dominated frame guard: a target that fills a large fraction of
         # the frame (M42 etc.) must NOT get a high-order polynomial background —
         # the fit Runge-oscillates across the masked object and bumps the model
@@ -849,6 +859,7 @@ class SmartProcessor:
             use_object_aware_bg=use_obj_bg,
             exclusion_mask=exclusion_mask,
             bg_object_dominated=object_dominated,
+            object_mask=object_mask,
             needs_hdr_merge=needs_hdr,
             hdr_operator=self._hdr_operator,
             hdr_params=self._hdr_params,
@@ -1098,6 +1109,62 @@ class SmartProcessor:
         if plan.local_contrast_params:
             count += 1
         return count
+
+    def _build_object_mask(self, analysis: ImageAnalysis) -> np.ndarray | None:
+        """Soft elliptical mask over the catalog object(s) in the frame.
+
+        Positions objects via the WCS solution when available, else assumes the
+        named primary target is centred (the common framing). Best-effort: any
+        failure returns None so the pipeline runs whole-image as before.
+        """
+        if not (analysis.primary_target and analysis.plate_scale_arcsec):
+            return None
+        try:
+            from cosmica.core.object_mask import build_object_mask
+
+            ps = analysis.plate_scale_arcsec
+            have_wcs = bool(
+                analysis.plate_solve_result and analysis.plate_solve_result.success
+            )
+            objs: list[dict] = []
+            if have_wcs:
+                rot = getattr(analysis.plate_solve_result, "rotation", 0.0) or 0.0
+                for t in analysis.targets:
+                    if t.major_axis_arcmin <= 1.0:
+                        continue
+                    cx, cy = self._target_to_pixel(
+                        t, analysis.plate_solve_result, ps,
+                        analysis.width, analysis.height,
+                    )
+                    # keep objects whose centre is on (or near) the frame
+                    margin = t.major_axis_arcmin * 60.0 / ps
+                    if -margin <= cx <= analysis.width + margin and \
+                       -margin <= cy <= analysis.height + margin:
+                        objs.append({
+                            "center_x": cx, "center_y": cy,
+                            "major_axis_arcmin": t.major_axis_arcmin,
+                            "minor_axis_arcmin": t.minor_axis_arcmin,
+                            "rotation_deg": rot,
+                        })
+            else:
+                t = analysis.primary_target
+                objs.append({
+                    "center_x": analysis.width / 2.0,
+                    "center_y": analysis.height / 2.0,
+                    "major_axis_arcmin": t.major_axis_arcmin,
+                    "minor_axis_arcmin": t.minor_axis_arcmin,
+                })
+            mask = build_object_mask((analysis.height, analysis.width), objs, ps)
+            if mask is not None:
+                cov = float(np.mean(mask > 0.5))
+                self._log_msg(
+                    f"Plan: object mask built ({len(objs)} object(s), "
+                    f"{cov * 100:.0f}% of frame is subject)"
+                )
+            return mask
+        except Exception as exc:
+            self._log_msg(f"Object mask unavailable ({exc}) — whole-image processing")
+            return None
 
     def _target_to_pixel(
         self,
