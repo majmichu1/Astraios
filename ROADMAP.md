@@ -39,14 +39,25 @@ to whole-image behaviour. `git checkout ui-redesign` reverts the whole effort.
 | #1d consumer — stretch | framed subject judged by its own region, not the noisy >0.02 heuristic | `050f473` |
 | #2 richer recipes — hints | every catalog `processing_hint` now consumed (`bg_sensitive`, `ha_dominant`, `reflection_nebulosity` were dead) | `74ae583`, `3e81318` |
 
-**#1 (spatial object masks) is COMPLETE** — the mask now steers local contrast,
+| #2b SIMBAD fallback | unknown target names resolved via SIMBAD (HTTP) → TargetInfo + recipe; verified live (M51) | `f716d37` |
+
+**#1 (spatial object masks) is COMPLETE** — the mask steers local contrast,
 deconvolution, and the stretch, all gated + graceful.
+**#2 (richer recipes) is COMPLETE** — all hints consumed; any object identifiable
+(catalog → SIMBAD).
 
-### 🔜 Next (this is where we're working)
+The core of the vision is delivered: the processor now **knows what** the subject
+is (catalog + SIMBAD), **where** it is (plate solve + object mask), and **how to
+edit it** (per-type recipes + object-aware background/deconv/stretch/contrast).
 
-- [ ] **#2b — SIMBAD fallback for unknown targets**: if a typed name isn't in the
-      139-object catalog, query SIMBAD (HTTP, no heavy dep) for coords/type/size
-      and synthesize a TargetInfo + recipe on the fly. Covers any object.
+### 🔜 Next (speculative — bigger, validate the above first)
+
+- [ ] **#3 — reference-image prior**: fetch a DSS2/PanSTARRS cutout of the target
+      (coords + FOV via WCS), register to the user's frame, threshold → a
+      *shape-accurate* object mask (vs. the current ellipse) and/or a tonal
+      target. Hard part = registration between survey cutout and user frame.
+- [ ] **#4 — learning (LAST)**: train a small model on (raw stack → expert result)
+      pairs + object metadata to predict processing parameters. Needs a dataset.
 - [ ] **#3 — reference-image prior**: fetch a DSS2/PanSTARRS cutout of the target
       as a "what it should look like" tonal/structure guide.
 - [ ] **#4 — learning (LAST)**: train a small model on (raw stack → expert result)
