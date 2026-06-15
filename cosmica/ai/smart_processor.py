@@ -545,7 +545,32 @@ class SmartProcessor:
                 targets = [target]
                 self._log_msg(f"Target from user input: {target.id}")
             else:
-                self._log_msg(f"User target '{self._user_target_name}' not found in catalog")
+                # Not in the bundled catalog — ask SIMBAD (online, best-effort).
+                # Covers any object, not just the curated 139, with a recipe
+                # derived from its object type.
+                self._log_msg(
+                    f"'{self._user_target_name}' not in catalog — querying SIMBAD…"
+                )
+                try:
+                    from cosmica.core.simbad_lookup import lookup_simbad
+
+                    target = lookup_simbad(self._user_target_name)
+                except Exception as exc:
+                    target = None
+                    self._log_msg(f"SIMBAD lookup error: {exc}")
+                if target:
+                    primary_target = target
+                    targets = [target]
+                    self._log_msg(
+                        f"SIMBAD: identified {target.id} "
+                        f"({target.object_type}, "
+                        f"{target.major_axis_arcmin:.1f}'×{target.minor_axis_arcmin:.1f}')"
+                    )
+                else:
+                    self._log_msg(
+                        f"User target '{self._user_target_name}' not found "
+                        f"(catalog or SIMBAD)"
+                    )
 
         # Fallback: FITS header object name
         if not primary_target and "object_name" in header_info:
