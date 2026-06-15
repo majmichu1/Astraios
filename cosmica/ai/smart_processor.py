@@ -2249,18 +2249,21 @@ class SmartProcessor:
             else:
                 working = auto_stretch(pre_stretch, plan.stretch_params)
 
-            # Sky-veil cleanup: extreme-DR targets (M42 etc.) are stretched
-            # conservatively, which leaves a milky low-level glow over the sky
-            # and flattens contrast. Pull the background down toward — but not
-            # all the way to — black so the nebula gains separation from the sky,
-            # while leaving a small pedestal so the faint outer nebulosity and
-            # shadow detail aren't crushed.
+            # Sky-veil cleanup: pull a raised/milky background down toward (not
+            # all the way to) black so the subject separates from the sky.
+            # Extreme-DR targets (M42) get a firm pull to a low floor. Every other
+            # frame gets a GENTLE pull that only engages once the sky is clearly
+            # raised (p10 > ~0.06) — so on faint, noisy data (IFN, OSC) the grainy
+            # background darkens, while delicate nebulosity on clean frames isn't
+            # crushed.
+            sky = float(np.percentile(working, 10))
             if full_plan.needs_hdr_merge:
-                sky = float(np.percentile(working, 10))
-                pull = max(0.0, sky - 0.02) * 0.7  # leave ~0.02 floor
-                if pull > 0.001:
-                    working = np.clip(working - pull, 0, 1)
-                    self._log_msg(f"[{name}] Sky-veil pull: -{pull:.3f} (sky was {sky:.3f})")
+                pull = max(0.0, sky - 0.02) * 0.7  # firm, ~0.02 floor
+            else:
+                pull = max(0.0, sky - 0.06) * 0.6  # gentle, ~0.06 floor
+            if pull > 0.001:
+                working = np.clip(working - pull, 0, 1)
+                self._log_msg(f"[{name}] Sky-veil pull: -{pull:.3f} (sky was {sky:.3f})")
 
             final_median = float(np.median(working))
             final_signal = float(np.mean(working[working > 0.02])) if np.any(working > 0.02) else 0.0
