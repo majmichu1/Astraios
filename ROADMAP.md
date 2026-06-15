@@ -34,17 +34,19 @@ to whole-image behaviour. `git checkout ui-redesign` reverts the whole effort.
 | Plate solving keystone | Smart Processor uses astrometry.net online solver with the Preferences API key | `ff494dc` |
 | #1 object mask — module | `build_object_mask()` soft elliptical mask + tests | `786835b` |
 | #1 object mask — plan | `_build_object_mask()` builds & carries it on the plan (WCS or centred) | `078770c` |
-| #1 consumer — local contrast | HDR + star-aware CLAHE confined to the subject; sky grain left alone | `351ff48` |
+| #1b consumer — local contrast | HDR + star-aware CLAHE confined to the subject; sky grain left alone | `351ff48` |
+| #1c consumer — deconvolution | deconvolve the subject, leave empty sky un-sharpened | `279e9b0` |
+| #1d consumer — stretch | framed subject judged by its own region, not the noisy >0.02 heuristic | `050f473` |
 | #2 richer recipes — hints | every catalog `processing_hint` now consumed (`bg_sensitive`, `ha_dominant`, `reflection_nebulosity` were dead) | `74ae583`, `3e81318` |
+
+**#1 (spatial object masks) is COMPLETE** — the mask now steers local contrast,
+deconvolution, and the stretch, all gated + graceful.
 
 ### 🔜 Next (this is where we're working)
 
-- [ ] **#1c — wire object mask into deconvolution**: deconvolve the subject,
-      leave empty sky un-sharpened (less noise amplification).
-- [ ] **#1d — wire object mask into the stretch**: target the *object* region's
-      brightness so framed subjects are well-exposed (vs. whole-frame heuristic).
-- [ ] **#2b — auto-populate recipes from SIMBAD/NED**: cover thousands of objects,
-      not 139; derive type/size/surface-brightness → recipe.
+- [ ] **#2b — SIMBAD fallback for unknown targets**: if a typed name isn't in the
+      139-object catalog, query SIMBAD (HTTP, no heavy dep) for coords/type/size
+      and synthesize a TargetInfo + recipe on the fly. Covers any object.
 - [ ] **#3 — reference-image prior**: fetch a DSS2/PanSTARRS cutout of the target
       as a "what it should look like" tonal/structure guide.
 - [ ] **#4 — learning (LAST)**: train a small model on (raw stack → expert result)
