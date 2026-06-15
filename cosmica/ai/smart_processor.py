@@ -1472,6 +1472,14 @@ class SmartProcessor:
         if plan.star_aware:
             working = self._apply_star_aware(working, analysis, plan, progress)
 
+        # Post-stretch gradient / vignette cleanup — only engages when a residual
+        # gradient actually survived into the stretched image (corner spread),
+        # since that's exactly when light pollution / imperfect flats show. Object-
+        # aware so the subject is never flattened. This is what the linear-space
+        # background extraction can't fully remove on object-filled frames.
+        progress(0.99, "Gradient / vignette cleanup...")
+        working = self._final_gradient_cleanup(working, plan)
+
         # Self-correcting final-quality pass (residual cast / blown highlights)
         progress(0.99, "Final quality check...")
         working = self._final_quality_pass(working, analysis)
@@ -2547,6 +2555,51 @@ class SmartProcessor:
             f"  QC [{stage.value}] {metric_name}={value:.4f} "
             f"(threshold={threshold:.4f}) → {status}"
         )
+
+    def _final_gradient_cleanup(
+        self, working: np.ndarray, plan: ProcessingPlan
+    ) -> np.ndarray:
+        """Remove a residual post-stretch gradient / vignette, object-aware.
+
+        Only engages when there's a measurable corner-to-corner gradient — so
+        clean frames are untouched. Uses the object mask to protect the subject.
+        Best-effort: returns the input unchanged on any failure.
+        """
+        try:
+            gray = working if working.ndim == 2 else working.mean(0)
+            h, w = gray.shape
+            cs = [gray[:h // 8, :w // 8].mean(), gray[:h // 8, -w // 8:].mean(),
+                  gray[-h // 8:, :w // 8].mean(), gray[-h // 8:, -w // 8:].mean()]
+            spread = float(max(cs) - min(cs))
+            if spread < 0.04:
+                return working  # background already flat — nothing to do
+
+            from cosmica.core.gradient_removal import (
+                GradientRemovalParams,
+                remove_gradient,
+            )
+
+            out = remove_gradient(
+                working, object_mask=plan.object_mask,
+                params=GradientRemovalParams(mode="subtract", order=4),
+            )
+            new_gray = out if out.ndim == 2 else out.mean(0)
+            new_cs = [new_gray[:h // 8, :w // 8].mean(), new_gray[:h // 8, -w // 8:].mean(),
+                      new_gray[-h // 8:, :w // 8].mean(), new_gray[-h // 8:, -w // 8:].mean()]
+            new_spread = float(max(new_cs) - min(new_cs))
+            self._log_msg(
+                f"Final: gradient/vignette cleanup (corner spread "
+                f"{spread:.3f} → {new_spread:.3f})"
+            )
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "background_gradient",
+                new_spread, threshold=0.04, passed=new_spread <= spread,
+                adjustment="Removed residual gradient/vignette",
+            )
+            return out.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"Gradient cleanup skipped ({exc})")
+            return working
 
     def _final_quality_pass(
         self, working: np.ndarray, analysis: ImageAnalysis
