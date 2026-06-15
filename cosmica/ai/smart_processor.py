@@ -1972,6 +1972,21 @@ class SmartProcessor:
                         f"(full center, fades 60%-100% radius)"
                     )
 
+            # Object-aware: deconvolution sharpens the subject, but on empty sky
+            # it only amplifies noise. Keep the deconvolved result over the
+            # object and restore the un-sharpened original over the sky. Whole-
+            # frame objects (M42) leave the mask ~100% → no-op.
+            om = full_plan.object_mask
+            if om is not None and om.shape == working.shape[-2:]:
+                sky_frac = float(np.mean(om < 0.5))
+                if sky_frac > 0.02:
+                    m = om if working.ndim == 2 else om[np.newaxis, ...]
+                    working = (working * m + pre_deconv * (1.0 - m)).astype(np.float32)
+                    self._log_msg(
+                        f"[{name}] Deconvolution confined to subject "
+                        f"({sky_frac * 100:.0f}% sky left un-sharpened)"
+                    )
+
             working = np.clip(working, 0, 1)
 
         # Stage 4: Adaptive stretch
