@@ -1423,6 +1423,16 @@ class SmartProcessor:
         # Star layer = what the remover took out. Screening it back over the
         # (enhanced) starless reconstructs the image without clipping.
         stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
+
+        # Suppress the soft HALO pedestal. The diffusion-inpaint starless leaves
+        # a soft skirt around each star, so ``working - starless`` carries a
+        # low-amplitude halo; screened back it lifts a fuzzy ring around every
+        # star (the "smoothing around stars" look). A soft-knee that zeroes the
+        # low residual and rescales the rest keeps the bright, sharp star cores
+        # while dropping the halo.
+        knee = 0.06
+        stars = np.clip((stars - knee) / (1.0 - knee), 0.0, 1.0).astype(np.float32)
+
         is_color = working.ndim == 3 and working.shape[0] >= 3
         has_stars = float(np.mean(stars > 0.05)) > 1e-4
 
