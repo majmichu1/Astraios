@@ -794,6 +794,19 @@ class SmartProcessor:
             obj_px = analysis.primary_target.major_axis_arcmin * 60.0 / analysis.plate_scale_arcsec
             if obj_px > 0.33 * min(analysis.width, analysis.height):
                 object_dominated = True
+        # bg_sensitive (catalog hint, e.g. the Veil and other faint filamentary
+        # nebulae): the faint structure is easily mistaken for sky and eaten by
+        # an aggressive background fit. Treat it like an object-dominated frame —
+        # gentle, low-order background that follows broad gradients but leaves
+        # the delicate signal alone. This is the catalog-driven "remove the
+        # background here, but not there" behaviour.
+        if hints.get("bg_sensitive"):
+            object_dominated = True
+            self._log_msg(
+                f"Plan: {analysis.primary_target.id if analysis.primary_target else 'target'} "
+                "is background-sensitive — using a gentle, signal-preserving "
+                "background extraction"
+            )
         if object_dominated:
             for cp in channel_plans:
                 if cp.background_params is not None:
