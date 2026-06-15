@@ -2055,23 +2055,48 @@ class SmartProcessor:
                 result_median = float(np.median(stretched))
                 sat_frac = float(np.mean(stretched > 0.99))
 
+                # Object-aware: when we have a catalog object mask for a FRAMED
+                # subject (real sky around it), judge the stretch by the
+                # subject's own brightness. This beats the >0.02 heuristic below,
+                # which on noisy data catches background grain as "signal" and
+                # over-stretches. Whole-frame objects (M42) have no sky in the
+                # mask → fall through to the heuristic (unchanged behaviour).
+                om = full_plan.object_mask
+                used_object_mask = False
+                if (om is not None and om.shape == stretched.shape[-2:]
+                        and float(np.mean(om > 0.5)) > 0.005
+                        and float(np.mean(om < 0.5)) > 0.10):
+                    subj = stretched[om > 0.5]
+                    if subj.size:
+                        subj_frac = float(np.mean(om > 0.5))
+                        metric = float(np.mean(subj))
+                        effective_target = min(0.5, target_median / max(subj_frac, 0.1))
+                        sky_dominated = True
+                        used_object_mask = True
+                        if attempt == 0:
+                            self._log_msg(
+                                f"[{name}] Stretch judged by subject region "
+                                f"(object mask, {subj_frac * 100:.0f}% of frame)"
+                            )
+
                 # For sky-dominated images (e.g. nebulae that don't fill
                 # the frame), the overall median stays near 0 even when
                 # the target region is properly stretched.  Use mean of
                 # signal pixels as the quality metric in this case.
-                signal_mask = stretched > 0.02
-                signal_frac = float(np.mean(signal_mask))
-                if signal_frac > 0.05 and result_median < 0.02:
-                    # Sky-dominated image — judge by signal brightness
-                    signal_brightness = float(np.mean(stretched[signal_mask]))
-                    # Scale target for the signal region
-                    effective_target = min(0.5, target_median / max(signal_frac, 0.1))
-                    metric = signal_brightness
-                    sky_dominated = True
-                else:
-                    metric = result_median
-                    effective_target = target_median
-                    sky_dominated = False
+                if not used_object_mask:
+                    signal_mask = stretched > 0.02
+                    signal_frac = float(np.mean(signal_mask))
+                    if signal_frac > 0.05 and result_median < 0.02:
+                        # Sky-dominated image — judge by signal brightness
+                        signal_brightness = float(np.mean(stretched[signal_mask]))
+                        # Scale target for the signal region
+                        effective_target = min(0.5, target_median / max(signal_frac, 0.1))
+                        metric = signal_brightness
+                        sky_dominated = True
+                    else:
+                        metric = result_median
+                        effective_target = target_median
+                        sky_dominated = False
 
                 # For HDR objects cap the effective target so the stretch
                 # doesn't over-brighten the nebula and blow the core. On noisy
