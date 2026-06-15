@@ -1008,6 +1008,18 @@ class SmartProcessor:
             max_iters = 5 if extreme_dr_deconv else (8 if gentle_deconv else 10)
             reg = 0.03 if extreme_dr_deconv else (0.02 if gentle_deconv else 0.01)
             dering_amount = 1.0 if extreme_dr_deconv else 0.8
+            # A soft / large PSF (poor seeing) rings bright stars under aggressive
+            # Richardson-Lucy — the wider the PSF, the worse the overshoot. Ease
+            # off the iterations and add regularization as the PSF grows so star
+            # cores don't ring (the nebula still gains structure).
+            if fwhm > 5.0:
+                max_iters = max(2, max_iters - 2)
+                reg = min(0.06, reg * 1.8)
+                self._log_msg(
+                    f"Plan [{name}]: soft PSF (FWHM={fwhm:.1f}px) — gentler "
+                    f"deconvolution ({max_iters} iters, reg={reg:.3f}) to limit "
+                    f"star ringing"
+                )
             plan.deconvolution_params = DeconvolutionParams(
                 psf_fwhm=fwhm,
                 iterations=max_iters,
