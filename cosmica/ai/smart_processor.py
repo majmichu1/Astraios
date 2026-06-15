@@ -221,9 +221,15 @@ class SmartProcessor:
         self,
         equipment: EquipmentProfile | None = None,
         catalog: CatalogDB | None = None,
+        astrometry_api_key: str | None = None,
     ) -> None:
         self.equipment = equipment
         self.catalog = catalog or CatalogDB()
+        # nova.astrometry.net API key (from Preferences). When set, the analysis
+        # solves online — far more robust than the local triangle matcher — which
+        # is what makes target ID, SPCC, and position-aware processing actually
+        # fire instead of falling back to "assume the target is centered".
+        self._astrometry_api_key = (astrometry_api_key or "").strip() or None
         self._log: list[str] = []
         self._quality_checks: list[QualityCheck] = []
         # Runtime options (overridden per-call in process()); defaults here keep
@@ -2052,11 +2058,31 @@ class SmartProcessor:
     def _safe_plate_solve(
         self, data: np.ndarray, params: PlateSolveParams
     ) -> PlateSolveResult | None:
-        """Run plate solving in a subprocess to protect against segfaults.
+        """Plate-solve the image, preferring nova.astrometry.net when configured.
 
-        OpenCV's native code can segfault on certain image data.
-        By running in a child process we catch the crash gracefully.
+        With an API key we solve online (robust, no reference index needed) — a
+        network call, so it runs in-process. Without a key we fall back to the
+        local triangle matcher in a subprocess (its OpenCV path can segfault on
+        odd data, so it's isolated).
         """
+        if self._astrometry_api_key:
+            try:
+                from cosmica.core.plate_solve import plate_solve_astrometry_net
+
+                self._log_msg("Plate solving via astrometry.net (online)…")
+                result = plate_solve_astrometry_net(
+                    data, self._astrometry_api_key, params,
+                )
+                if result and result.success:
+                    return result
+                self._log_msg(
+                    "astrometry.net solve did not succeed — trying local solver"
+                )
+            except Exception as exc:
+                self._log_msg(
+                    f"astrometry.net solve error ({exc}) — trying local solver"
+                )
+
         import multiprocessing as mp
 
         parent_conn, child_conn = mp.Pipe(duplex=False)

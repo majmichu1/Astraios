@@ -399,7 +399,13 @@ class SmartProcessDialog(QDialog):
         if self._stage_star_aware.isChecked():
             enabled_stages.add("star_aware")
 
-        processor = SmartProcessor(equipment=self._equipment)
+        # Pass the configured astrometry.net key so the analysis can solve
+        # online (target ID, SPCC, object-aware processing all depend on a WCS).
+        from PyQt6.QtCore import QSettings
+        api_key = QSettings("Cosmica", "Cosmica").value(
+            "platesolver/astrometry_api_key", "", type=str
+        )
+        processor = SmartProcessor(equipment=self._equipment, astrometry_api_key=api_key)
         hdr_op = self._hdr_operator_combo.currentData()
         self._worker = SmartProcessWorker(
             processor,
