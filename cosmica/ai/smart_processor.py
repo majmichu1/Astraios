@@ -2325,12 +2325,17 @@ class SmartProcessor:
                     f"keeping adaptive stretch"
                 )
 
-        # Stage 5: Local contrast
+        # Stage 5: Local contrast (background-preserving — a plain CLAHE here
+        # pumps the sky up, which on faint/noisy colour data (IFN, OSC) inflates
+        # the whole frame into an over-stretched, grainy mess).
         if plan.local_contrast_params is not None:
             frac = frac_start + frac_range * 0.9
             progress(frac, f"Local contrast [{name}]...")
             self._log_msg(f"[{name}] Local contrast enhancement")
-            working = local_contrast_enhance(working, plan.local_contrast_params)
+            working = self._bg_preserving_local_contrast(
+                working, plan.local_contrast_params, f"LC [{name}]",
+                region_mask=full_plan.object_mask,
+            )
 
         return np.clip(working, 0, 1).astype(np.float32)
 
