@@ -1378,7 +1378,9 @@ class SmartProcessor:
                 tile_size=8,
                 amount=0.25,
             )
-            working = self._bg_preserving_local_contrast(working, hdr_lce, "HDR LCE")
+            working = self._bg_preserving_local_contrast(
+                working, hdr_lce, "HDR LCE", region_mask=plan.object_mask
+            )
 
         # Star-aware enhancement: separate stars, enhance the starless nebula,
         # then screen the stars back. Done last (on the stretched image) because
@@ -1558,6 +1560,7 @@ class SmartProcessor:
             starless,
             LocalContrastParams(clip_limit=1.6, tile_size=8, amount=0.25),
             "Star-aware LCE",
+            region_mask=plan.object_mask,
         )
         if is_color and not self._is_narrowband(analysis):
             enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
@@ -1578,7 +1581,8 @@ class SmartProcessor:
         return result
 
     def _bg_preserving_local_contrast(
-        self, image: np.ndarray, params: LocalContrastParams, label: str = ""
+        self, image: np.ndarray, params: LocalContrastParams, label: str = "",
+        region_mask: np.ndarray | None = None,
     ) -> np.ndarray:
         """Apply local contrast WITHOUT inflating the sky background.
 
@@ -1593,6 +1597,11 @@ class SmartProcessor:
         but the bulk goes milky). For a sky-dominated frame the median *is* the
         sky, so preserving it keeps the background genuinely dark while faint
         nebulosity (brighter than the median) keeps its enhanced contrast.
+
+        When ``region_mask`` (a soft [0,1] object mask) is given, the enhancement
+        is applied only over the subject and faded out over empty sky — so sky
+        grain isn't contrast-amplified. A mask that covers the whole frame (large
+        object) is a no-op.
         """
         bg_before = float(np.median(image))
         out = local_contrast_enhance(image, params)
@@ -1602,6 +1611,16 @@ class SmartProcessor:
             out = np.clip(out - lift, 0.0, 1.0).astype(np.float32)
             if label:
                 self._log_msg(f"{label}: restored sky background (LCE lifted +{lift:.3f})")
+        if region_mask is not None and region_mask.shape == image.shape[-2:]:
+            sky_frac = float(np.mean(region_mask < 0.5))
+            if sky_frac > 0.02:  # only worth it when there's real sky to protect
+                rm = region_mask if image.ndim == 2 else region_mask[np.newaxis, ...]
+                out = (out * rm + image * (1.0 - rm)).astype(np.float32)
+                if label:
+                    self._log_msg(
+                        f"{label}: enhancement confined to subject "
+                        f"({sky_frac * 100:.0f}% sky left untouched)"
+                    )
         return out
 
     @staticmethod
