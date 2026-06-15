@@ -87,3 +87,14 @@ future extension, not built.)
 - Star dark-rings: additive recombine `working + (enhanced - starless)` — `9dbf909`
 - Residual vignette: order-3 clamped background on object-dominated frames — `fcd3e2a`
 - Deconvolution ringing on soft/large PSFs: gentler RL for FWHM > 5px — `19a70bb`
+- Star-core deconv ringing: protect compact bright cores post-deconv — `df88d21`
+- Colour overstretch: per-channel local contrast made bg-preserving — `b4b641e`
+- Noisy/faint backgrounds: gentle background-floor pull for non-HDR frames — `2fae6f9`
+
+### Known-hard cases / data-limited
+
+- **NGC 7023 (faint OSC colour, dense field):** heavy noise, colour vignette, IFN
+  filling the frame. The fixes above darkened the background and stopped the LC
+  inflation, but the residual noise + colour gradient are largely **data quality**
+  (faint subs, imperfect flats). A dedicated post-stretch gradient/flat tool and
+  stronger colour denoise would help — possible future work.
