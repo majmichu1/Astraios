@@ -240,6 +240,7 @@ class SmartProcessor:
         self._enabled_stages: set[str] = set()
         self._star_reduction: float = 0.3
         self._use_ai_denoise: bool = True
+        self._chroma_strength: float = 1.0
 
     # ------------------------------------------------------------------ #
     #  Main entry point                                                   #
@@ -259,6 +260,7 @@ class SmartProcessor:
         hdr_params: dict | None = None,
         star_reduction: float = 0.3,
         use_ai_denoise: bool = True,
+        chroma_strength: float = 1.0,
         progress: ProgressCallback | None = None,
     ) -> SmartProcessorResult:
         """Run the full Smart Processing pipeline.
@@ -313,6 +315,7 @@ class SmartProcessor:
         self._hdr_params = hdr_params
         self._star_reduction = float(max(0.0, min(1.0, star_reduction)))
         self._use_ai_denoise = bool(use_ai_denoise)
+        self._chroma_strength = float(max(0.0, chroma_strength))
 
         # Phase 1: Analyze
         progress(0.0, "Analyzing image...")
@@ -1471,6 +1474,22 @@ class SmartProcessor:
         # the star-removal models expect non-linear data.
         if plan.star_aware:
             working = self._apply_star_aware(working, analysis, plan, progress)
+
+        # Colour noise reduction: OSC / one-shot-colour stacks carry most of
+        # their visible noise in the CHROMA (blotchy colour speckle), so denoise
+        # the colour hard while leaving luminance detail intact. Colour only.
+        if (
+            working.ndim == 3 and working.shape[0] >= 3
+            and self._chroma_strength > 0
+            and not self._is_narrowband(analysis)
+        ):
+            from cosmica.core.chroma_denoise import chroma_denoise
+
+            progress(0.985, "Colour noise reduction (chroma)...")
+            working = chroma_denoise(working, strength=self._chroma_strength)
+            self._log_msg(
+                f"Colour noise reduction (chroma, strength={self._chroma_strength:.1f})"
+            )
 
         # Post-stretch gradient / vignette cleanup — only engages when a residual
         # gradient actually survived into the stretched image (corner spread),
