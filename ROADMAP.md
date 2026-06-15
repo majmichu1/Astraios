@@ -101,9 +101,20 @@ future extension, not built.)
   Iris nebula separates cleanly. Residual **colour noise** is the data floor
   (faint subs) — stronger colour denoise is the remaining lever.
 
+- Chroma (colour) noise reduction for OSC: `cosmica/core/chroma_denoise.py` +
+  post-stretch step — `7bf4ef4`. NGC 7023 chroma noise 0.085 → 0.018.
+- Star-core deconv protection over-softened soft-PSF stars (M42) → gated to
+  sharp PSFs only — `3c3c14f`.
+
 ### 🔜 Next
 
-- [ ] **#4 — learning (ML)**: the remaining big piece. Needs a (raw stack → expert
-      result) dataset. Plan the data pipeline + a small parameter-prediction model
-      (predict stretch/denoise/deconv params from image features + object metadata)
-      before training. Rule-based + reference-image system stands until then.
+- [ ] **Recipe book (per-target instruction set)** — the structural backbone.
+      ~8 TYPE recipes (emission/reflection nebula, galaxy, globular, open cluster,
+      planetary, SNR, dark nebula) + named overrides (M42 HDR, Veil bg-sensitive).
+      Merge order: `named override → type recipe → catalog hint → generic default`,
+      read after plate solve. Keyed on object TYPE, so NO image library needed.
+      This is where #4 (ML) plugs in: the model predicts/refines a recipe.
+- [ ] **#4 — learning (ML)**: self-supervised denoise fine-tune on the user's raw
+      subs (thousands available, Noise2Self infra exists: prepare_data_v2 +
+      train_n2s_v2). HDD-friendly via one-time patch extraction → cached memmap.
+      Bounded POC first; uncertain it beats the stock model.
