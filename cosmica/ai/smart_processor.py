@@ -822,17 +822,24 @@ class SmartProcessor:
                 if cp.background_params is not None:
                     bp = cp.background_params
                     cp.background_params = BackgroundParams(
-                        grid_size=min(bp.grid_size, 8),
+                        # A denser grid + order 3 captures an asymmetric sky
+                        # gradient/vignette better than order 2 (which leaves a
+                        # residual the aggressive stretch then amplifies into a
+                        # visible corner gradient). The model clamp in
+                        # extract_background now caps any Runge overshoot to the
+                        # sky-sample range, so this no longer risks eating the
+                        # bright core — the reason it used to be pinned at 2.
+                        grid_size=min(max(bp.grid_size, 12), 16),
                         box_size=bp.box_size,
-                        polynomial_order=min(bp.polynomial_order, 2),
+                        polynomial_order=min(bp.polynomial_order, 3),
                         sigma_clip=bp.sigma_clip,
-                        smoothing=bp.smoothing,
+                        smoothing=min(bp.smoothing, 0.35),
                         object_aware=bp.object_aware,
                         exclusion_mask=bp.exclusion_mask,
                     )
             self._log_msg(
-                "Plan: object-dominated frame — background capped to order 2 "
-                "(protects the bright core from being subtracted)"
+                "Plan: object-dominated frame — gradient-aware background "
+                "(order 3, clamped) protecting the bright core"
             )
 
         needs_hdr = hints.get("hdr_merge_recommended", False) or is_extreme_dr
