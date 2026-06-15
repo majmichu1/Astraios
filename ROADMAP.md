@@ -50,12 +50,19 @@ The core of the vision is delivered: the processor now **knows what** the subjec
 is (catalog + SIMBAD), **where** it is (plate solve + object mask), and **how to
 edit it** (per-type recipes + object-aware background/deconv/stretch/contrast).
 
-### 🔜 Next (speculative — bigger, validate the above first)
+| #3 reference-image prior | DSS2 cutout via hips2fits → shape-accurate object mask (preferred over the ellipse when plate-solved); verified live (M51) | `79e199c`, `be0371f` |
 
-- [ ] **#3 — reference-image prior**: fetch a DSS2/PanSTARRS cutout of the target
-      (coords + FOV via WCS), register to the user's frame, threshold → a
-      *shape-accurate* object mask (vs. the current ellipse) and/or a tonal
-      target. Hard part = registration between survey cutout and user frame.
+**#3 (reference-image prior) DONE for the mask use-case.** When a plate solve
+succeeds, the object mask is now the object's REAL DSS2 outline (not an ellipse),
+steering all the object-aware stages. Needs the astrometry key + network; falls
+back to the ellipse otherwise. (A *tonal* prior from the reference is a possible
+future extension, not built.)
+
+### 🔜 Next
+
+- [ ] **#4 — learning (LAST)**: train a small model on (raw stack → expert result)
+      pairs + object metadata to predict processing parameters. Needs a dataset —
+      the big open piece. Until then the rule-based + reference-image system stands.
 - [ ] **#4 — learning (LAST)**: train a small model on (raw stack → expert result)
       pairs + object metadata to predict processing parameters. Needs a dataset.
 - [ ] **#3 — reference-image prior**: fetch a DSS2/PanSTARRS cutout of the target
