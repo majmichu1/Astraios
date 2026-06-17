@@ -10,13 +10,13 @@ import pytest
 
 @pytest.fixture
 def panel(qtbot):
-    from cosmica.ui.panels.tools_panel import ToolsPanel
+    from astraios.ui.panels.tools_panel import ToolsPanel
 
     return ToolsPanel()
 
 
 def test_morphology_params_are_enums(panel):
-    from cosmica.core.morphology import MorphOp, StructuringElement
+    from astraios.core.morphology import MorphOp, StructuringElement
 
     p = panel.get_morphology_params()
     assert isinstance(p.operation, MorphOp)
@@ -26,7 +26,7 @@ def test_morphology_params_are_enums(panel):
 
 
 def test_median_filter_params(panel):
-    from cosmica.core.filters import MedianFilterParams
+    from astraios.core.filters import MedianFilterParams
 
     p = panel.get_median_filter_params()
     assert isinstance(p, MedianFilterParams)
@@ -34,7 +34,7 @@ def test_median_filter_params(panel):
 
 
 def test_mlt_params_have_noise_thresholds(panel):
-    from cosmica.core.wavelets import WaveletParams
+    from astraios.core.wavelets import WaveletParams
 
     p = panel.get_mlt_params()
     assert isinstance(p, WaveletParams)
@@ -42,13 +42,13 @@ def test_mlt_params_have_noise_thresholds(panel):
 
 
 def test_ca_params(panel):
-    from cosmica.core.chromatic_aberration import CAParams
+    from astraios.core.chromatic_aberration import CAParams
 
     assert isinstance(panel.get_ca_params(), CAParams)
 
 
 def test_color_adjust_params_neutral_default(panel):
-    from cosmica.core.color_tools import ColorAdjustParams
+    from astraios.core.color_tools import ColorAdjustParams
 
     p = panel.get_color_adjust_params()
     assert isinstance(p, ColorAdjustParams)
@@ -63,7 +63,7 @@ def test_reset_methods_exist(panel):
 
 
 def test_curves_params_assigns_to_channel(panel):
-    from cosmica.core.curves import CurvesParams, CurvePoints
+    from astraios.core.curves import CurvesParams, CurvePoints
 
     p = panel.get_curves_params()
     assert isinstance(p, CurvesParams)
@@ -72,7 +72,7 @@ def test_curves_params_assigns_to_channel(panel):
 
 
 def test_stacking_params_normalization_valid(panel):
-    from cosmica.core.stacking import NormalizationMethod, StackingParams
+    from astraios.core.stacking import NormalizationMethod, StackingParams
 
     p = panel.get_stacking_params()
     assert isinstance(p, StackingParams)
@@ -109,7 +109,7 @@ def test_every_zero_arg_getter_is_callable(panel):
 def test_geometric_params_use_enums(panel):
     """rotate/flip/bin handlers call params.<field>.name, so the getters must
     return enum values, not raw ints/strings."""
-    from cosmica.core.transforms import BinMode, CropParams, FlipAxis, RotateAngle
+    from astraios.core.transforms import BinMode, CropParams, FlipAxis, RotateAngle
 
     assert isinstance(panel.get_rotate_params().angle, RotateAngle)
     assert isinstance(panel.get_flip_params().axis, FlipAxis)

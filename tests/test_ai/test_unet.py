@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from cosmica.ai.models.unet import DoubleConv, UNet
+from astraios.ai.models.unet import DoubleConv, UNet
 
 
 def _random_batch(batch=1, channels=1, h=64, w=64):

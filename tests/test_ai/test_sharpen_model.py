@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from cosmica.ai.models.sharpen_model import (
+from astraios.ai.models.sharpen_model import (
     PSFConditioningMLP,
     SharpenUNet,
     create_sharpen_model,

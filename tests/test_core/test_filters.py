@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from cosmica.core.filters import (
+from astraios.core.filters import (
     MedianFilterParams,
     UnsharpMaskParams,
     median_filter,
     unsharp_mask,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 # ---------------------------------------------------------------------------

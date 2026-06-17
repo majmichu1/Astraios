@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.cosmetic import CosmeticParams, CosmeticResult, cosmetic_correction
-from cosmica.core.masks import Mask
+from astraios.core.cosmetic import CosmeticParams, CosmeticResult, cosmetic_correction
+from astraios.core.masks import Mask
 
 
 class TestCosmeticCorrection:

@@ -3,8 +3,8 @@
 import json
 from contextlib import contextmanager
 
-from cosmica.core import simbad_lookup
-from cosmica.core.simbad_lookup import _recipe_for_otype, lookup_simbad
+from astraios.core import simbad_lookup
+from astraios.core.simbad_lookup import _recipe_for_otype, lookup_simbad
 
 
 @contextmanager

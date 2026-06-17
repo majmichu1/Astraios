@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from cosmica.ai.inference.denoise import AIDenoiseParams, ai_denoise
-from cosmica.ai.models.unet import UNet
-from cosmica.core.masks import Mask
+from astraios.ai.inference.denoise import AIDenoiseParams, ai_denoise
+from astraios.ai.models.unet import UNet
+from astraios.core.masks import Mask
 
 
 def _small_model():

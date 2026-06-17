@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.image_blend import BlendMode, BlendParams, blend_images
-from cosmica.core.masks import Mask
+from astraios.core.image_blend import BlendMode, BlendParams, blend_images
+from astraios.core.masks import Mask
 
 
 def _img(val, shape=(3, 32, 40)):

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.stretch import (
+from astraios.core.stretch import (
     StatisticalStretchParams,
     StretchParams,
     _solve_midtone,
@@ -121,26 +121,26 @@ class TestChannelStats:
 
 class TestGHS:
     def test_identity_when_D_zero(self):
-        from cosmica.core.stretch import GHSParams, generalized_hyperbolic_stretch
+        from astraios.core.stretch import GHSParams, generalized_hyperbolic_stretch
         data = np.random.rand(100, 100).astype(np.float32)
         result = generalized_hyperbolic_stretch(data, GHSParams(D=0))
         np.testing.assert_array_almost_equal(result, data)
 
     def test_output_in_range(self):
-        from cosmica.core.stretch import GHSParams, generalized_hyperbolic_stretch
+        from astraios.core.stretch import GHSParams, generalized_hyperbolic_stretch
         data = np.random.rand(100, 100).astype(np.float32)
         result = generalized_hyperbolic_stretch(data, GHSParams(D=5.0, b=1.0))
         assert result.min() >= 0.0
         assert result.max() <= 1.0
 
     def test_color_image(self):
-        from cosmica.core.stretch import GHSParams, generalized_hyperbolic_stretch
+        from astraios.core.stretch import GHSParams, generalized_hyperbolic_stretch
         data = np.random.rand(3, 50, 50).astype(np.float32)
         result = generalized_hyperbolic_stretch(data, GHSParams(D=3.0))
         assert result.shape == (3, 50, 50)
 
     def test_stretches_image(self):
-        from cosmica.core.stretch import GHSParams, generalized_hyperbolic_stretch
+        from astraios.core.stretch import GHSParams, generalized_hyperbolic_stretch
         data = np.ones((100, 100), dtype=np.float32) * 0.1  # dark image
         result = generalized_hyperbolic_stretch(data, GHSParams(D=5.0))
         # Stretched image should use more of the range

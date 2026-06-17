@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a bug in Cosmica
+about: Report a bug in Astraios
 title: '[BUG] '
 labels: bug
 ---
@@ -23,7 +23,7 @@ If applicable, add screenshots to help explain the problem.
 ## Environment
 - **OS**: (e.g. Ubuntu 24.04, Windows 11, macOS 15)
 - **Python**: (e.g. 3.12)
-- **Cosmica**: (e.g. 0.1.0)
+- **Astraios**: (e.g. 0.1.0)
 - **GPU**: (e.g. RTX 4060, Apple M2, CPU only)
 
 ## Additional Context

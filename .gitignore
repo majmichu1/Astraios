@@ -42,7 +42,7 @@ htmlcov/
 *.tar.gz
 *.zip
 
-# JS/Node (opencode tooling — not part of Cosmica)
+# JS/Node (opencode tooling — not part of Astraios)
 node_modules/
 package.json
 package-lock.json
@@ -58,16 +58,16 @@ license_cache.json
 credentials.json
 
 # AI models — large training checkpoints excluded, bundled release models tracked
-cosmica/ai/models/checkpoint_*.pt
-cosmica/ai/models/best_n2s_model.pt
-cosmica/ai/models/cosmica_denoise_n2s_v1.pt
-cosmica/ai/models/*.pth
-cosmica/ai/models/*.onnx
-cosmica/ai/training_data/*.dat
-cosmica/ai/training_data/*.npy
+astraios/ai/models/checkpoint_*.pt
+astraios/ai/models/best_n2s_model.pt
+astraios/ai/models/cosmica_denoise_n2s_v1.pt
+astraios/ai/models/*.pth
+astraios/ai/models/*.onnx
+astraios/ai/training_data/*.dat
+astraios/ai/training_data/*.npy
 
 # User data
-*.cosmica_project/
+*.astraios_project/
 astro_data/
 training_data/
 

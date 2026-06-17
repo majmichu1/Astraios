@@ -2,14 +2,14 @@
 
 import numpy as np
 
-from cosmica.core.denoise import (
+from astraios.core.denoise import (
     DenoiseMethod,
     DenoiseParams,
     denoise,
     measure_noise,
     recommend_strength,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 def _noisy_image(h=100, w=100, noise_level=0.1):
@@ -73,7 +73,7 @@ class TestNoiseMeasurement:
         assert measure_noise(noisy)[0] > measure_noise(clean)[0]
 
     def test_handles_channel_first_color(self):
-        # Cosmica stores colour channel-first (C, H, W); must not crash or misread axes.
+        # Astraios stores colour channel-first (C, H, W); must not crash or misread axes.
         rng = np.random.default_rng(1)
         img = np.clip(0.3 + rng.normal(0, 0.02, (3, 96, 96)), 0, 1).astype(np.float32)
         sigma, snr = measure_noise(img)

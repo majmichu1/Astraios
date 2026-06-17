@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 import torch
 
-from cosmica.core.device_manager import get_device_manager
-from cosmica.core.gpu_stars import detect_stars_gpu
-from cosmica.core.star_detection import detect_stars
+from astraios.core.device_manager import get_device_manager
+from astraios.core.gpu_stars import detect_stars_gpu
+from astraios.core.star_detection import detect_stars
 
 
 def _field(positions, sigma=2.0, amp=0.8, saturate=False, h=256, w=256, seed=0):

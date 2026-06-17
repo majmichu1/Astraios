@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.chromatic_aberration import CAParams, correct_chromatic_aberration
-from cosmica.core.masks import Mask
+from astraios.core.chromatic_aberration import CAParams, correct_chromatic_aberration
+from astraios.core.masks import Mask
 
 
 class TestCAParams:

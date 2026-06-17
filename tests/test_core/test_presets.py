@@ -2,9 +2,9 @@
 
 import pytest
 
-from cosmica.core.stretch import StretchParams
-from cosmica.core.denoise import DenoiseParams, DenoiseMethod
-from cosmica.core.presets import (
+from astraios.core.stretch import StretchParams
+from astraios.core.denoise import DenoiseParams, DenoiseMethod
+from astraios.core.presets import (
     delete_preset,
     deserialize_params,
     list_presets,
@@ -42,7 +42,7 @@ class TestSerializeParams:
         assert data["strength"] == 0.7
 
     def test_serialize_nested_dataclass(self):
-        from cosmica.core.curves import CurvesParams, CurvePoints
+        from astraios.core.curves import CurvesParams, CurvePoints
 
         params = CurvesParams(
             master=CurvePoints(points=[(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]),
@@ -53,7 +53,7 @@ class TestSerializeParams:
         assert data["master"]["points"][0]["__tuple__"] == [0.0, 0.0]
 
     def test_roundtrip_nested_dataclass(self):
-        from cosmica.core.curves import CurvesParams, CurvePoints
+        from astraios.core.curves import CurvesParams, CurvePoints
 
         original = CurvesParams(
             master=CurvePoints(points=[(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]),
@@ -97,7 +97,7 @@ class TestDeserializeParams:
 class TestSaveLoadPreset:
     def test_save_and_load_preset(self, tmp_path, monkeypatch):
         # Override user preset dir to tmp
-        import cosmica.core.presets as presets_mod
+        import astraios.core.presets as presets_mod
         monkeypatch.setattr(presets_mod, "get_user_preset_dir", lambda: tmp_path)
 
         save_preset("stretch", "My Default", StretchParams(midtone=0.3), "My custom stretch")
@@ -114,7 +114,7 @@ class TestSaveLoadPreset:
             save_preset("fake_tool", "test", StretchParams())
 
     def test_delete_preset(self, tmp_path, monkeypatch):
-        import cosmica.core.presets as presets_mod
+        import astraios.core.presets as presets_mod
         monkeypatch.setattr(presets_mod, "get_user_preset_dir", lambda: tmp_path)
 
         save_preset("stretch", "To Delete", StretchParams())
@@ -137,7 +137,7 @@ class TestListPresets:
         assert isinstance(presets, list)
 
     def test_list_presets_after_save(self, tmp_path, monkeypatch):
-        import cosmica.core.presets as presets_mod
+        import astraios.core.presets as presets_mod
         monkeypatch.setattr(presets_mod, "get_user_preset_dir", lambda: tmp_path)
 
         save_preset("stretch", "List Test", StretchParams(), "Testing list")

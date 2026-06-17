@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.color_calibration import (
+from astraios.core.color_calibration import (
     ColorCalibrationParams,
     ColorCalibrationResult,
     color_calibrate,

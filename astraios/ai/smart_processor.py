@@ -1,0 +1,2801 @@
+"""Smart Processor — AI-driven adaptive image processing engine.
+
+Analyzes the image, identifies targets via plate solving + catalog lookup,
+reads equipment profiles, measures actual PSF, and builds an adaptive
+per-channel processing pipeline that checks quality after each step.
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Any, Callable
+
+import numpy as np
+
+from astraios.core.background import (
+    BackgroundParams,
+    create_object_exclusion_mask,
+    extract_background,
+)
+from astraios.core.catalog import CatalogDB, TargetInfo
+from astraios.core.color_tools import (
+    ColorAdjustParams,
+    SCNRMethod,
+    SCNRParams,
+    color_adjust,
+    scnr,
+)
+from astraios.core.deconvolution import (
+    DeconvolutionParams,
+    SpatialDeconvParams,
+    richardson_lucy,
+    richardson_lucy_spatial,
+)
+from astraios.core.denoise import DenoiseMethod, DenoiseParams, denoise
+from astraios.core.equipment import EquipmentProfile, detect_from_fits_header
+from astraios.core.local_contrast import LocalContrastParams, local_contrast_enhance
+from astraios.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
+from astraios.core.psf import PSFMeasurement, measure_psf
+from astraios.core.stretch import StretchParams, auto_stretch, compute_channel_stats
+
+log = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[float, str], None]
+
+
+def _noop_progress(fraction: float, message: str) -> None:
+    pass
+
+
+# ---------------------------------------------------------------------------
+#  Enums & dataclasses
+# ---------------------------------------------------------------------------
+
+
+class InputType(Enum):
+    """Detected input image type."""
+
+    OSC_RGB = auto()  # One-Shot Color (Bayer demosaiced)
+    MONO_LUMINANCE = auto()  # Single monochrome channel
+    MONO_LRGB = auto()  # Monochrome LRGB composite
+    NARROWBAND_SHO = auto()  # SII-Ha-OIII mapped to RGB
+    NARROWBAND_HOO = auto()  # Ha-OIII-OIII mapped to RGB
+    NARROWBAND_CUSTOM = auto()  # Custom narrowband palette
+    DUAL_NARROWBAND = auto()  # Dual-band filter (e.g. Optolong L-eXtreme)
+    TRIPLE_NARROWBAND = auto()  # Triple-band filter
+    UNKNOWN = auto()
+
+
+class ProcessingStage(Enum):
+    """Named stages in the processing pipeline."""
+
+    BACKGROUND_EXTRACTION = "background_extraction"
+    NOISE_REDUCTION = "noise_reduction"
+    DECONVOLUTION = "deconvolution"
+    STRETCH = "stretch"
+    COLOR_CORRECTION = "color_correction"
+    SCNR = "scnr"
+    LOCAL_CONTRAST = "local_contrast"
+    COLOR_SATURATION = "color_saturation"
+    FINAL_ADJUSTMENTS = "final_adjustments"
+
+
+@dataclass
+class ImageAnalysis:
+    """Results of analyzing the input image."""
+
+    input_type: InputType
+    n_channels: int
+    height: int
+    width: int
+    # Per-channel statistics
+    channel_stats: list[dict[str, float]]
+    # Overall quality metrics
+    median_snr: float  # estimated signal-to-noise ratio (from median)
+    object_snr: float  # SNR from bright pixels (P95) — better for nebula images
+    background_level: float  # median background as fraction of range
+    dynamic_range_stops: float  # log2(max_signal / noise_floor)
+    has_blown_highlights: bool  # >0.5% pixels at max value
+    highlight_fraction: float  # fraction of pixels near saturation
+    star_density: str  # "sparse", "moderate", "dense"
+    # PSF measurement
+    psf: PSFMeasurement | None
+    # Plate solve
+    plate_solve_result: PlateSolveResult | None
+    # Identified targets
+    targets: list[TargetInfo]
+    primary_target: TargetInfo | None
+    # Light pollution assessment
+    lp_severity: str = "none"  # "none", "mild", "moderate", "severe"
+    has_color_cast: bool = False
+    # Equipment data (if available)
+    plate_scale_arcsec: float | None = None
+
+
+@dataclass
+class ChannelPlan:
+    """Processing plan for a single channel."""
+
+    channel_idx: int
+    channel_name: str  # "L", "R", "G", "B", "Ha", "OIII", "SII", "mono"
+    snr: float
+    # Per-stage parameters (None = skip that stage)
+    background_params: BackgroundParams | None = None
+    denoise_params: DenoiseParams | None = None
+    deconvolution_params: DeconvolutionParams | None = None
+    use_spatial_deconv: bool = False  # use spatially-varying PSF
+    stretch_params: StretchParams | None = None
+    local_contrast_params: LocalContrastParams | None = None
+
+
+@dataclass
+class ProcessingPlan:
+    """Complete processing plan built by the Smart Processor."""
+
+    channel_plans: list[ChannelPlan]
+    # Post-channel-merge steps
+    do_scnr: bool = False
+    scnr_params: SCNRParams | None = None
+    do_color_adjust: bool = False
+    color_adjust_params: ColorAdjustParams | None = None
+    # Object-aware background
+    use_object_aware_bg: bool = False
+    exclusion_mask: np.ndarray | None = field(default=None, repr=False)
+    # Object fills much of the frame (M42 etc.): cap the background polynomial
+    # order and skip the iterate-to-higher-order refinement, or the fit eats the
+    # bright core into a dark hole.
+    bg_object_dominated: bool = False
+    # Soft [0,1] elliptical mask over the catalog object (1=subject, 0=sky), used
+    # to steer enhancement toward the subject. None = no object-aware steering.
+    object_mask: np.ndarray | None = field(default=None, repr=False)
+    # HDR merge hint for extreme-dynamic-range objects like M42
+    needs_hdr_merge: bool = False
+    hdr_operator: str = "core_blend"  # "reinhard" | "drago" | "core_blend"
+    hdr_params: dict | None = None
+    # Star-aware processing: separate stars, enhance the starless nebula, then
+    # screen the stars back so an aggressive stretch/contrast doesn't bloat them.
+    star_aware: bool = False
+    # Photometric color calibration (SPCC) was applied on the linear data. When
+    # true the stretch uses a single shared midtone (preserves the calibrated
+    # colour ratios) and the post-stretch ad-hoc gain balance is skipped.
+    color_calibrated: bool = False
+    shared_stretch_midtone: float | None = None
+    # Summary
+    notes: list[str] = field(default_factory=list)
+
+
+@dataclass
+class QualityCheck:
+    """Result of a quality check after a processing step."""
+
+    stage: ProcessingStage
+    passed: bool
+    metric_name: str
+    metric_value: float
+    threshold: float
+    adjustment: str | None = None  # description of adjustment made
+
+
+@dataclass
+class SmartProcessorResult:
+    """Final result from the Smart Processor."""
+
+    image: np.ndarray
+    analysis: ImageAnalysis
+    plan: ProcessingPlan
+    quality_checks: list[QualityCheck]
+    processing_log: list[str]
+
+
+# ---------------------------------------------------------------------------
+#  Subprocess helpers (must be at module level for pickling)
+# ---------------------------------------------------------------------------
+
+
+def _plate_solve_worker(conn, img, solve_params):
+    """Run plate_solve in a child process.  Segfaults here won't crash the app."""
+    try:
+        result = plate_solve(img, solve_params)
+        conn.send(result)
+    except Exception:
+        conn.send(PlateSolveResult(success=False))
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+#  Smart Processor
+# ---------------------------------------------------------------------------
+
+
+class SmartProcessor:
+    """AI-driven adaptive image processing engine.
+
+    Usage
+    -----
+    >>> sp = SmartProcessor(equipment=my_profile)
+    >>> result = sp.process(image_data, fits_header=header)
+    """
+
+    def __init__(
+        self,
+        equipment: EquipmentProfile | None = None,
+        catalog: CatalogDB | None = None,
+        astrometry_api_key: str | None = None,
+    ) -> None:
+        self.equipment = equipment
+        self.catalog = catalog or CatalogDB()
+        # nova.astrometry.net API key (from Preferences). When set, the analysis
+        # solves online — far more robust than the local triangle matcher — which
+        # is what makes target ID, SPCC, and position-aware processing actually
+        # fire instead of falling back to "assume the target is centered".
+        self._astrometry_api_key = (astrometry_api_key or "").strip() or None
+        self._log: list[str] = []
+        self._quality_checks: list[QualityCheck] = []
+        # Runtime options (overridden per-call in process()); defaults here keep
+        # internal helpers usable even when called directly.
+        self._enabled_stages: set[str] = set()
+        self._star_reduction: float = 0.3
+        self._use_ai_denoise: bool = True
+        self._chroma_strength: float = 1.0
+
+    # ------------------------------------------------------------------ #
+    #  Main entry point                                                   #
+    # ------------------------------------------------------------------ #
+
+    def process(
+        self,
+        data: np.ndarray,
+        fits_header: dict[str, Any] | None = None,
+        input_type_hint: InputType | None = None,
+        target_name: str | None = None,
+        ra_hint: float | None = None,
+        dec_hint: float | None = None,
+        wcs_dict: dict[str, Any] | None = None,
+        enabled_stages: set[str] | None = None,
+        hdr_operator: str = "core_blend",
+        hdr_params: dict | None = None,
+        star_reduction: float = 0.3,
+        use_ai_denoise: bool = True,
+        chroma_strength: float = 1.0,
+        progress: ProgressCallback | None = None,
+    ) -> SmartProcessorResult:
+        """Run the full Smart Processing pipeline.
+
+        Parameters
+        ----------
+        data : ndarray
+            Image data, (H, W) mono or (C, H, W) color, float32 [0, 1].
+        fits_header : dict, optional
+            FITS header for equipment/object detection.
+        input_type_hint : InputType, optional
+            Override automatic input type detection.
+        target_name : str, optional
+            User-provided target name (e.g. "M42") for catalog lookup fallback.
+        ra_hint : float, optional
+            User-provided RA hint (degrees) for plate solving.
+        dec_hint : float, optional
+            User-provided Dec hint (degrees) for plate solving.
+        wcs_dict : dict, optional
+            Existing WCS header dict from a prior plate solve.  If provided
+            with valid ``ra_center`` / ``dec_center`` / ``scale`` keys, the
+            plate-solve step is skipped and catalog lookup proceeds directly.
+        enabled_stages : set of str, optional
+            Which pipeline stages to run.  Valid keys: ``"background"``,
+            ``"denoise"``, ``"deconv"``, ``"stretch"``, ``"local_contrast"``,
+            ``"hdr_merge"``.  ``None`` = run all.
+        hdr_operator : str, optional
+            HDR tonemap operator: ``"core_blend"``, ``"reinhard"``, or ``"drago"``.
+        hdr_params : dict, optional
+            Operator-specific parameters dict.
+        progress : callable, optional
+            Progress callback ``(fraction, message)``.
+
+        Returns
+        -------
+        SmartProcessorResult
+            Processed image with full analysis and log.
+        """
+        if progress is None:
+            progress = _noop_progress
+        self._log = []
+        self._quality_checks = []
+        self._existing_wcs = wcs_dict
+        self._enabled_stages = enabled_stages or {
+            "background", "denoise", "deconv", "stretch",
+            "local_contrast", "hdr_merge", "star_aware",
+        }
+        self._user_target_name = target_name
+        self._user_ra_hint = ra_hint
+        self._user_dec_hint = dec_hint
+        self._hdr_operator = hdr_operator
+        self._hdr_params = hdr_params
+        self._star_reduction = float(max(0.0, min(1.0, star_reduction)))
+        self._use_ai_denoise = bool(use_ai_denoise)
+        self._chroma_strength = float(max(0.0, chroma_strength))
+
+        # Phase 1: Analyze
+        progress(0.0, "Analyzing image...")
+        self._log_msg("Starting Smart Processor analysis")
+        analysis = self._analyze(data, fits_header, input_type_hint)
+
+        # Phase 2: Plan
+        progress(0.10, "Building processing plan...")
+        plan = self._build_plan(data, analysis)
+
+        # Phase 3: Execute adaptively
+        progress(0.15, "Executing processing pipeline...")
+        result_image = self._execute(data, plan, analysis, progress)
+
+        progress(1.0, "Smart Processing complete")
+        self._log_msg(
+            f"Done: {len(self._quality_checks)} quality checks, "
+            f"{sum(1 for q in self._quality_checks if q.passed)} passed"
+        )
+
+        return SmartProcessorResult(
+            image=result_image,
+            analysis=analysis,
+            plan=plan,
+            quality_checks=self._quality_checks,
+            processing_log=list(self._log),
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Phase 1: Analysis                                                  #
+    # ------------------------------------------------------------------ #
+
+    def _analyze(
+        self,
+        data: np.ndarray,
+        fits_header: dict[str, Any] | None,
+        input_type_hint: InputType | None,
+    ) -> ImageAnalysis:
+        """Analyze the image to determine what we're working with."""
+        if data.ndim == 2:
+            h, w = data.shape
+            n_ch = 1
+        else:
+            n_ch, h, w = data.shape
+
+        # --- Channel statistics ---
+        channel_stats = []
+        if n_ch == 1:
+            channel_stats.append(compute_channel_stats(data if data.ndim == 2 else data[0]))
+        else:
+            for ch in range(n_ch):
+                channel_stats.append(compute_channel_stats(data[ch]))
+
+        # --- Detect input type ---
+        input_type = input_type_hint or self._detect_input_type(data, fits_header, channel_stats)
+        self._log_msg(f"Detected input type: {input_type.name}")
+
+        # --- Image quality metrics ---
+        all_medians = [s["median"] for s in channel_stats]
+        all_mads = [s["mad"] for s in channel_stats]
+        bg_level = float(np.median(all_medians))
+        noise_est = float(np.median(all_mads)) * 1.4826  # MAD -> sigma
+
+        # SNR estimate
+        signal = bg_level  # in linear data, signal ≈ median for unstretched
+        snr = signal / max(noise_est, 1e-10)
+
+        # Object SNR: measure object brightness above background.
+        # Compute simple object mask (pixels > bg + 3σ) and use median
+        # of those pixels.  The contrast (object - bg) / noise captures
+        # nebula visibility for objects like M42 where the bright core
+        # is a tiny fraction of the total area.
+        if data.ndim == 2:
+            flat = data.ravel()
+        else:
+            flat = np.max(data, axis=0).ravel()
+        obj_mask = flat > (bg_level + 3.0 * noise_est)
+        if obj_mask.any():
+            object_signal = float(np.median(flat[obj_mask]))
+            object_snr = max(0.0, (object_signal - bg_level) / max(noise_est, 1e-10))
+        else:
+            object_signal = bg_level
+            object_snr = 0.0
+        if object_snr > snr * 2:
+            self._log_msg(
+                f"Object SNR={object_snr:.1f} (obj median - bg) vs global SNR={snr:.1f} — "
+                f"using object SNR for nebula-aware decisions"
+            )
+
+        # Dynamic range
+        max_val = max(s["max"] for s in channel_stats)
+        dr_stops = math.log2(max(max_val, 1e-10) / max(noise_est, 1e-10))
+
+        # Blown highlights
+        if data.ndim == 2:
+            sat_frac = float(np.mean(data > 0.98))
+        else:
+            sat_frac = float(np.mean(np.max(data, axis=0) > 0.98))
+        blown = sat_frac > 0.005
+
+        # --- Plate scale ---
+        plate_scale = None
+        if self.equipment:
+            plate_scale = self.equipment.plate_scale()
+            self._log_msg(f"Plate scale from equipment: {plate_scale:.2f} arcsec/px")
+
+        # --- Header sniffing ---
+        header_info: dict[str, Any] = {}
+        if fits_header:
+            header_info = detect_from_fits_header(fits_header)
+            if not plate_scale and "pixel_size_um" in header_info and "focal_length_mm" in header_info:
+                plate_scale = 206.265 * header_info["pixel_size_um"] / header_info["focal_length_mm"]
+                self._log_msg(f"Plate scale from FITS header: {plate_scale:.2f} arcsec/px")
+
+        # --- PSF measurement ---
+        psf = None
+        try:
+            gray = data if data.ndim == 2 else np.mean(data, axis=0).astype(np.float32)
+            psf = measure_psf(gray)
+            if psf.n_stars_used > 0:
+                self._log_msg(
+                    f"PSF measured: FWHM={psf.fwhm:.2f}px, "
+                    f"ellipticity={psf.ellipticity:.3f}, "
+                    f"{psf.n_stars_used} stars"
+                )
+                if plate_scale:
+                    fwhm_arcsec = psf.fwhm * plate_scale
+                    self._log_msg(f"Seeing estimate: {fwhm_arcsec:.1f} arcsec")
+        except Exception as exc:
+            self._log_msg(f"PSF measurement failed: {exc}")
+
+        # Star density from PSF measurement
+        n_stars = psf.n_stars_used if psf else 0
+        if n_stars > 30:
+            star_density = "dense"
+        elif n_stars > 10:
+            star_density = "moderate"
+        else:
+            star_density = "sparse"
+
+        # --- Plate solving + catalog lookup ---
+        solve_result = None
+        targets: list[TargetInfo] = []
+        primary_target: TargetInfo | None = None
+
+        # Reuse existing WCS from a prior plate solve (avoids re-solving)
+        if self._existing_wcs:
+            ra = self._existing_wcs.get("ra_center", 0.0)
+            dec = self._existing_wcs.get("dec_center", 0.0)
+            scale = self._existing_wcs.get("scale", 0.0)
+            if ra > 0 and scale > 0:
+                rotation = self._existing_wcs.get("rotation", 0.0)
+                solve_result = PlateSolveResult(
+                    success=True,
+                    ra_center=ra,
+                    dec_center=dec,
+                    pixel_scale=scale,
+                    rotation=rotation,
+                    wcs_header=self._existing_wcs,
+                )
+                if not plate_scale or plate_scale <= 0:
+                    plate_scale = scale
+                self._log_msg(
+                    f"Using existing WCS: RA={ra:.4f}°, Dec={dec:.4f}°, "
+                    f"scale={scale:.2f}\"/px"
+                )
+            else:
+                self._log_msg(
+                    "Existing WCS lacks coordinate data — will attempt plate solve"
+                )
+
+        # Try plate solving (only if we don't already have a valid WCS)
+        if solve_result is None:
+            try:
+                solve_params = PlateSolveParams()
+                if plate_scale:
+                    solve_params.scale_hint = plate_scale
+                # Use user-provided RA/Dec hints if available
+                if self._user_ra_hint is not None and self._user_dec_hint is not None:
+                    solve_params.ra_hint = self._user_ra_hint
+                    solve_params.dec_hint = self._user_dec_hint
+                    self._log_msg(f"Using user-provided coordinates: RA={self._user_ra_hint:.4f}, Dec={self._user_dec_hint:.4f}")
+                elif "ra" in header_info and "dec" in header_info:
+                    try:
+                        solve_params.ra_hint = float(header_info["ra"])
+                        solve_params.dec_hint = float(header_info["dec"])
+                    except (ValueError, TypeError):
+                        pass
+
+                self._log_msg("Attempting plate solve...")
+                solve_result = self._safe_plate_solve(data, solve_params)
+
+                if solve_result and solve_result.success:
+                    self._log_msg(
+                        f"Plate solve success: RA={solve_result.ra_center:.4f}, "
+                        f"Dec={solve_result.dec_center:.4f}, "
+                        f"scale={solve_result.pixel_scale:.2f} arcsec/px"
+                    )
+                    if not plate_scale and solve_result.pixel_scale > 0:
+                        plate_scale = solve_result.pixel_scale
+            except Exception as exc:
+                self._log_msg(f"Plate solving failed: {exc}")
+
+        # Catalog lookup
+        if solve_result and solve_result.success and solve_result.ra_center > 0:
+            fov_arcmin = 60.0  # default search radius
+            if plate_scale:
+                fov_arcmin = max(plate_scale * max(w, h) / 60.0, 30.0)
+            targets = self.catalog.query_region(
+                solve_result.ra_center,
+                solve_result.dec_center,
+                fov_arcmin,
+            )
+            if targets:
+                primary_target = targets[0]
+                self._log_msg(
+                    f"Primary target: {primary_target.id} "
+                    f"({', '.join(primary_target.names[:2]) if primary_target.names else 'unnamed'}) "
+                    f"— {primary_target.object_type}, "
+                    f"brightness={primary_target.brightness_class}"
+                )
+                for t in targets[1:3]:
+                    self._log_msg(f"Also in field: {t.id}")
+
+        # Fallback: user-provided target name
+        if not primary_target and self._user_target_name:
+            target = self.catalog.lookup(self._user_target_name)
+            if target:
+                primary_target = target
+                targets = [target]
+                self._log_msg(f"Target from user input: {target.id}")
+            else:
+                # Not in the bundled catalog — ask SIMBAD (online, best-effort).
+                # Covers any object, not just the curated 139, with a recipe
+                # derived from its object type.
+                self._log_msg(
+                    f"'{self._user_target_name}' not in catalog — querying SIMBAD…"
+                )
+                try:
+                    from astraios.core.simbad_lookup import lookup_simbad
+
+                    target = lookup_simbad(self._user_target_name)
+                except Exception as exc:
+                    target = None
+                    self._log_msg(f"SIMBAD lookup error: {exc}")
+                if target:
+                    primary_target = target
+                    targets = [target]
+                    self._log_msg(
+                        f"SIMBAD: identified {target.id} "
+                        f"({target.object_type}, "
+                        f"{target.major_axis_arcmin:.1f}'×{target.minor_axis_arcmin:.1f}')"
+                    )
+                else:
+                    self._log_msg(
+                        f"User target '{self._user_target_name}' not found "
+                        f"(catalog or SIMBAD)"
+                    )
+
+        # Fallback: FITS header object name
+        if not primary_target and "object_name" in header_info:
+            target = self.catalog.lookup(header_info["object_name"])
+            if target:
+                primary_target = target
+                targets = [target]
+                self._log_msg(f"Target from FITS header: {target.id}")
+
+        # --- LP severity and color cast detection ---
+        lp_severity = self._detect_lp_severity(data, channel_stats)
+        self._log_msg(f"Light pollution severity: {lp_severity}")
+
+        has_color_cast = False
+        if n_ch >= 3:
+            medians = [s["median"] for s in channel_stats[:3]]
+            if max(medians) - min(medians) > 0.03:
+                has_color_cast = True
+                self._log_msg(f"Color cast detected: channel medians {[f'{m:.4f}' for m in medians]}")
+
+        return ImageAnalysis(
+            input_type=input_type,
+            n_channels=n_ch,
+            height=h,
+            width=w,
+            channel_stats=channel_stats,
+            median_snr=snr,
+            object_snr=object_snr,
+            background_level=bg_level,
+            dynamic_range_stops=dr_stops,
+            has_blown_highlights=blown,
+            highlight_fraction=sat_frac,
+            star_density=star_density,
+            psf=psf,
+            plate_solve_result=solve_result,
+            targets=targets,
+            primary_target=primary_target,
+            lp_severity=lp_severity,
+            has_color_cast=has_color_cast,
+            plate_scale_arcsec=plate_scale,
+        )
+
+    def _detect_input_type(
+        self,
+        data: np.ndarray,
+        fits_header: dict[str, Any] | None,
+        stats: list[dict[str, float]],
+    ) -> InputType:
+        """Detect the type of input image."""
+        if data.ndim == 2:
+            return InputType.MONO_LUMINANCE
+
+        n_ch = data.shape[0]
+        if n_ch == 1:
+            return InputType.MONO_LUMINANCE
+
+        # Check FITS header for filter info
+        if fits_header:
+            info = detect_from_fits_header(fits_header)
+            filter_name = info.get("filter", "").lower()
+
+            if any(nb in filter_name for nb in ["sho", "sii", "ha", "oiii"]):
+                if "sho" in filter_name:
+                    return InputType.NARROWBAND_SHO
+                if "hoo" in filter_name:
+                    return InputType.NARROWBAND_HOO
+
+            # Check for dual narrowband filters
+            if self.equipment and self.equipment.filters:
+                for fname, filt in self.equipment.filters.items():
+                    if filt.filter_type == "dual_narrowband":
+                        return InputType.DUAL_NARROWBAND
+                    if filt.filter_type == "triple_narrowband":
+                        return InputType.TRIPLE_NARROWBAND
+
+        if n_ch >= 3:
+            # Heuristic: compare channel medians
+            # Narrowband images often have very different per-channel statistics
+            medians = [s["median"] for s in stats[:3]]
+            if len(medians) == 3:
+                median_range = max(medians) - min(medians)
+                avg_median = np.mean(medians)
+                if avg_median > 0 and median_range / avg_median > 0.8:
+                    # Very different channels — likely narrowband
+                    return InputType.NARROWBAND_CUSTOM
+
+            if n_ch == 4:
+                return InputType.MONO_LRGB
+
+            return InputType.OSC_RGB
+
+        return InputType.UNKNOWN
+
+    def _detect_lp_severity(
+        self,
+        data: np.ndarray,
+        channel_stats: list[dict[str, float]],
+    ) -> str:
+        """Detect light pollution severity from background characteristics."""
+        bg_level = float(np.median([s["median"] for s in channel_stats]))
+
+        bg_spread = 0.0
+        if len(channel_stats) >= 3:
+            bg_medians = [s["median"] for s in channel_stats[:3]]
+            bg_spread = max(bg_medians) - min(bg_medians)
+
+        # Measure gradient strength via std of heavily-smoothed image
+        from scipy.ndimage import gaussian_filter
+        if data.ndim == 2:
+            smoothed = gaussian_filter(data, sigma=max(data.shape) // 8)
+        else:
+            smoothed = gaussian_filter(np.mean(data, axis=0), sigma=max(data.shape[1:]) // 8)
+        gradient_std = float(np.std(smoothed))
+
+        if bg_level > 0.15 or bg_spread > 0.05 or gradient_std > 0.08:
+            return "severe"
+        elif bg_level > 0.08 or bg_spread > 0.02 or gradient_std > 0.04:
+            return "moderate"
+        elif bg_level > 0.03 or gradient_std > 0.02:
+            return "mild"
+        return "none"
+
+    # ------------------------------------------------------------------ #
+    #  Phase 2: Planning                                                  #
+    # ------------------------------------------------------------------ #
+
+    def _build_plan(
+        self,
+        data: np.ndarray,
+        analysis: ImageAnalysis,
+    ) -> ProcessingPlan:
+        """Build the processing plan based on image analysis."""
+        hints = {}
+        is_extreme_dr = False
+        if analysis.primary_target:
+            # Resolve the per-target recipe: TYPE recipe → catalog hints → named
+            # override. Keyed on object type, so every target gets a recipe.
+            from astraios.core.recipe import get_recipe_book
+
+            t = analysis.primary_target
+            hints = get_recipe_book().resolve(t.object_type, t.id, t.processing_hints)
+            if t.dynamic_range == "extreme":
+                hints["dynamic_range"] = "extreme"
+                is_extreme_dr = True
+            # Write the merged recipe back onto the target so EVERY downstream
+            # reader (stretch target, saturation, …) sees the recipe — not just
+            # the per-channel planner. Without this, the recipe's `stretch`,
+            # `bg_sensitive`, etc. were silently dropped by helpers that read
+            # `primary_target.processing_hints` directly.
+            t.processing_hints = dict(hints)
+
+            # Recipe-level processor knobs override the per-call defaults (the
+            # recipe is the smart per-target choice).
+            if "chroma_strength" in hints:
+                self._chroma_strength = float(hints["chroma_strength"])
+            if "star_reduction" in hints:
+                self._star_reduction = float(max(0.0, min(1.0, hints["star_reduction"])))
+            recipe_name = "named" if get_recipe_book().has_named(t.id) else "type"
+            self._log_msg(
+                f"Plan: recipe applied ({recipe_name} '{t.object_type}'"
+                + (f", chroma={self._chroma_strength:.1f}"
+                   if "chroma_strength" in hints else "")
+                + (", StarNet" if hints.get("use_starnet") else "")
+                + ")"
+            )
+
+        # Determine channel names
+        ch_names = self._get_channel_names(analysis)
+
+        # Build per-channel plans
+        channel_plans = []
+        for i, name in enumerate(ch_names):
+            stats = analysis.channel_stats[min(i, len(analysis.channel_stats) - 1)]
+            ch_snr = stats["median"] / max(stats["mad"] * 1.4826, 1e-10)
+            plan = self._plan_channel(i, name, ch_snr, analysis, hints)
+            channel_plans.append(plan)
+
+        # Post-merge color steps
+        do_scnr = False
+        scnr_params = None
+        do_color = False
+        color_params = None
+
+        if analysis.input_type in (
+            InputType.NARROWBAND_SHO,
+            InputType.NARROWBAND_HOO,
+            InputType.NARROWBAND_CUSTOM,
+            InputType.DUAL_NARROWBAND,
+        ):
+            # Narrowband images typically need SCNR
+            do_scnr = True
+            scnr_params = SCNRParams(
+                method=SCNRMethod.AVERAGE_NEUTRAL,
+                amount=0.8,
+                preserve_luminance=True,
+            )
+            self._log_msg("Plan: SCNR enabled for narrowband data")
+        elif analysis.input_type == InputType.OSC_RGB:
+            # OSC sensors carry 2× green photosites, so green chroma noise (and a
+            # green sky cast) dominate the speckle in the mid-tones around the
+            # subject — the part a black point can't crush. SCNR average-neutral
+            # only pulls green DOWN where it exceeds the (R+B)/2 neutral, with
+            # luminance preserved: it neutralizes the green speckle/cast while
+            # leaving genuinely white/blue/red structure untouched. Standard step
+            # in every OSC workflow (Siril, PixInsight); we were skipping it.
+            do_scnr = True
+            scnr_params = SCNRParams(
+                method=SCNRMethod.AVERAGE_NEUTRAL,
+                amount=0.8,
+                preserve_luminance=True,
+            )
+            self._log_msg("Plan: SCNR enabled for OSC (green-noise removal)")
+
+        if analysis.n_channels >= 3:
+            target_sat = self._get_saturation_target(analysis, hints)
+            if abs(target_sat - 1.0) > 0.05:
+                do_color = True
+                color_params = ColorAdjustParams(saturation=target_sat)
+                self._log_msg(f"Plan: Color saturation target: {target_sat:.2f}")
+
+        # Object-aware background
+        use_obj_bg = False
+        exclusion_mask = None
+        if analysis.primary_target and analysis.plate_scale_arcsec:
+            have_wcs = bool(
+                analysis.plate_solve_result and analysis.plate_solve_result.success
+            )
+            objects = []
+            if have_wcs:
+                # Position every catalog object in the field via the WCS solution.
+                for t in analysis.targets:
+                    if t.major_axis_arcmin > 1.0:
+                        cx, cy = self._target_to_pixel(
+                            t, analysis.plate_solve_result, analysis.plate_scale_arcsec,
+                            analysis.width, analysis.height,
+                        )
+                        if 0 <= cx < analysis.width and 0 <= cy < analysis.height:
+                            objects.append({
+                                "center_x": cx,
+                                "center_y": cy,
+                                "radius_arcmin": t.major_axis_arcmin / 2.0,
+                            })
+            else:
+                # No WCS (offline / local solver can't solve): assume the named
+                # primary target is centered — the overwhelmingly common framing —
+                # and protect its extent so background extraction can't subtract
+                # the bright core. Far better than eating the core for lack of a
+                # solve. Use the catalog's bg-protection hint when present.
+                t = analysis.primary_target
+                hint_r = t.processing_hints.get("bg_protection_radius_arcmin")
+                radius_arcmin = float(hint_r) if hint_r else max(t.major_axis_arcmin / 2.0, 1.0)
+                # Protect the bright CORE, not the whole nebula: a mask covering
+                # most of the frame starves the background fit of sky samples, so
+                # the vignette is left uncorrected. Cap the radius so the outer
+                # frame still has samples — the model clamp in extract_background
+                # keeps the core safe even with this smaller mask.
+                max_r_px = 0.28 * min(analysis.width, analysis.height)
+                max_r_arcmin = max_r_px * analysis.plate_scale_arcsec / 60.0
+                radius_arcmin = min(radius_arcmin, max_r_arcmin)
+                objects.append({
+                    "center_x": analysis.width / 2.0,
+                    "center_y": analysis.height / 2.0,
+                    "radius_arcmin": radius_arcmin,
+                })
+                self._log_msg(
+                    f"Plan: no plate solve — protecting centered {t.id} "
+                    f"({radius_arcmin:.0f}' radius) from background subtraction"
+                )
+
+            if objects:
+                exclusion_mask = create_object_exclusion_mask(
+                    (analysis.height, analysis.width),
+                    objects,
+                    analysis.plate_scale_arcsec,
+                )
+                use_obj_bg = True
+                self._log_msg(f"Plan: Object-aware background with {len(objects)} object(s)")
+
+        # Soft elliptical object mask (the subject's true shape/extent), used to
+        # steer enhancement toward the object and away from empty sky. Built from
+        # the SAME positioning logic; uses the object's full major/minor extent
+        # (not the capped bg-protection radius). Best-effort — None ⇒ the rest of
+        # the pipeline simply runs whole-image as before.
+        object_mask = self._build_object_mask(analysis)
+
+        # Object-dominated frame guard: a target that fills a large fraction of
+        # the frame (M42 etc.) must NOT get a high-order polynomial background —
+        # the fit Runge-oscillates across the masked object and bumps the model
+        # up under the bright core, subtracting it into a dark hole. Cap the
+        # order low and skip the iterate-to-higher-order refinement.
+        object_dominated = is_extreme_dr
+        if (
+            analysis.primary_target
+            and analysis.primary_target.major_axis_arcmin > 0
+            and analysis.plate_scale_arcsec
+        ):
+            obj_px = analysis.primary_target.major_axis_arcmin * 60.0 / analysis.plate_scale_arcsec
+            if obj_px > 0.33 * min(analysis.width, analysis.height):
+                object_dominated = True
+        # bg_sensitive (catalog hint, e.g. the Veil and other faint filamentary
+        # nebulae): the faint structure is easily mistaken for sky and eaten by
+        # an aggressive background fit. Treat it like an object-dominated frame —
+        # gentle, low-order background that follows broad gradients but leaves
+        # the delicate signal alone. This is the catalog-driven "remove the
+        # background here, but not there" behaviour.
+        if hints.get("bg_sensitive"):
+            object_dominated = True
+            self._log_msg(
+                f"Plan: {analysis.primary_target.id if analysis.primary_target else 'target'} "
+                "is background-sensitive — using a gentle, signal-preserving "
+                "background extraction"
+            )
+        if object_dominated:
+            for cp in channel_plans:
+                if cp.background_params is not None:
+                    bp = cp.background_params
+                    cp.background_params = BackgroundParams(
+                        # A denser grid + order 3 captures an asymmetric sky
+                        # gradient/vignette better than order 2 (which leaves a
+                        # residual the aggressive stretch then amplifies into a
+                        # visible corner gradient). The model clamp in
+                        # extract_background now caps any Runge overshoot to the
+                        # sky-sample range, so this no longer risks eating the
+                        # bright core — the reason it used to be pinned at 2.
+                        grid_size=min(max(bp.grid_size, 12), 16),
+                        box_size=bp.box_size,
+                        polynomial_order=min(bp.polynomial_order, 3),
+                        sigma_clip=bp.sigma_clip,
+                        smoothing=min(bp.smoothing, 0.35),
+                        object_aware=bp.object_aware,
+                        exclusion_mask=bp.exclusion_mask,
+                    )
+            self._log_msg(
+                "Plan: object-dominated frame — gradient-aware background "
+                "(order 3, clamped) protecting the bright core"
+            )
+
+        needs_hdr = hints.get("hdr_merge_recommended", False) or is_extreme_dr
+        if needs_hdr:
+            self._log_msg("Plan: HDR-merge hint active — extreme dynamic range detected")
+
+        star_aware = "star_aware" in self._enabled_stages
+        if star_aware:
+            # Local contrast is deferred to the starless layer (see _execute),
+            # so it enhances nebula detail without amplifying star halos.
+            for cp in channel_plans:
+                cp.local_contrast_params = None
+            self._log_msg(
+                "Plan: star-aware processing enabled "
+                "(stars separated, nebula enhanced, stars recombined)"
+            )
+
+        plan = ProcessingPlan(
+            channel_plans=channel_plans,
+            do_scnr=do_scnr,
+            scnr_params=scnr_params,
+            do_color_adjust=do_color,
+            color_adjust_params=color_params,
+            use_object_aware_bg=use_obj_bg,
+            exclusion_mask=exclusion_mask,
+            bg_object_dominated=object_dominated,
+            object_mask=object_mask,
+            needs_hdr_merge=needs_hdr,
+            hdr_operator=self._hdr_operator,
+            hdr_params=self._hdr_params,
+            star_aware=star_aware,
+        )
+
+        # Summary notes
+        plan.notes.append(f"Input type: {analysis.input_type.name}")
+        plan.notes.append(f"Channels: {', '.join(ch_names)}")
+        plan.notes.append(f"SNR estimate: {analysis.median_snr:.1f}")
+        if analysis.primary_target:
+            plan.notes.append(f"Target: {analysis.primary_target.id}")
+        plan.notes.append(f"Pipeline stages per channel: {self._count_stages(channel_plans[0])}")
+
+        return plan
+
+    def _plan_channel(
+        self,
+        idx: int,
+        name: str,
+        snr: float,
+        analysis: ImageAnalysis,
+        hints: dict[str, Any],
+    ) -> ChannelPlan:
+        """Build a processing plan for a single channel."""
+        plan = ChannelPlan(channel_idx=idx, channel_name=name, snr=snr)
+
+        # --- Background extraction ---
+        bg_complexity = hints.get("background_complexity", "gradient")
+        lp = analysis.lp_severity
+        if lp == "severe":
+            grid_size = 16
+            poly_order = 5
+        elif lp == "moderate":
+            grid_size = 14
+            poly_order = 4
+        elif bg_complexity == "complex":
+            grid_size = 12
+            poly_order = 4
+        elif bg_complexity == "flat":
+            grid_size = 8
+            poly_order = 2
+        else:
+            grid_size = 10
+            poly_order = 3
+
+        plan.background_params = BackgroundParams(
+            grid_size=grid_size,
+            polynomial_order=poly_order,
+            sigma_clip=2.5,
+        )
+        if "background" not in self._enabled_stages:
+            plan.background_params = None
+
+        # --- Noise reduction ---
+        nr_level = hints.get("noise_reduction", self._auto_nr_level(snr))
+        strength = {
+            "minimal": 0.15,
+            "light": 0.3,
+            "moderate": 0.5,
+            "heavy": 0.8,
+        }.get(nr_level, 0.5)
+
+        # For extreme-DR objects (M42 etc.) halve NR to preserve fine nebulosity
+        if hints.get("dynamic_range") == "extreme":
+            strength *= 0.5
+
+        # Luminance / detail channels get less NR; color channels can have more
+        if name in ("L", "mono"):
+            strength *= 0.7
+            detail_preservation = 0.7
+        elif name in ("Ha", "OIII", "SII"):
+            # Narrowband: stronger NR for faint signal
+            if snr < 5:
+                strength = min(strength * 1.3, 0.95)
+            detail_preservation = 0.5
+        else:
+            detail_preservation = 0.4
+
+        plan.denoise_params = DenoiseParams(
+            method=DenoiseMethod.WAVELET,
+            strength=strength,
+            detail_preservation=detail_preservation,
+        )
+        if "denoise" not in self._enabled_stages:
+            plan.denoise_params = None
+
+        # --- Deconvolution ---
+        # Auto-decide based on measured PSF and SNR.  For nebula-dominated
+        # images the *object* SNR (from P95) is often much higher than the
+        # global median SNR — use whichever is larger.
+        effective_snr = max(snr, analysis.object_snr) if hasattr(analysis, 'object_snr') else snr
+        do_deconv = hints.get("deconvolution", False) or hints.get("deconv_aggressive", False)
+        if not do_deconv:
+            if analysis.psf and analysis.psf.fwhm > 2.5 and effective_snr > 10:
+                do_deconv = True
+
+        # For known high-DR targets (M42, etc.) always try deconv if we have
+        # a valid PSF — the stars are sharp even if the nebula dominates.
+        if not do_deconv and hints.get("dynamic_range") == "extreme":
+            if analysis.psf and analysis.psf.n_stars_used >= 3:
+                do_deconv = True
+                self._log_msg(
+                    f"Plan [{name}]: Forcing deconvolution for extreme-DR target "
+                    f"(PSF valid, {analysis.psf.n_stars_used} stars)"
+                )
+
+        # Guard: skip deconvolution if PSF measurement is unreliable
+        if do_deconv and analysis.psf:
+            if analysis.psf.n_stars_used < 3:
+                self._log_msg(
+                    f"Plan [{name}]: Skipping deconvolution — PSF from only "
+                    f"{analysis.psf.n_stars_used} star(s), unreliable"
+                )
+                do_deconv = False
+            elif analysis.psf.ellipticity > 0.3:
+                self._log_msg(
+                    f"Plan [{name}]: Skipping deconvolution — PSF ellipticity "
+                    f"{analysis.psf.ellipticity:.3f} too high (tracking/guiding issue)"
+                )
+                do_deconv = False
+
+        # Catalog hint: gentle stretch means conservative deconvolution
+        # Extreme-DR objects (e.g. M42) get even gentler treatment to avoid
+        # ringing around bright nebula cores.
+        if hints.get("dynamic_range") == "extreme":
+            gentle_deconv = True
+            extreme_dr_deconv = True
+        elif hints.get("stretch") == "gentle":
+            gentle_deconv = True
+            extreme_dr_deconv = False
+        else:
+            gentle_deconv = False
+            extreme_dr_deconv = False
+
+        if do_deconv and analysis.psf:
+            fwhm = analysis.psf.fwhm
+            # Conservative parameters — execution phase will adapt
+            max_iters = 5 if extreme_dr_deconv else (8 if gentle_deconv else 10)
+            reg = 0.03 if extreme_dr_deconv else (0.02 if gentle_deconv else 0.01)
+            dering_amount = 1.0 if extreme_dr_deconv else 0.8
+            # A soft / large PSF (poor seeing) rings bright stars under aggressive
+            # Richardson-Lucy — the wider the PSF, the worse the overshoot. Ease
+            # off the iterations and add regularization as the PSF grows so star
+            # cores don't ring (the nebula still gains structure).
+            if fwhm > 5.0:
+                max_iters = max(2, max_iters - 2)
+                reg = min(0.06, reg * 1.8)
+                self._log_msg(
+                    f"Plan [{name}]: soft PSF (FWHM={fwhm:.1f}px) — gentler "
+                    f"deconvolution ({max_iters} iters, reg={reg:.3f}) to limit "
+                    f"star ringing"
+                )
+            plan.deconvolution_params = DeconvolutionParams(
+                psf_fwhm=fwhm,
+                iterations=max_iters,
+                regularization=reg,
+                deringing=True,
+                deringing_amount=dering_amount,
+            )
+            if "deconv" not in self._enabled_stages:
+                plan.deconvolution_params = None
+                plan.use_spatial_deconv = False
+
+            # Use spatially-varying PSF when the image is large enough
+            # and we have sufficient stars across the field. This handles
+            # field curvature/coma at edges much better than global deconv.
+            min_dim = min(analysis.width, analysis.height)
+            if min_dim >= 800 and analysis.psf.n_stars_used >= 8:
+                plan.use_spatial_deconv = True
+                self._log_msg(
+                    f"Plan [{name}]: Spatial deconvolution (zone PSF) "
+                    f"FWHM={fwhm:.1f}px "
+                    f"({'gentle' if gentle_deconv else 'adaptive'})"
+                )
+            else:
+                self._log_msg(
+                    f"Plan [{name}]: Global deconvolution FWHM={fwhm:.1f}px "
+                    f"({'gentle' if gentle_deconv else 'adaptive'})"
+                )
+
+        # --- Stretch ---
+        # Initial guess — adaptive execution will measure and adjust
+        plan.stretch_params = StretchParams(
+            midtone=0.15,  # starting point, will be tuned to target brightness
+            shadow_clip=-2.0,
+            linked=False,  # per-channel control
+        )
+        if "stretch" not in self._enabled_stages:
+            plan.stretch_params = None
+
+        # --- Local contrast ---
+        contrast_level = hints.get("contrast_enhancement", "moderate")
+        # For extreme-DR objects (M42 etc.) use at most subtle LC
+        if hints.get("dynamic_range") == "extreme":
+            contrast_level = "subtle"
+        if contrast_level != "none":
+            clip_limit = {
+                "subtle": 1.5,
+                "moderate": 2.5,
+                "strong": 4.0,
+            }.get(contrast_level, 2.5)
+            plan.local_contrast_params = LocalContrastParams(
+                clip_limit=clip_limit,
+                tile_size=8,
+                amount=0.6,
+            )
+        if "local_contrast" not in self._enabled_stages:
+            plan.local_contrast_params = None
+
+        return plan
+
+    def _get_channel_names(self, analysis: ImageAnalysis) -> list[str]:
+        """Determine channel names based on input type."""
+        n_ch = analysis.n_channels
+        it = analysis.input_type
+
+        if it == InputType.MONO_LUMINANCE:
+            return ["mono"]
+        if it == InputType.MONO_LRGB and n_ch == 4:
+            return ["L", "R", "G", "B"]
+        if it == InputType.NARROWBAND_SHO and n_ch >= 3:
+            return ["SII", "Ha", "OIII"][:n_ch]
+        if it == InputType.NARROWBAND_HOO and n_ch >= 3:
+            return ["Ha", "OIII", "OIII"][:n_ch]
+        if it in (InputType.OSC_RGB, InputType.DUAL_NARROWBAND, InputType.TRIPLE_NARROWBAND):
+            if n_ch >= 3:
+                return ["R", "G", "B"][:n_ch]
+        if it == InputType.NARROWBAND_CUSTOM and n_ch >= 3:
+            return ["CH1", "CH2", "CH3"][:n_ch]
+        return [f"CH{i}" for i in range(n_ch)]
+
+    def _auto_nr_level(self, snr: float) -> str:
+        """Determine noise reduction level from SNR."""
+        if snr < 5:
+            return "heavy"
+        if snr < 15:
+            return "moderate"
+        if snr < 40:
+            return "light"
+        return "minimal"
+
+    def _get_saturation_target(self, analysis: ImageAnalysis, hints: dict) -> float:
+        """Determine target saturation multiplier (colour data).
+
+        Refined by catalog hints: Ha-dominant emission nebulae carry strong,
+        structured colour that benefits from a firmer saturation so the red/Ha
+        detail reads; reflection nebulosity is subtle broadband colour that
+        over-saturates into garish blue, so keep it gentle.
+        """
+        level = hints.get("color_saturation", "moderate")
+        base = {"boost": 1.4, "moderate": 1.15, "preserve": 1.0}.get(level, 1.15)
+        if hints.get("ha_dominant"):
+            base = max(base, 1.30)
+        if hints.get("reflection_nebulosity"):
+            base = min(base, 1.10)
+        return base
+
+    def _count_stages(self, plan: ChannelPlan) -> int:
+        """Count the number of active stages in a channel plan."""
+        count = 0
+        if plan.background_params:
+            count += 1
+        if plan.denoise_params:
+            count += 1
+        if plan.deconvolution_params:
+            count += 1
+        if plan.stretch_params:
+            count += 1
+        if plan.local_contrast_params:
+            count += 1
+        return count
+
+    def _build_object_mask(self, analysis: ImageAnalysis) -> np.ndarray | None:
+        """Soft elliptical mask over the catalog object(s) in the frame.
+
+        Positions objects via the WCS solution when available, else assumes the
+        named primary target is centred (the common framing). Best-effort: any
+        failure returns None so the pipeline runs whole-image as before.
+        """
+        if not (analysis.primary_target and analysis.plate_scale_arcsec):
+            return None
+        try:
+            from astraios.core.object_mask import build_object_mask
+
+            ps = analysis.plate_scale_arcsec
+            have_wcs = bool(
+                analysis.plate_solve_result and analysis.plate_solve_result.success
+            )
+
+            # A frame-FILLING object (M42 etc.) should use the full catalog
+            # ellipse, not the DSS2 reference — the reference only thresholds the
+            # bright core, leaving the faint outer nebula treated as "sky" by the
+            # object-aware stages. The ellipse from the catalog extent covers the
+            # whole subject (mask ~100%) which is correct here.
+            obj_px = analysis.primary_target.major_axis_arcmin * 60.0 / ps
+            object_fills_frame = obj_px > 0.5 * min(analysis.width, analysis.height)
+
+            # Shape-accurate mask from a DSS2 reference, when we have a WCS to
+            # render the matching field. This is the object's REAL outline rather
+            # than the catalog ellipse. Best-effort network call; on any failure
+            # we fall through to the elliptical mask below.
+            if have_wcs and analysis.plate_solve_result.ra_center and not object_fills_frame:
+                try:
+                    from astraios.ai.reference_image import reference_object_mask
+
+                    psr = analysis.plate_solve_result
+                    scale = psr.pixel_scale if psr.pixel_scale > 0 else ps
+                    fov_deg = scale * analysis.width / 3600.0
+                    rot = getattr(psr, "rotation", 0.0) or 0.0
+                    ref_mask = reference_object_mask(
+                        psr.ra_center, psr.dec_center, fov_deg,
+                        analysis.width, analysis.height, rotation_deg=rot,
+                    )
+                    if ref_mask is not None:
+                        self._log_msg(
+                            f"Plan: object mask from DSS2 reference "
+                            f"(shape-accurate, {float(np.mean(ref_mask > 0.5)) * 100:.0f}% "
+                            f"of frame is subject)"
+                        )
+                        return ref_mask
+                except Exception as exc:
+                    self._log_msg(
+                        f"Reference-image mask unavailable ({exc}) — using ellipse"
+                    )
+
+            objs: list[dict] = []
+            if have_wcs:
+                rot = getattr(analysis.plate_solve_result, "rotation", 0.0) or 0.0
+                for t in analysis.targets:
+                    if t.major_axis_arcmin <= 1.0:
+                        continue
+                    cx, cy = self._target_to_pixel(
+                        t, analysis.plate_solve_result, ps,
+                        analysis.width, analysis.height,
+                    )
+                    # keep objects whose centre is on (or near) the frame
+                    margin = t.major_axis_arcmin * 60.0 / ps
+                    if -margin <= cx <= analysis.width + margin and \
+                       -margin <= cy <= analysis.height + margin:
+                        objs.append({
+                            "center_x": cx, "center_y": cy,
+                            "major_axis_arcmin": t.major_axis_arcmin,
+                            "minor_axis_arcmin": t.minor_axis_arcmin,
+                            "rotation_deg": rot,
+                        })
+            else:
+                t = analysis.primary_target
+                objs.append({
+                    "center_x": analysis.width / 2.0,
+                    "center_y": analysis.height / 2.0,
+                    "major_axis_arcmin": t.major_axis_arcmin,
+                    "minor_axis_arcmin": t.minor_axis_arcmin,
+                })
+            mask = build_object_mask((analysis.height, analysis.width), objs, ps)
+            if mask is not None:
+                cov = float(np.mean(mask > 0.5))
+                self._log_msg(
+                    f"Plan: object mask built ({len(objs)} object(s), "
+                    f"{cov * 100:.0f}% of frame is subject)"
+                )
+            return mask
+        except Exception as exc:
+            self._log_msg(f"Object mask unavailable ({exc}) — whole-image processing")
+            return None
+
+    def _target_to_pixel(
+        self,
+        target: TargetInfo,
+        solve: PlateSolveResult,
+        plate_scale: float,
+        width: int,
+        height: int,
+    ) -> tuple[float, float]:
+        """Convert a target's RA/Dec to approximate pixel coordinates."""
+        # Flat-sky tangent projection
+        cos_dec = math.cos(math.radians(solve.dec_center))
+        dx_deg = (target.ra_deg - solve.ra_center) * cos_dec
+        dy_deg = target.dec_deg - solve.dec_center
+
+        dx_px = dx_deg * 3600.0 / plate_scale
+        dy_px = -dy_deg * 3600.0 / plate_scale  # y inverted
+
+        cx = width / 2.0 + dx_px
+        cy = height / 2.0 + dy_px
+        return (cx, cy)
+
+    # ------------------------------------------------------------------ #
+    #  Phase 3: Adaptive Execution                                        #
+    # ------------------------------------------------------------------ #
+
+    def _execute(
+        self,
+        data: np.ndarray,
+        plan: ProcessingPlan,
+        analysis: ImageAnalysis,
+        progress: ProgressCallback,
+    ) -> np.ndarray:
+        """Execute the processing plan with quality checks."""
+        working = data.copy()
+
+        # ---- Per-channel processing ----
+        if working.ndim == 2:
+            # Mono: single channel
+            cp = plan.channel_plans[0]
+            working = self._execute_channel(
+                working, cp, plan, analysis, progress, 0.15, 0.85,
+            )
+        else:
+            n_ch = working.shape[0]
+
+            # --- Pass 1: Background extraction for all channels ---
+            progress(0.15, "Background extraction...")
+            bg_fraction = 0.12 / n_ch  # fraction of progress for BG per channel
+            for ch in range(n_ch):
+                if ch < len(plan.channel_plans):
+                    cp = plan.channel_plans[ch]
+                else:
+                    cp = plan.channel_plans[-1]
+                frac = 0.15 + ch * bg_fraction
+                progress(frac, f"Background extraction [{cp.channel_name}]...")
+                working[ch] = self._extract_bg_only(
+                    working[ch], cp, analysis, plan.bg_object_dominated,
+                )
+
+            # --- Linked signal rescaling (preserves color ratios) ---
+            # After BG removal, emission nebulae can have compressed signals
+            # (e.g. p99.9 ~ 0.002). Rescale using the SAME factor for all
+            # channels so color balance is preserved.
+            # Use p99.9 (not p99.5) so the very brightest pixels are not
+            # clipped too aggressively, preserving dynamic range in cores.
+            ch_peaks = []
+            for ch in range(n_ch):
+                ch_peaks.append(float(np.percentile(working[ch], 99.9)))
+            max_peak = max(ch_peaks)
+
+            if 1e-7 < max_peak < 0.15:
+                # Target: bring brightest channel p99.9 to ~0.5
+                # (leaves headroom for stretch to work without clipping)
+                scale_factor = min(0.5 / max_peak, 100.0)  # cap at 100x
+                working = np.clip(working * scale_factor, 0, 1).astype(np.float32)
+                self._log_msg(
+                    f"Linked signal rescale {scale_factor:.1f}x "
+                    f"(channel p99.9: {[f'{p:.4f}' for p in ch_peaks]})"
+                )
+
+            # --- Photometric colour calibration (SPCC) on linear data ---
+            # Runs here (pre-stretch, on merged linear colour) because colour
+            # ratios are only physically meaningful in linear space.
+            if (
+                n_ch >= 3
+                and not self._is_narrowband(analysis)
+                and "stretch" in self._enabled_stages
+            ):
+                progress(0.25, "Photometric colour calibration (SPCC)...")
+                calibrated = self._apply_color_calibration(working, analysis)
+                if calibrated is not None:
+                    working = calibrated
+                    plan.color_calibrated = True
+                    # Stretch every channel with one shared midtone so the
+                    # calibration survives (per-channel stretch would re-equalize).
+                    plan.shared_stretch_midtone = self._solve_shared_midtone(
+                        working, analysis, plan
+                    )
+
+            # --- Pass 2: Remaining per-channel processing (skip BG) ---
+            for ch in range(n_ch):
+                if ch < len(plan.channel_plans):
+                    cp = plan.channel_plans[ch]
+                else:
+                    cp = plan.channel_plans[-1]
+
+                ch_start = 0.27 + (ch / n_ch) * 0.53
+                ch_end = 0.27 + ((ch + 1) / n_ch) * 0.53
+
+                working[ch] = self._execute_channel(
+                    working[ch], cp, plan, analysis, progress, ch_start, ch_end,
+                    skip_background=True,
+                )
+
+        # ---- Post-merge steps ----
+        progress(0.82, "Post-processing...")
+
+        # SCNR
+        if plan.do_scnr and working.ndim == 3 and working.shape[0] >= 3:
+            self._log_msg("Applying SCNR")
+            working = scnr(working, plan.scnr_params)
+            self._check_color_balance(working, ProcessingStage.SCNR)
+
+        # Adaptive color balance: equalize channel backgrounds if imbalanced
+        if working.ndim == 3 and working.shape[0] >= 3:
+            bg_medians = []
+            for ch in range(min(3, working.shape[0])):
+                # Measure background from the darkest 20% of pixels
+                ch_data = working[ch]
+                p20 = float(np.percentile(ch_data, 20))
+                bg_pixels = ch_data[ch_data <= p20]
+                bg_medians.append(float(np.median(bg_pixels)) if len(bg_pixels) > 0 else 0.0)
+
+            bg_spread = max(bg_medians) - min(bg_medians)
+            if bg_spread > 0.02:
+                # Channels have different background levels — neutralize
+                target_bg = min(bg_medians)  # bring all down to darkest
+                for ch in range(min(3, working.shape[0])):
+                    offset = bg_medians[ch] - target_bg
+                    if offset > 0.005:
+                        working[ch] = np.clip(working[ch] - offset, 0, 1)
+                self._log_msg(
+                    f"Color balance: neutralized backgrounds "
+                    f"(spread {bg_spread:.3f}, offsets: "
+                    f"{[f'{bg_medians[i]-target_bg:.3f}' for i in range(min(3, working.shape[0]))]}"
+                    f")"
+                )
+
+        # Per-channel gain correction for color balance.
+        # Skipped for narrowband: in SHO/HOO palettes the channel intensity
+        # ratios (Ha is usually far stronger than SII/OIII) are intentional and
+        # define the palette — equalizing the signal levels would mute it.
+        _narrowband_types = (
+            InputType.NARROWBAND_SHO,
+            InputType.NARROWBAND_HOO,
+            InputType.NARROWBAND_CUSTOM,
+            InputType.DUAL_NARROWBAND,
+            InputType.TRIPLE_NARROWBAND,
+        )
+        is_narrowband = analysis.input_type in _narrowband_types
+        if is_narrowband:
+            self._log_msg("Skipping channel gain equalization (narrowband palette preserved)")
+        elif plan.color_calibrated:
+            self._log_msg("Skipping channel gain equalization (SPCC already calibrated colour)")
+        else:
+            self._log_msg("Statistical colour balance (no SPCC — mono, narrowband, "
+                          "no plate solve, no catalog, or too few field stars)")
+        if (
+            working.ndim == 3
+            and working.shape[0] >= 3
+            and not is_narrowband
+            and not plan.color_calibrated
+        ):
+            signal_levels = []
+            for ch in range(min(3, working.shape[0])):
+                ch_data = working[ch]
+                # Use p70-p95 range — this captures nebula/object signal
+                # rather than sky (low percentiles) or stars (very high)
+                p70 = float(np.percentile(ch_data, 70))
+                p95 = float(np.percentile(ch_data, 95))
+                sig_pixels = ch_data[(ch_data > p70) & (ch_data < p95)]
+                signal_levels.append(
+                    float(np.median(sig_pixels)) if len(sig_pixels) > 100 else p70
+                )
+
+            if min(signal_levels) > 1e-6:
+                target_signal = float(np.median(signal_levels))
+                applied_gains = []
+                for ch in range(min(3, working.shape[0])):
+                    gain = target_signal / max(signal_levels[ch], 1e-6)
+                    gain = max(0.3, min(3.0, gain))
+                    if abs(gain - 1.0) > 0.02:
+                        working[ch] = np.clip(working[ch] * gain, 0, 1)
+                        applied_gains.append(f"ch{ch}*={gain:.3f}")
+                if applied_gains:
+                    self._log_msg(f"Color gain correction: {', '.join(applied_gains)}")
+
+        # Color adjustment
+        if plan.do_color_adjust and working.ndim == 3 and working.shape[0] >= 3:
+            self._log_msg("Applying color adjustment")
+            working = color_adjust(working, plan.color_adjust_params)
+
+        # HDR local contrast: single very gentle CLAHE pass for extreme-DR
+        # objects.  Reveals faint outer structure without amplifying noise.
+        if plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+            progress(0.96, "HDR local contrast enhancement...")
+            self._log_msg("HDR: gentle single-pass local contrast")
+            hdr_lce = LocalContrastParams(
+                clip_limit=1.8,
+                tile_size=8,
+                amount=0.25,
+            )
+            working = self._bg_preserving_local_contrast(
+                working, hdr_lce, "HDR LCE", region_mask=plan.object_mask
+            )
+
+        # Star-aware enhancement: separate stars, enhance the starless nebula,
+        # then screen the stars back. Done last (on the stretched image) because
+        # the star-removal models expect non-linear data.
+        if plan.star_aware:
+            working = self._apply_star_aware(working, analysis, plan, progress)
+
+        # Colour noise reduction: OSC / one-shot-colour stacks carry most of
+        # their visible noise in the CHROMA (blotchy colour speckle), so denoise
+        # the colour hard while leaving luminance detail intact. Colour only.
+        if (
+            working.ndim == 3 and working.shape[0] >= 3
+            and self._chroma_strength > 0
+            and not self._is_narrowband(analysis)
+        ):
+            from astraios.core.chroma_denoise import chroma_denoise
+
+            progress(0.985, "Colour noise reduction (chroma)...")
+            working = chroma_denoise(working, strength=self._chroma_strength)
+            self._log_msg(
+                f"Colour noise reduction (chroma, strength={self._chroma_strength:.1f})"
+            )
+
+        # Post-stretch gradient / vignette cleanup — only engages when a residual
+        # gradient actually survived into the stretched image (corner spread),
+        # since that's exactly when light pollution / imperfect flats show.
+        #
+        # NOT for object-dominated frames (M42 etc.): there the subject fills the
+        # frame and its mask covers only the bright core, so the fit would treat
+        # the faint outer nebula as a "gradient" and subtract it — carving a dark
+        # patch through the nebula. Those frames rely on the (object-protected)
+        # linear background extraction instead.
+        if not plan.bg_object_dominated:
+            progress(0.99, "Gradient / vignette cleanup...")
+            working = self._final_gradient_cleanup(working, plan)
+
+        # Self-correcting final-quality pass (residual cast / blown highlights)
+        progress(0.99, "Final quality check...")
+        working = self._final_quality_pass(working, analysis)
+
+        # Final clamp
+        working = np.clip(working, 0, 1).astype(np.float32)
+
+        return working
+
+    def _apply_color_calibration(
+        self, working: np.ndarray, analysis: ImageAnalysis
+    ) -> np.ndarray | None:
+        """Photometric colour calibration (SPCC) on linear data.
+
+        Uses the plate-solve WCS to query Gaia DR3 stars in the field and
+        calibrate the R/G/B balance from their physical colours — far more
+        correct than ad-hoc channel-gain matching. Best-effort: returns None
+        (caller falls back) on mono input, no/failed plate solve, no network,
+        or too few catalog stars.
+        """
+        ps = analysis.plate_solve_result
+        if working.ndim != 3 or working.shape[0] < 3:
+            return None
+        if not (ps and ps.success and ps.ra_center):
+            return None
+        try:
+            import math
+
+            from astraios.core.color_calibration import photometric_color_calibrate
+            from astraios.core.star_catalog import query_gaia_dr3
+
+            h, w = working.shape[1], working.shape[2]
+            scale = ps.pixel_scale if ps.pixel_scale > 0 else (analysis.plate_scale_arcsec or 1.0)
+            radius_deg = min(max(scale * math.hypot(h, w) / 3600.0 / 2.0, 0.05), 2.0)
+            self._log_msg(f"SPCC: querying Gaia DR3 ({radius_deg:.2f}° radius)...")
+            gaia = query_gaia_dr3(ps.ra_center, ps.dec_center, radius_deg=radius_deg, max_stars=400)
+            if len(gaia) < 5:
+                self._log_msg(f"SPCC: only {len(gaia)} catalog stars — statistical balance instead")
+                return None
+
+            raw_header = dict(ps.wcs_header or {})
+            wcs: dict[str, Any] = {"ra": ps.ra_center, "dec": ps.dec_center, "scale": scale}
+            if "CRVAL1" in raw_header:  # a real solved FITS header → use astropy WCS
+                wcs["wcs_header"] = raw_header
+
+            result = photometric_color_calibrate(
+                working, catalog_stars=gaia, wcs=wcs, neutralize_bg=True
+            )
+            f = result.correction_factors
+            self._log_msg(
+                f"SPCC: photometric calibration from {len(gaia)} Gaia stars, "
+                f"gains R/G/B = {f[0]:.3f}/{f[1]:.3f}/{f[2]:.3f}"
+            )
+            return result.data.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"SPCC failed ({exc}); using statistical colour balance")
+            return None
+
+    def _run_denoise(self, channel: np.ndarray, dparams: DenoiseParams) -> np.ndarray:
+        """Denoise one channel with the AI model when enabled (and available),
+        else classical wavelet. ``ai_denoise`` itself falls back to wavelet if no
+        trained model is on disk, so this is always safe."""
+        if self._use_ai_denoise:
+            try:
+                from astraios.ai.inference.denoise import AIDenoiseParams, ai_denoise
+
+                ai_params = AIDenoiseParams(
+                    strength=float(min(1.0, max(0.0, dparams.strength))),
+                    protect_stars=0.8,
+                    protect_threshold=0.15,
+                )
+                return ai_denoise(channel, params=ai_params).astype(np.float32)
+            except Exception as exc:
+                self._log_msg(f"AI denoise failed ({exc}); using wavelet")
+        return denoise(channel, dparams)
+
+    def _separate_stars(self, image: np.ndarray) -> np.ndarray | None:
+        """Return a starless version of ``image`` (StarNet binary if available,
+        else the built-in morphological remover). None on failure."""
+        try:
+            from astraios.ai.inference.starnet import find_starnet_binary, run_starnet
+
+            if find_starnet_binary() is not None:
+                res = run_starnet(image, extract_stars=False)
+                if res.success:
+                    self._log_msg("Star separation: StarNet")
+                    return res.starless.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"StarNet unavailable ({exc}); using built-in remover")
+
+        try:
+            from astraios.ai.inference.star_removal import remove_stars_builtin
+
+            starless = remove_stars_builtin(image, threshold=0.5).astype(np.float32)
+            self._log_msg("Star separation: built-in morphological")
+            return starless
+        except Exception as exc:
+            self._log_msg(f"Star removal failed ({exc}); skipping star-aware step")
+            return None
+
+    def _apply_star_aware(
+        self,
+        working: np.ndarray,
+        analysis: ImageAnalysis,
+        plan: ProcessingPlan,
+        progress: ProgressCallback,
+    ) -> np.ndarray:
+        """Separate stars, enhance the starless nebula, optionally shrink the
+        isolated stars, then screen them back."""
+        progress(0.95, "Star-aware: separating stars...")
+        starless = self._separate_stars(working)
+        if starless is None:
+            return working  # graceful fallback — keep the non-star-aware result
+
+        # Star layer = exactly what the remover took out (no knee/threshold).
+        # The diffusion-inpaint starless sits slightly BELOW the true sky around
+        # each star, so this residual carries both the star AND the skirt that
+        # fills that depression. Keeping it intact is what avoids a dark ring
+        # around every star on recombine (an earlier soft-knee dropped the skirt
+        # and exposed the depression — the "dark moats" around stars).
+        stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
+
+        is_color = working.ndim == 3 and working.shape[0] >= 3
+        has_stars = float(np.mean(stars > 0.05)) > 1e-4
+
+        # Independent star reduction — only possible because the stars are
+        # isolated here; far cleaner than eroding them in the full image where
+        # nebula detail would be damaged too.
+        reduced = False
+        if self._star_reduction > 0.0 and has_stars:
+            try:
+                from astraios.core.star_reduction import StarReductionParams, reduce_stars
+
+                progress(0.96, "Star-aware: reducing star bloat...")
+                sr_iters = 1 + int(round(self._star_reduction * 3))
+                stars = reduce_stars(
+                    stars,
+                    params=StarReductionParams(
+                        amount=self._star_reduction,
+                        iterations=sr_iters,
+                        protect_core=True,
+                    ),
+                ).astype(np.float32)
+                reduced = True
+                self._log_msg(
+                    f"Star-aware: reduced star sizes (amount={self._star_reduction:.2f})"
+                )
+            except Exception as exc:
+                self._log_msg(f"Star reduction skipped ({exc})")
+
+        # Gentle star colour boost so star colours pop (colour, non-narrowband).
+        if is_color and not self._is_narrowband(analysis):
+            try:
+                stars = color_adjust(stars, ColorAdjustParams(saturation=1.2)).astype(np.float32)
+            except Exception:
+                pass
+
+        # Enhance the starless nebula — local contrast + (for colour) saturation.
+        # Safe here because there are no stars to bloat or ring.
+        progress(0.98, "Star-aware: enhancing nebula...")
+        # Gentle: a strong CLAHE here amplifies background grain into a milky
+        # veil on noisy data. Keep the local-contrast subtle; the sky background
+        # is also preserved so only real structure gains contrast.
+        enhanced = self._bg_preserving_local_contrast(
+            starless,
+            LocalContrastParams(clip_limit=1.6, tile_size=8, amount=0.25),
+            "Star-aware LCE",
+            region_mask=plan.object_mask,
+        )
+        if is_color and not self._is_narrowband(analysis):
+            enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
+
+        # Recombine ADDITIVELY: starless-nebula enhancement + the star layer.
+        #   result = starless + (enhanced - starless) + stars = enhanced + stars
+        # With no reduction this is exactly ``working + (enhanced - starless)`` —
+        # the ORIGINAL sharp stars and their skirts are preserved untouched while
+        # the nebula gains the local-contrast detail. Screen-blending instead
+        # left soft halos (and, with the dropped skirt, dark rings); additive
+        # reconstruction has neither.
+        progress(0.99, "Star-aware: recombining stars...")
+        result = np.clip(enhanced + stars, 0.0, 1.0).astype(np.float32)
+        star_frac = float(np.mean(stars > 0.05))
+        self._log_msg(
+            f"Star-aware complete: nebula enhanced, stars "
+            f"{'reduced & ' if reduced else ''}recombined "
+            f"({star_frac * 100:.1f}% star pixels)"
+        )
+        return result
+
+    def _protect_star_cores_from_deconv(
+        self, deconvolved: np.ndarray, original: np.ndarray, name: str
+    ) -> np.ndarray:
+        """Restore the un-deconvolved original over bright STAR cores.
+
+        Richardson-Lucy rings bright point sources. Detect compact bright blobs
+        (stars) in the pre-deconv data, size-filter out the large extended
+        nebula core, and blend the original back over the stars with a soft
+        feather so the deconvolution's ringing halo around each star is removed
+        while the nebula keeps its sharpening. Best-effort; returns the input
+        unchanged on any failure.
+        """
+        try:
+            from scipy import ndimage
+
+            gray = original if original.ndim == 2 else original.mean(0)
+            p = float(np.percentile(gray, 99.5))
+            if p <= 0:
+                return deconvolved
+            lbl, n = ndimage.label(gray > p)
+            if n == 0:
+                return deconvolved
+            areas = ndimage.sum(np.ones_like(lbl, dtype=np.float64), lbl,
+                                index=np.arange(1, n + 1))
+            # A star (even bloated) stays compact; reject blobs larger than a
+            # generous star size so the extended nebula core isn't frozen.
+            max_star_diam = max(16.0, min(gray.shape) * 0.02)
+            max_area = 3.14159 * (max_star_diam / 2.0) ** 2
+            small = np.nonzero(areas <= max_area)[0] + 1
+            if small.size == 0:
+                return deconvolved
+            star = np.isin(lbl, small).astype(np.float32)
+            # Dilate + feather to cover the ringing halo around each core.
+            star = ndimage.maximum_filter(star, size=5)
+            star = np.clip(ndimage.gaussian_filter(star, sigma=2.0), 0.0, 1.0)
+            sm = star if deconvolved.ndim == 2 else star[np.newaxis, ...]
+            out = (original * sm + deconvolved * (1.0 - sm)).astype(np.float32)
+            self._log_msg(
+                f"[{name}] Protected {int(small.size)} star core(s) from "
+                f"deconvolution ringing"
+            )
+            return out
+        except Exception as exc:
+            self._log_msg(f"[{name}] Star-core deconv protection skipped ({exc})")
+            return deconvolved
+
+    def _bg_preserving_local_contrast(
+        self, image: np.ndarray, params: LocalContrastParams, label: str = "",
+        region_mask: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Apply local contrast WITHOUT inflating the sky background.
+
+        CLAHE equalizes each tile's histogram, which on sky-dominated nebulae
+        (M42 etc.) pumps the background level up — a milky veil that compounds
+        badly when several passes stack. Local contrast should add high-frequency
+        *detail*, not a low-frequency pedestal, so we measure the background
+        level before/after and subtract any lift the operator introduced.
+
+        We anchor on the MEDIAN, not just the p10 floor: holding only the floor
+        still lets CLAHE pump the whole noise band upward (the floor stays dark
+        but the bulk goes milky). For a sky-dominated frame the median *is* the
+        sky, so preserving it keeps the background genuinely dark while faint
+        nebulosity (brighter than the median) keeps its enhanced contrast.
+
+        When ``region_mask`` (a soft [0,1] object mask) is given, the enhancement
+        is applied only over the subject and faded out over empty sky — so sky
+        grain isn't contrast-amplified. A mask that covers the whole frame (large
+        object) is a no-op.
+        """
+        bg_before = float(np.median(image))
+        out = local_contrast_enhance(image, params)
+        bg_after = float(np.median(out))
+        lift = bg_after - bg_before
+        if lift > 0.003:
+            out = np.clip(out - lift, 0.0, 1.0).astype(np.float32)
+            if label:
+                self._log_msg(f"{label}: restored sky background (LCE lifted +{lift:.3f})")
+        if region_mask is not None and region_mask.shape == image.shape[-2:]:
+            sky_frac = float(np.mean(region_mask < 0.5))
+            if sky_frac > 0.02:  # only worth it when there's real sky to protect
+                rm = region_mask if image.ndim == 2 else region_mask[np.newaxis, ...]
+                out = (out * rm + image * (1.0 - rm)).astype(np.float32)
+                if label:
+                    self._log_msg(
+                        f"{label}: enhancement confined to subject "
+                        f"({sky_frac * 100:.0f}% sky left untouched)"
+                    )
+        return out
+
+    @staticmethod
+    def _is_narrowband(analysis: ImageAnalysis) -> bool:
+        return analysis.input_type in (
+            InputType.NARROWBAND_SHO,
+            InputType.NARROWBAND_HOO,
+            InputType.NARROWBAND_CUSTOM,
+            InputType.DUAL_NARROWBAND,
+            InputType.TRIPLE_NARROWBAND,
+        )
+
+    def _stretch_target_median(
+        self, analysis: ImageAnalysis, snr: float, full_plan: ProcessingPlan
+    ) -> float:
+        """Adaptive target background level for the stretch (LP/SNR/hints).
+
+        The MTF solve maps the *median* of the (rescaled, black-pointed) data to
+        this target. On a sky-dominated frame — which is most deep-sky data — the
+        median IS the sky, so this number is effectively *how bright the
+        background ends up*. Targeting it high (the old 0.25–0.29) brightens the
+        sky into a milky grey that sits at nearly the same level as the subject,
+        which is exactly the washed-out "screen-stretch" look. A finished image
+        keeps the background dark (~0.05–0.12) so the subject separates from it.
+        """
+        hints = analysis.primary_target.processing_hints if analysis.primary_target else {}
+        stretch_hint = hints.get("stretch", "moderate")
+        hdr_active = full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages
+
+        if hdr_active:
+            # Extreme-DR targets (M42 etc.) keep the carefully-tuned HDR path: the
+            # core-protect pass tames the bright core and the LC passes add midtone
+            # brightness, so a hot target over-brightens into a milky veil. This
+            # branch is unchanged — M42 was tuned against it.
+            base_target = 0.25
+            if analysis.lp_severity == "severe":
+                base_target = 0.18
+            elif analysis.lp_severity == "moderate":
+                base_target = 0.22
+            if stretch_hint == "gentle":
+                base_target *= 0.75
+            elif stretch_hint == "aggressive":
+                base_target *= 1.2
+            base_target *= 0.65
+            if snr < 8:
+                base_target *= 0.8
+            elif snr > 50:
+                base_target *= 1.15
+            return max(0.10, min(0.30, base_target))
+
+        # Non-HDR (the common case): target a dark, finished background. The
+        # subject rises above it via the MTF curve and the object-mask stretch
+        # judging; here we only set where the *sky* lands.
+        base_target = 0.10
+        if stretch_hint == "gentle":
+            base_target = 0.085  # reflection nebulae, dark nebulae — clean dark sky
+        elif stretch_hint == "aggressive":
+            base_target = 0.12  # SNRs / faint galaxies — lift the faint signal
+        # A bright light-polluted sky must be pulled down harder, not lifted.
+        if analysis.lp_severity == "severe":
+            base_target *= 0.8
+        elif analysis.lp_severity == "moderate":
+            base_target *= 0.9
+        # Noisy data: go a touch darker so amplified grain doesn't dominate.
+        if snr < 8:
+            base_target *= 0.85
+        # NOTE: deliberately NO high-SNR brightening. Clean, deep data should
+        # keep a dark background — lifting it (the old ×1.15) turned good data
+        # into a milky veil, which is the #1 complaint on bright targets.
+        if analysis.has_blown_highlights:
+            base_target *= 0.9
+        return max(0.05, min(0.16, base_target))
+
+    def _solve_shared_midtone(
+        self, working: np.ndarray, analysis: ImageAnalysis, full_plan: ProcessingPlan
+    ) -> float | None:
+        """Solve one midtone (from luminance) that hits the stretch target — so a
+        colour-calibrated image is stretched with identical channel mapping."""
+        try:
+            from astraios.core.stretch import _solve_midtone
+
+            lum = working.mean(axis=0) if working.ndim == 3 else working
+            snr = analysis.median_snr
+            target = self._stretch_target_median(analysis, snr, full_plan)
+            st = compute_channel_stats(lum)
+            shadow_clip = -2.0
+            shadow0 = max(0.0, st["median"] + shadow_clip * max(st["mad"], 1e-8))
+            scale0 = 1.0 / max(1e-10, 1.0 - shadow0)
+            scaled_med = max(1e-6, (st["median"] - shadow0) * scale0)
+            return _solve_midtone(scaled_med, target)
+        except Exception as exc:
+            self._log_msg(f"Shared-midtone solve failed ({exc})")
+            return None
+
+    def _execute_channel(
+        self,
+        channel: np.ndarray,
+        plan: ChannelPlan,
+        full_plan: ProcessingPlan,
+        analysis: ImageAnalysis,
+        progress: ProgressCallback,
+        frac_start: float,
+        frac_end: float,
+        skip_background: bool = False,
+    ) -> np.ndarray:
+        """Execute the processing plan for a single channel with quality checks."""
+        working = channel.copy()
+        frac_range = frac_end - frac_start
+        name = plan.channel_name
+
+        # Stage 1: Iterative background extraction
+        if plan.background_params is not None and not skip_background:
+            frac = frac_start + frac_range * 0.0
+            progress(frac, f"Background extraction [{name}]...")
+            self._log_msg(f"[{name}] Background extraction")
+
+            bg_params = plan.background_params
+            # Apply object-aware mode
+            if full_plan.use_object_aware_bg and full_plan.exclusion_mask is not None:
+                bg_params = BackgroundParams(
+                    grid_size=bg_params.grid_size,
+                    box_size=bg_params.box_size,
+                    polynomial_order=bg_params.polynomial_order,
+                    sigma_clip=bg_params.sigma_clip,
+                    smoothing=bg_params.smoothing,
+                    object_aware=True,
+                    exclusion_mask=full_plan.exclusion_mask,
+                )
+
+            working, bg_model = extract_background(working, bg_params)
+
+            # Adaptive: measure residual gradient, iterate if not flat enough.
+            # On object-dominated frames (M42 etc.) do NOT iterate to higher
+            # order — the std stays high because the OBJECT is the signal, not a
+            # gradient, and bumping the order up makes the fit eat the core.
+            bg_residual = np.std(bg_model)
+            max_bg_passes = 1 if full_plan.bg_object_dominated else 3
+            bg_pass = 1
+            while bg_residual >= 0.05 and bg_pass < max_bg_passes:
+                bg_pass += 1
+                # Increase grid density and polynomial order for finer correction
+                refined_params = BackgroundParams(
+                    grid_size=min(bg_params.grid_size + 4, 24),
+                    box_size=bg_params.box_size,
+                    polynomial_order=min(bg_params.polynomial_order + 1, 6),
+                    sigma_clip=bg_params.sigma_clip,
+                    smoothing=bg_params.smoothing,
+                    object_aware=bg_params.object_aware,
+                    exclusion_mask=bg_params.exclusion_mask,
+                )
+                working, bg_model_2 = extract_background(working, refined_params)
+                new_residual = np.std(bg_model_2)
+                self._log_msg(
+                    f"[{name}] BG pass {bg_pass}: residual {bg_residual:.4f} -> {new_residual:.4f}"
+                )
+                bg_residual = new_residual
+
+            # Morphological background fallback for severe LP
+            if bg_residual >= 0.05:
+                self._log_msg(
+                    f"[{name}] Polynomial BG insufficient (residual={bg_residual:.4f}), "
+                    f"trying morphological fallback"
+                )
+                morph_result = self._morphological_background_subtract(working)
+                if morph_result is not None:
+                    morph_working, morph_bg = morph_result
+                    morph_residual = float(np.std(morph_bg))
+                    if morph_residual < bg_residual:
+                        self._log_msg(
+                            f"[{name}] Morphological BG better: {morph_residual:.4f} vs {bg_residual:.4f}"
+                        )
+                        working = morph_working
+                        bg_residual = morph_residual
+
+            self._quality_check(
+                ProcessingStage.BACKGROUND_EXTRACTION,
+                "bg_gradient_std",
+                bg_residual,
+                threshold=0.05,
+                passed=bg_residual < 0.05,
+                adjustment=f"Ran {bg_pass} pass(es)" if bg_pass > 1 else None,
+            )
+
+            # Validate background extraction output
+            if not self._validate_stage_output(working, "background", channel):
+                self._log_msg(f"[{name}] Background extraction failed validation, reverting")
+                working = channel.copy()
+
+        # Stage 2: Noise reduction
+        if plan.denoise_params is not None:
+            frac = frac_start + frac_range * 0.2
+            progress(frac, f"Noise reduction [{name}]...")
+            self._log_msg(
+                f"[{name}] Noise reduction ({'AI' if self._use_ai_denoise else 'wavelet'}): "
+                f"strength={plan.denoise_params.strength:.2f}"
+            )
+
+            before_stats = compute_channel_stats(working)
+            working = self._run_denoise(working, plan.denoise_params)
+            after_stats = compute_channel_stats(working)
+
+            # Quality check: NR shouldn't destroy detail (std shouldn't drop too much)
+            detail_ratio = after_stats["std"] / max(before_stats["std"], 1e-10)
+            if detail_ratio < 0.3:
+                # Too aggressive — re-run with less strength
+                self._log_msg(
+                    f"[{name}] NR too aggressive (detail_ratio={detail_ratio:.2f}), "
+                    f"reducing strength"
+                )
+                reduced_params = DenoiseParams(
+                    method=plan.denoise_params.method,
+                    strength=plan.denoise_params.strength * 0.5,
+                    detail_preservation=min(plan.denoise_params.detail_preservation + 0.2, 0.9),
+                )
+                working = self._run_denoise(channel.copy(), reduced_params)
+                after_stats = compute_channel_stats(working)
+                detail_ratio = after_stats["std"] / max(before_stats["std"], 1e-10)
+                self._quality_check(
+                    ProcessingStage.NOISE_REDUCTION,
+                    "detail_preservation",
+                    detail_ratio,
+                    threshold=0.4,
+                    passed=detail_ratio >= 0.4,
+                    adjustment="Reduced NR strength by 50%",
+                )
+            else:
+                self._quality_check(
+                    ProcessingStage.NOISE_REDUCTION,
+                    "detail_preservation",
+                    detail_ratio,
+                    threshold=0.4,
+                    passed=True,
+                )
+
+        # Stage 3: Adaptive deconvolution
+        if plan.deconvolution_params is not None:
+            frac = frac_start + frac_range * 0.4
+            progress(frac, f"Deconvolution [{name}]...")
+
+            dp = plan.deconvolution_params
+            pre_deconv = working.copy()
+
+            if plan.use_spatial_deconv:
+                # Spatially-varying PSF deconvolution — measures local PSF in
+                # each zone and deconvolves with zone-specific PSF. Handles
+                # field curvature, coma, astigmatism naturally.
+                self._log_msg(
+                    f"[{name}] Using spatially-varying PSF deconvolution "
+                    f"(3x3 zones, fallback FWHM={dp.psf_fwhm:.1f}px)"
+                )
+                spatial_params = SpatialDeconvParams(
+                    grid_zones=3,
+                    iterations=dp.iterations,
+                    regularization=dp.regularization,
+                    deringing=dp.deringing,
+                    deringing_amount=dp.deringing_amount,
+                    fallback_fwhm=dp.psf_fwhm,
+                    min_stars_per_zone=3,
+                    blend_radius_fraction=0.25,
+                )
+                working = richardson_lucy_spatial(
+                    working, spatial_params,
+                    progress=lambda f, m: progress(
+                        frac + frac_range * 0.25 * f, m
+                    ),
+                )
+
+                self._quality_check(
+                    ProcessingStage.DECONVOLUTION,
+                    "spatial_zones",
+                    9.0,  # 3x3 zones
+                    threshold=50.0,
+                    passed=True,
+                    adjustment=f"Spatial deconv: 3x3 zones, {dp.iterations} iters each",
+                )
+            else:
+                # Global deconvolution with adaptive iteration count and
+                # edge taper fallback for small images / few stars.
+                from scipy.ndimage import laplace
+                baseline_laplacian_var = float(np.var(laplace(pre_deconv)))
+
+                total_iters = 0
+                max_iters = 20
+                batch_size = 5
+                best_result = working.copy()
+                best_iters = 0
+                regularization = dp.regularization
+
+                while total_iters < max_iters:
+                    batch_iters = min(batch_size, max_iters - total_iters)
+                    batch_params = DeconvolutionParams(
+                        psf_fwhm=dp.psf_fwhm,
+                        iterations=batch_iters,
+                        regularization=regularization,
+                        deringing=dp.deringing,
+                        deringing_amount=dp.deringing_amount,
+                    )
+                    working = richardson_lucy(working, batch_params)
+                    total_iters += batch_iters
+
+                    current_laplacian_var = float(np.var(laplace(working)))
+                    ringing_ratio = current_laplacian_var / max(baseline_laplacian_var, 1e-10)
+                    neg_frac = float(np.mean(working < 0))
+
+                    self._log_msg(
+                        f"[{name}] Deconv iter {total_iters}: "
+                        f"ringing_ratio={ringing_ratio:.2f}, neg={neg_frac:.4f}"
+                    )
+
+                    if ringing_ratio > 2.0 or neg_frac > 0.003:
+                        self._log_msg(
+                            f"[{name}] Deconv stopped at {total_iters} iters "
+                            f"(ringing detected), rolling back to {best_iters}"
+                        )
+                        working = best_result
+                        break
+
+                    best_result = working.copy()
+                    best_iters = total_iters
+
+                    if plan.snr < 15 and total_iters >= 15:
+                        break
+                    if plan.snr < 30 and total_iters >= 30:
+                        break
+
+                self._quality_check(
+                    ProcessingStage.DECONVOLUTION,
+                    "adaptive_iterations",
+                    float(best_iters),
+                    threshold=50.0,
+                    passed=True,
+                    adjustment=f"Adaptively chose {best_iters} iterations",
+                )
+
+                # Edge taper fallback for global deconv
+                if best_iters > 0:
+                    h, w = working.shape
+                    cy, cx = h / 2.0, w / 2.0
+                    yy, xx = np.mgrid[0:h, 0:w]
+                    dist = np.sqrt(((xx - cx) / cx) ** 2 + ((yy - cy) / cy) ** 2)
+                    taper = np.clip(1.0 - (dist - 0.6) / 0.5, 0.0, 1.0).astype(np.float32)
+                    working = working * taper + pre_deconv * (1.0 - taper)
+                    self._log_msg(
+                        f"[{name}] Deconv edge taper applied "
+                        f"(full center, fades 60%-100% radius)"
+                    )
+
+            # Object-aware: deconvolution sharpens the subject, but on empty sky
+            # it only amplifies noise. Keep the deconvolved result over the
+            # object and restore the un-sharpened original over the sky. Whole-
+            # frame objects (M42) leave the mask ~100% → no-op.
+            om = full_plan.object_mask
+            if om is not None and om.shape == working.shape[-2:]:
+                sky_frac = float(np.mean(om < 0.5))
+                if sky_frac > 0.02:
+                    m = om if working.ndim == 2 else om[np.newaxis, ...]
+                    working = (working * m + pre_deconv * (1.0 - m)).astype(np.float32)
+                    self._log_msg(
+                        f"[{name}] Deconvolution confined to subject "
+                        f"({sky_frac * 100:.0f}% sky left un-sharpened)"
+                    )
+
+            # Protect bright STAR cores from residual deconvolution ringing —
+            # but ONLY when the deconvolution was aggressive (sharp PSF). On a
+            # soft PSF the deconv is already gentle and barely rings, so the
+            # feathered restore just wraps a soft halo around every star (it made
+            # M42's stars look hazy). Skip it there.
+            if dp.psf_fwhm <= 5.0:
+                working = self._protect_star_cores_from_deconv(
+                    working, pre_deconv, name
+                )
+
+            working = np.clip(working, 0, 1)
+
+        # Stage 4: Adaptive stretch
+        if plan.stretch_params is not None:
+            frac = frac_start + frac_range * 0.7
+            progress(frac, f"Stretching [{name}]...")
+
+            pre_stretch = working.copy()
+
+            target_median = self._stretch_target_median(analysis, plan.snr, full_plan)
+            self._log_msg(
+                f"[{name}] Adaptive stretch target: {target_median:.3f} "
+                f"(LP={analysis.lp_severity}, SNR={plan.snr:.1f})"
+            )
+
+            # Colour-calibrated images use one shared midtone for every channel so
+            # the SPCC colour balance survives the stretch.
+            if full_plan.shared_stretch_midtone is not None:
+                working = auto_stretch(
+                    pre_stretch,
+                    StretchParams(
+                        midtone=full_plan.shared_stretch_midtone,
+                        shadow_clip=plan.stretch_params.shadow_clip,
+                        linked=False,
+                    ),
+                )
+                self._log_msg(
+                    f"[{name}] Linked stretch (shared midtone="
+                    f"{full_plan.shared_stretch_midtone:.4f}, colour-preserving)"
+                )
+                if plan.local_contrast_params is not None:
+                    progress(frac_start + frac_range * 0.9, f"Local contrast [{name}]...")
+                    working = local_contrast_enhance(working, plan.local_contrast_params)
+                return np.clip(working, 0, 1).astype(np.float32)
+
+            midtone = plan.stretch_params.midtone
+            shadow_clip = plan.stretch_params.shadow_clip
+
+            # Seed the midtone analytically so the loop converges immediately
+            # instead of stepping geometrically from a fixed guess. auto_stretch
+            # applies the black point then the MTF, so solve for the midtone that
+            # maps the *scaled* median to the target (same math as
+            # statistical_stretch). The loop below still refines/guards against
+            # blown highlights and sky-dominated framing.
+            try:
+                from astraios.core.stretch import _solve_midtone
+
+                _st = compute_channel_stats(pre_stretch)
+                _shadow0 = max(0.0, _st["median"] + shadow_clip * max(_st["mad"], 1e-8))
+                _scale0 = 1.0 / max(1e-10, 1.0 - _shadow0)
+                _scaled_med = max(1e-6, (_st["median"] - _shadow0) * _scale0)
+                midtone = _solve_midtone(_scaled_med, target_median)
+            except Exception as exc:
+                self._log_msg(f"[{name}] Analytical midtone seed failed ({exc}), using default")
+
+            best_result = None
+            best_midtone = midtone
+            best_error = float("inf")
+
+            for attempt in range(12):
+                params = StretchParams(
+                    midtone=midtone, shadow_clip=shadow_clip, linked=False,
+                )
+                stretched = auto_stretch(pre_stretch.copy(), params)
+
+                result_median = float(np.median(stretched))
+                sat_frac = float(np.mean(stretched > 0.99))
+
+                # Object-aware: when we have a catalog object mask for a FRAMED
+                # subject (real sky around it), judge the stretch by the
+                # subject's own brightness. This beats the >0.02 heuristic below,
+                # which on noisy data catches background grain as "signal" and
+                # over-stretches. Whole-frame objects (M42) have no sky in the
+                # mask → fall through to the heuristic (unchanged behaviour).
+                om = full_plan.object_mask
+                used_object_mask = False
+                if (om is not None and om.shape == stretched.shape[-2:]
+                        and float(np.mean(om > 0.5)) > 0.005
+                        and float(np.mean(om < 0.5)) > 0.10):
+                    subj = stretched[om > 0.5]
+                    if subj.size:
+                        subj_frac = float(np.mean(om > 0.5))
+                        metric = float(np.mean(subj))
+                        effective_target = min(0.5, target_median / max(subj_frac, 0.1))
+                        sky_dominated = True
+                        used_object_mask = True
+                        if attempt == 0:
+                            self._log_msg(
+                                f"[{name}] Stretch judged by subject region "
+                                f"(object mask, {subj_frac * 100:.0f}% of frame)"
+                            )
+
+                # For sky-dominated images (e.g. nebulae that don't fill
+                # the frame), the overall median stays near 0 even when
+                # the target region is properly stretched.  Use mean of
+                # signal pixels as the quality metric in this case.
+                if not used_object_mask:
+                    signal_mask = stretched > 0.02
+                    signal_frac = float(np.mean(signal_mask))
+                    if signal_frac > 0.05 and result_median < 0.02:
+                        # Sky-dominated image — judge by signal brightness
+                        signal_brightness = float(np.mean(stretched[signal_mask]))
+                        # Scale target for the signal region
+                        effective_target = min(0.5, target_median / max(signal_frac, 0.1))
+                        metric = signal_brightness
+                        sky_dominated = True
+                    else:
+                        metric = result_median
+                        effective_target = target_median
+                        sky_dominated = False
+
+                # For HDR objects cap the effective target so the stretch
+                # doesn't over-brighten the nebula and blow the core. On noisy
+                # real data the "signal" mask catches background noise, so a high
+                # cap pushes the whole sky bright — keep it conservative.
+                if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+                    effective_target = min(effective_target, 0.22)
+
+                error = abs(metric - effective_target)
+
+                self._log_msg(
+                    f"[{name}] Stretch attempt {attempt+1}: midtone={midtone:.4f}, "
+                    f"median={result_median:.3f}, sat={sat_frac:.4f}"
+                    + (f", signal={metric:.3f}/{effective_target:.3f}" if sky_dominated else "")
+                )
+
+                # Track best result (closest to target without blown highlights)
+                if sat_frac < 0.03 and error < best_error:
+                    best_error = error
+                    best_result = stretched
+                    best_midtone = midtone
+
+                # Close enough — stop searching
+                if error < 0.05 and sat_frac < 0.03:
+                    break
+
+                # Adjust midtone: lower = brighter result
+                if metric < effective_target * 0.8:
+                    midtone *= 0.6  # too dark, make more aggressive
+                elif metric > effective_target * 1.3:
+                    midtone *= 1.4  # too bright, pull back
+                elif sat_frac > 0.03:
+                    midtone *= 1.3  # blown highlights, ease off
+                else:
+                    break  # good enough
+
+                # For HDR cap midtone so the core doesn't blow out completely.
+                min_midtone = 0.020 if full_plan.needs_hdr_merge else 0.001
+                midtone = max(min_midtone, min(0.5, midtone))
+
+            if best_result is not None:
+                working = best_result
+            else:
+                working = auto_stretch(pre_stretch, plan.stretch_params)
+
+            # Sky-veil cleanup: pull a raised/milky background down toward (not
+            # all the way to) black so the subject separates from the sky.
+            # Extreme-DR targets (M42) get a firm pull to a low floor. Every other
+            # frame gets a GENTLE pull that only engages once the sky is clearly
+            # raised (p10 > ~0.06) — so on faint, noisy data (IFN, OSC) the grainy
+            # background darkens, while delicate nebulosity on clean frames isn't
+            # crushed.
+            sky = float(np.percentile(working, 10))
+            if full_plan.needs_hdr_merge:
+                pull = max(0.0, sky - 0.02) * 0.7  # firm, ~0.02 floor
+            else:
+                # The stretch now lands the sky low already, so this is the final
+                # step to a clean black floor (~0.04) — what separates a finished
+                # image from a grey screen-stretch. A linear subtract + clip also
+                # crushes the lower half of the background noise into pure black,
+                # which is the cheapest, most effective colour-speckle reduction.
+                pull = max(0.0, sky - 0.035) * 0.65  # ~0.035 floor
+            if pull > 0.001:
+                working = np.clip(working - pull, 0, 1)
+                self._log_msg(f"[{name}] Sky-veil pull: -{pull:.3f} (sky was {sky:.3f})")
+
+            final_median = float(np.median(working))
+            final_signal = float(np.mean(working[working > 0.02])) if np.any(working > 0.02) else 0.0
+            self._log_msg(
+                f"[{name}] Stretch final: midtone={best_midtone:.3f}, "
+                f"median={final_median:.3f}, signal_mean={final_signal:.3f}"
+            )
+            self._quality_check(
+                ProcessingStage.STRETCH,
+                "target_brightness",
+                max(final_median, final_signal * 0.5),
+                threshold=target_median,
+                passed=(final_signal > 0.15 or abs(final_median - target_median) < 0.1
+                        or (sky_dominated and metric > effective_target * 0.5)),
+                adjustment=f"Adaptively chose midtone={best_midtone:.3f}",
+            )
+
+        # Core protection for HDR objects: gently compress ONLY the blown
+        # highlights of the bright core (Trapezium etc.) so its detail survives,
+        # WITHOUT darkening a well-exposed core.
+        #
+        # The previous approach re-stretched the LINEAR data through a tonemap
+        # (apply_hdr) and blended that over the core. But the tonemap stretches
+        # with a fixed default midtone (~0.25), while on a dark sky the main
+        # adaptive stretch is far more aggressive (midtone ~0.006). So the
+        # tonemap rendered the faint core nearly BLACK, and blending it in carved
+        # a dark hole — only the Trapezium peak (bright enough to survive the
+        # gentle curve) poked through. Operating on the already-stretched
+        # ``working`` with a highlight-only rolloff cannot darken the core: a core
+        # below the knee is left exactly as the main stretch produced it.
+        if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
+            # Soft mask of the bright core, measured on the LINEAR data so the
+            # threshold isn't fooled by the non-linear stretch.
+            p99 = float(np.percentile(pre_stretch, 99))
+            core_linear = (pre_stretch > p99 * 0.3).astype(np.float32)
+            if np.any(core_linear):
+                from scipy.ndimage import gaussian_filter
+
+                # min over the SPATIAL dims only — min(shape) on (C, H, W) would
+                # collapse to the channel count and make sigma tiny.
+                sigma = max(8.0, min(working.shape[-2], working.shape[-1]) * 0.015)
+                core_mask = gaussian_filter(core_linear, sigma=sigma)
+                core_mask = np.clip(core_mask, 0, 1)
+                cm = core_mask[np.newaxis, ...] if working.ndim == 3 else core_mask
+
+                # Highlight-only rolloff: values above the knee are pulled toward
+                # detail; values below are untouched. A core that isn't blown
+                # stays exactly as bright as the main stretch made it.
+                knee = 0.82
+                compressed = np.where(
+                    working > knee, knee + (working - knee) * 0.55, working
+                ).astype(np.float32)
+                working = (working * (1.0 - cm) + compressed * cm).astype(np.float32)
+                self._log_msg(
+                    f"[{name}] HDR core-protect: highlight rolloff over "
+                    f"{float(np.mean(core_mask)):.4f} of the frame"
+                )
+            else:
+                # No bright core to protect — keep the adaptive stretch as-is.
+                self._log_msg(
+                    f"[{name}] HDR core-protect: no bright core detected; "
+                    f"keeping adaptive stretch"
+                )
+
+        # Stage 5: Local contrast (background-preserving — a plain CLAHE here
+        # pumps the sky up, which on faint/noisy colour data (IFN, OSC) inflates
+        # the whole frame into an over-stretched, grainy mess).
+        if plan.local_contrast_params is not None:
+            frac = frac_start + frac_range * 0.9
+            progress(frac, f"Local contrast [{name}]...")
+            self._log_msg(f"[{name}] Local contrast enhancement")
+            working = self._bg_preserving_local_contrast(
+                working, plan.local_contrast_params, f"LC [{name}]",
+                region_mask=full_plan.object_mask,
+            )
+
+        return np.clip(working, 0, 1).astype(np.float32)
+
+    # ------------------------------------------------------------------ #
+    #  Helper methods                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _safe_plate_solve(
+        self, data: np.ndarray, params: PlateSolveParams
+    ) -> PlateSolveResult | None:
+        """Plate-solve the image, preferring nova.astrometry.net when configured.
+
+        With an API key we solve online (robust, no reference index needed) — a
+        network call, so it runs in-process. Without a key we fall back to the
+        local triangle matcher in a subprocess (its OpenCV path can segfault on
+        odd data, so it's isolated).
+        """
+        if self._astrometry_api_key:
+            try:
+                from astraios.core.plate_solve import plate_solve_astrometry_net
+
+                self._log_msg("Plate solving via astrometry.net (online)…")
+                result = plate_solve_astrometry_net(
+                    data, self._astrometry_api_key, params,
+                )
+                if result and result.success:
+                    return result
+                self._log_msg(
+                    "astrometry.net solve did not succeed — trying local solver"
+                )
+            except Exception as exc:
+                self._log_msg(
+                    f"astrometry.net solve error ({exc}) — trying local solver"
+                )
+
+        import multiprocessing as mp
+
+        parent_conn, child_conn = mp.Pipe(duplex=False)
+        proc = mp.Process(
+            target=_plate_solve_worker,
+            args=(child_conn, data, params),
+            daemon=True,
+        )
+        proc.start()
+        proc.join(timeout=30)  # 30 second timeout
+
+        if proc.is_alive():
+            self._log_msg("Plate solve timed out — killing subprocess")
+            proc.kill()
+            proc.join(timeout=5)
+            parent_conn.close()
+            return PlateSolveResult(success=False)
+
+        if proc.exitcode != 0:
+            self._log_msg(f"Plate solve subprocess crashed (exit code {proc.exitcode})")
+            parent_conn.close()
+            return PlateSolveResult(success=False)
+
+        if parent_conn.poll():
+            result = parent_conn.recv()
+            parent_conn.close()
+            return result
+
+        parent_conn.close()
+        return PlateSolveResult(success=False)
+
+    def _extract_bg_only(
+        self,
+        channel: np.ndarray,
+        plan: ChannelPlan,
+        analysis: ImageAnalysis,
+        object_dominated: bool = False,
+    ) -> np.ndarray:
+        """Run only the background extraction stage for a channel.
+
+        Used by the two-pass approach in _execute so that linked signal
+        rescaling can be applied after BG extraction of ALL channels.
+        """
+        if plan.background_params is None:
+            return channel.copy()
+
+        working = channel.copy()
+        name = plan.channel_name
+        bg_params = plan.background_params
+
+        self._log_msg(f"[{name}] Background extraction")
+        working, bg_model = extract_background(working, bg_params)
+
+        # Iterative refinement (skipped for object-dominated frames — see
+        # _execute_channel: bumping the order eats the bright core).
+        bg_residual = np.std(bg_model)
+        max_bg_passes = 1 if object_dominated else 3
+        bg_pass = 1
+        while bg_residual >= 0.05 and bg_pass < max_bg_passes:
+            bg_pass += 1
+            refined_params = BackgroundParams(
+                grid_size=min(bg_params.grid_size + 4, 24),
+                box_size=bg_params.box_size,
+                polynomial_order=min(bg_params.polynomial_order + 1, 6),
+                sigma_clip=bg_params.sigma_clip,
+                smoothing=bg_params.smoothing,
+                object_aware=bg_params.object_aware,
+                exclusion_mask=bg_params.exclusion_mask,
+            )
+            working, bg_model_2 = extract_background(working, refined_params)
+            new_residual = np.std(bg_model_2)
+            self._log_msg(
+                f"[{name}] BG pass {bg_pass}: residual {bg_residual:.4f} -> {new_residual:.4f}"
+            )
+            bg_residual = new_residual
+
+        # Morphological fallback
+        if bg_residual >= 0.05:
+            morph_result = self._morphological_background_subtract(working)
+            if morph_result is not None:
+                morph_working, morph_bg = morph_result
+                morph_residual = float(np.std(morph_bg))
+                if morph_residual < bg_residual:
+                    self._log_msg(
+                        f"[{name}] Morphological BG better: {morph_residual:.4f} vs {bg_residual:.4f}"
+                    )
+                    working = morph_working
+                    bg_residual = morph_residual
+
+        self._quality_check(
+            ProcessingStage.BACKGROUND_EXTRACTION,
+            "bg_gradient_std",
+            bg_residual,
+            threshold=0.05,
+            passed=bg_residual < 0.05,
+            adjustment=f"Ran {bg_pass} pass(es)" if bg_pass > 1 else None,
+        )
+
+        # Validate
+        if not self._validate_stage_output(working, "background", channel):
+            self._log_msg(f"[{name}] Background extraction failed validation, reverting")
+            return channel.copy()
+
+        return working
+
+    def _morphological_background_subtract(
+        self, channel: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """Estimate background via morphological approach (median filter).
+
+        Uses a large kernel to create a smooth background model that
+        captures gradients from LP without being affected by stars.
+        """
+        try:
+            from scipy.ndimage import gaussian_filter, median_filter
+            h, w = channel.shape
+            kernel = max(64, min(h, w) // 8)
+            # Make kernel odd
+            if kernel % 2 == 0:
+                kernel += 1
+            bg = median_filter(channel, size=kernel)
+            bg = gaussian_filter(bg, sigma=kernel / 4)
+            corrected = channel - bg
+            c_min = float(np.percentile(corrected, 0.5))
+            corrected = corrected - c_min
+            corrected = np.clip(corrected, 0, 1).astype(np.float32)
+            return corrected, bg
+        except Exception as exc:
+            self._log_msg(f"Morphological BG failed: {exc}")
+            return None
+
+    def _validate_stage_output(
+        self, result: np.ndarray, stage_name: str, original: np.ndarray
+    ) -> bool:
+        """Validate that a processing stage did not corrupt the data."""
+        if np.any(~np.isfinite(result)):
+            self._log_msg(f"Validation FAIL [{stage_name}]: NaN/Inf detected")
+            return False
+        orig_range = float(np.percentile(original, 95) - np.percentile(original, 5))
+        result_range = float(np.percentile(result, 95) - np.percentile(result, 5))
+        if orig_range > 0 and result_range / orig_range < 0.1:
+            self._log_msg(f"Validation FAIL [{stage_name}]: Lost >90% of signal range")
+            return False
+        return True
+
+    # ------------------------------------------------------------------ #
+    #  Quality checks                                                     #
+    # ------------------------------------------------------------------ #
+
+    def _quality_check(
+        self,
+        stage: ProcessingStage,
+        metric_name: str,
+        value: float,
+        threshold: float,
+        passed: bool,
+        adjustment: str | None = None,
+    ) -> None:
+        """Record a quality check result."""
+        qc = QualityCheck(
+            stage=stage,
+            passed=passed,
+            metric_name=metric_name,
+            metric_value=value,
+            threshold=threshold,
+            adjustment=adjustment,
+        )
+        self._quality_checks.append(qc)
+        status = "PASS" if passed else "ADJUST"
+        self._log_msg(
+            f"  QC [{stage.value}] {metric_name}={value:.4f} "
+            f"(threshold={threshold:.4f}) → {status}"
+        )
+
+    def _final_gradient_cleanup(
+        self, working: np.ndarray, plan: ProcessingPlan
+    ) -> np.ndarray:
+        """Remove a residual post-stretch gradient / vignette, object-aware.
+
+        Only engages when there's a measurable corner-to-corner gradient — so
+        clean frames are untouched. Uses the object mask to protect the subject.
+        Best-effort: returns the input unchanged on any failure.
+        """
+        try:
+            gray = working if working.ndim == 2 else working.mean(0)
+            h, w = gray.shape
+            cs = [gray[:h // 8, :w // 8].mean(), gray[:h // 8, -w // 8:].mean(),
+                  gray[-h // 8:, :w // 8].mean(), gray[-h // 8:, -w // 8:].mean()]
+            spread = float(max(cs) - min(cs))
+            if spread < 0.04:
+                return working  # background already flat — nothing to do
+
+            from astraios.core.gradient_removal import (
+                GradientRemovalParams,
+                remove_gradient,
+            )
+
+            out = remove_gradient(
+                working, object_mask=plan.object_mask,
+                params=GradientRemovalParams(mode="subtract", order=4),
+            )
+            new_gray = out if out.ndim == 2 else out.mean(0)
+            new_cs = [new_gray[:h // 8, :w // 8].mean(), new_gray[:h // 8, -w // 8:].mean(),
+                      new_gray[-h // 8:, :w // 8].mean(), new_gray[-h // 8:, -w // 8:].mean()]
+            new_spread = float(max(new_cs) - min(new_cs))
+            self._log_msg(
+                f"Final: gradient/vignette cleanup (corner spread "
+                f"{spread:.3f} → {new_spread:.3f})"
+            )
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "background_gradient",
+                new_spread, threshold=0.04, passed=new_spread <= spread,
+                adjustment="Removed residual gradient/vignette",
+            )
+            return out.astype(np.float32)
+        except Exception as exc:
+            self._log_msg(f"Gradient cleanup skipped ({exc})")
+            return working
+
+    def _final_quality_pass(
+        self, working: np.ndarray, analysis: ImageAnalysis
+    ) -> np.ndarray:
+        """Inspect the finished image and self-correct objective defects.
+
+        Two automatic guards (recorded as quality checks):
+        1. Residual background colour cast — the dark background should be
+           neutral grey; if the per-channel background medians diverge,
+           re-neutralize. Star-aware contrast/saturation can reintroduce a cast.
+        2. Blown highlights — if a large fraction of the frame is pure white
+           (over-stretch, not just star cores), soft-compress the top end.
+        """
+        is_color = working.ndim == 3 and working.shape[0] >= 3
+
+        def _bg_medians(img: np.ndarray) -> list[float]:
+            out = []
+            for c in range(3):
+                ch = img[c]
+                thr = float(np.percentile(ch, 15))
+                sel = ch[ch <= thr]
+                out.append(float(np.median(sel)) if sel.size else 0.0)
+            return out
+
+        if is_color and not self._is_narrowband(analysis):
+            bgs = _bg_medians(working)
+            spread = max(bgs) - min(bgs)
+            if spread > 0.012:
+                target = min(bgs)
+                for c in range(3):
+                    off = bgs[c] - target
+                    if off > 0.002:
+                        working[c] = np.clip(working[c] - off, 0.0, 1.0)
+                new_spread = max(_bg_medians(working)) - min(_bg_medians(working))
+                self._log_msg(
+                    f"Final: neutralized residual colour cast "
+                    f"(bg spread {spread:.3f} → {new_spread:.3f})"
+                )
+                self._quality_check(
+                    ProcessingStage.FINAL_ADJUSTMENTS, "bg_colour_cast",
+                    new_spread, threshold=0.012, passed=new_spread < 0.012,
+                    adjustment="Re-neutralized background",
+                )
+            else:
+                self._quality_check(
+                    ProcessingStage.FINAL_ADJUSTMENTS, "bg_colour_cast",
+                    spread, threshold=0.012, passed=True,
+                )
+
+        near_white = float(np.mean(working > 0.995))
+        if near_white > 0.03:
+            knee = 0.85
+            working = np.where(
+                working > knee, knee + (working - knee) * 0.6, working
+            ).astype(np.float32)
+            new_white = float(np.mean(working > 0.995))
+            self._log_msg(
+                f"Final: highlight rolloff (pure-white {near_white*100:.1f}% "
+                f"→ {new_white*100:.1f}%)"
+            )
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "blown_highlights",
+                new_white, threshold=0.03, passed=new_white < near_white,
+                adjustment="Soft highlight compression",
+            )
+        else:
+            self._quality_check(
+                ProcessingStage.FINAL_ADJUSTMENTS, "blown_highlights",
+                near_white, threshold=0.03, passed=True,
+            )
+
+        return np.clip(working, 0.0, 1.0).astype(np.float32)
+
+    def _check_color_balance(self, image: np.ndarray, stage: ProcessingStage) -> None:
+        """Check if color channels are reasonably balanced after processing."""
+        if image.ndim != 3 or image.shape[0] < 3:
+            return
+        medians = [float(np.median(image[ch])) for ch in range(3)]
+        spread = max(medians) - min(medians)
+        self._quality_check(
+            stage,
+            "color_balance_spread",
+            spread,
+            threshold=0.3,
+            passed=spread < 0.3,
+        )
+
+    # ------------------------------------------------------------------ #
+    #  Logging                                                            #
+    # ------------------------------------------------------------------ #
+
+    def _log_msg(self, msg: str) -> None:
+        """Log a message both to Python logger and internal log."""
+        log.info(msg)
+        self._log.append(msg)

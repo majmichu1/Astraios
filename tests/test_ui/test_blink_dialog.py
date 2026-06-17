@@ -11,7 +11,7 @@ def _app(qtbot):
 
 
 def test_blink_dialog_constructs_with_none_and_empty(qtbot):
-    from cosmica.ui.dialogs.blink_dialog import BlinkDialog
+    from astraios.ui.dialogs.blink_dialog import BlinkDialog
 
     BlinkDialog()                       # no args
     BlinkDialog(frame_paths=None)       # explicit None

@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.object_mask import build_object_mask
+from astraios.core.object_mask import build_object_mask
 
 
 def test_none_when_no_objects():

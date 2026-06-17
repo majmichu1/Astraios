@@ -9,7 +9,7 @@ routed here, so 'Apply Denoise' was broken by default.
 import numpy as np
 import torch
 
-from cosmica.core.tgv_denoise import (
+from astraios.core.tgv_denoise import (
     TGVParams,
     _div,
     _div_sym,

@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.masks import Mask
-from cosmica.core.morphology import (
+from astraios.core.masks import Mask
+from astraios.core.morphology import (
     MorphOp,
     MorphologyParams,
     StructuringElement,

@@ -10,7 +10,7 @@ class TestC1LiveStackPreview:
     """C1: _display_preview should not crash on None/empty/first-frame arrays."""
 
     def test_none_array(self):
-        from cosmica.ui.dialogs.live_stack_dialog import LiveStackDialog
+        from astraios.ui.dialogs.live_stack_dialog import LiveStackDialog
 
         # The _display_preview method skips None/empty via early return
         method = LiveStackDialog._display_preview
@@ -24,7 +24,7 @@ class TestC1LiveStackPreview:
         # We can't actually instantiate the dialog (needs Qt),
         # but we can verify the condition logic in the source
         from ast import parse
-        src = open(__import__("cosmica.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__).read()
+        src = open(__import__("astraios.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__).read()
         assert "is None or not isinstance(arr, np.ndarray) or arr.size == 0" in src, \
             "C1 guard should check None, isinstance, and empty"
 
@@ -33,13 +33,13 @@ class TestC2SmartProcessWorker:
     """C2: SmartProcessWorker should emit error on exception."""
 
     def test_error_signal_exists(self):
-        from cosmica.ui.dialogs.smart_process_dialog import SmartProcessWorker
+        from astraios.ui.dialogs.smart_process_dialog import SmartProcessWorker
 
         assert hasattr(SmartProcessWorker, "error"), \
             "SmartProcessWorker must have an error signal"
 
     def test_error_on_exception(self):
-        from cosmica.ui.dialogs.smart_process_dialog import SmartProcessWorker
+        from astraios.ui.dialogs.smart_process_dialog import SmartProcessWorker
 
         class _MockProcessor:
             def process(self, *args, **kwargs):
@@ -57,8 +57,8 @@ class TestC3DenoiseDispatch:
     """C3: All 4 denoise methods should map to distinct DenoiseMethod enum values."""
 
     def test_methods_map_correctly(self):
-        from cosmica.ui.panels.tools_panel import ToolsPanel
-        from cosmica.core.denoise import DenoiseMethod
+        from astraios.ui.panels.tools_panel import ToolsPanel
+        from astraios.core.denoise import DenoiseMethod
 
         # Test the dispatch table logic directly
         method_map = {
@@ -75,7 +75,7 @@ class TestC3DenoiseDispatch:
         assert len(set(method_map.values())) == 4, "All 4 methods must be distinct"
 
     def test_each_method_produces_valid_params(self):
-        from cosmica.core.denoise import DenoiseParams, DenoiseMethod, denoise
+        from astraios.core.denoise import DenoiseParams, DenoiseMethod, denoise
 
         img = np.random.rand(1, 64, 64).astype(np.float32) * 0.5
         for method in DenoiseMethod:
@@ -90,7 +90,7 @@ class TestC4PythonConsoleTimeout:
     """C4: Python console should timeout long-running commands."""
 
     def test_timeout_mechanism(self):
-        from cosmica.ui.widgets.python_console import PythonConsoleWidget
+        from astraios.ui.widgets.python_console import PythonConsoleWidget
 
         w = PythonConsoleWidget.__new__(PythonConsoleWidget)
         w._timeout_sec = 0.5
@@ -110,7 +110,7 @@ class TestC7CircularFOV:
     """C7: DSO catalog should use circular (not rectangular) FOV."""
 
     def test_query_uses_angular_distance(self):
-        from cosmica.core.dso_catalog import query_dso_in_field
+        from astraios.core.dso_catalog import query_dso_in_field
 
         # M42 at RA=83.822, Dec=-5.391
         # With 3° FOV centered on M42, we expect 3 objects
@@ -124,7 +124,7 @@ class TestC9DagCache:
     """C9: DAG cache should invalidate on param changes."""
 
     def test_invalidation_on_update_params(self):
-        from cosmica.core.processing_graph import ProcessingGraph
+        from astraios.core.processing_graph import ProcessingGraph
         import numpy as np
 
         g = ProcessingGraph()
@@ -147,7 +147,7 @@ class TestC9DagCache:
         assert call_count == 2, "Should recompute after update_params"
 
     def test_hash_detects_mutation(self):
-        from cosmica.core.processing_graph import ProcessingGraph
+        from astraios.core.processing_graph import ProcessingGraph
         import numpy as np
 
         g = ProcessingGraph()
@@ -173,6 +173,6 @@ class TestH25ProjectLoad:
 
     def test_open_project_handles_value_error(self):
         """Verify that _open_project wraps Project.load in try/except ValueError."""
-        src = open(__import__("cosmica.ui.main_window", fromlist=[""]).__file__).read()
+        src = open(__import__("astraios.ui.main_window", fromlist=[""]).__file__).read()
         assert "try:" in src and "except ValueError" in src, \
             "_open_project must handle ValueError from corrupted JSON"

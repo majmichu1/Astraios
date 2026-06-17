@@ -1,0 +1,78 @@
+# -*- mode: python ; coding: utf-8 -*-
+# PyInstaller spec for Astraios — macOS build
+
+from pathlib import Path
+
+block_cipher = None
+project_root = Path(SPECPATH).parent.parent
+
+a = Analysis(
+    [str(project_root / 'astraios' / '__main__.py')],
+    pathex=[str(project_root)],
+    binaries=[],
+    datas=[
+        (str(project_root / 'astraios' / 'resources'), 'astraios/resources'),
+    ],
+    hiddenimports=[
+        'astraios.core.device_manager',
+        'astraios.core.image_io',
+        'astraios.core.calibration',
+        'astraios.core.stacking',
+        'astraios.core.stretch',
+        'astraios.core.background',
+        'astraios.core.project',
+        'astraios.ui.app',
+        'astraios.ui.main_window',
+        'astraios.ui.theme',
+        'astraios.licensing.license_manager',
+        'astraios.updater.auto_updater',
+        'torch',
+        'torchvision',
+        'astropy',
+        'ccdproc',
+        'scipy',
+        'cv2',
+        'PIL',
+        'PyQt6',
+    ],
+    hookspath=[],
+    excludes=['tkinter', 'matplotlib', 'notebook', 'jupyter'],
+    noarchive=False,
+    cipher=block_cipher,
+)
+
+pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    [],
+    exclude_binaries=True,
+    name='Astraios',
+    debug=False,
+    strip=False,
+    upx=False,  # UPX doesn't work well on macOS arm64
+    console=False,
+    target_arch='universal2',
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    name='Astraios',
+)
+
+app = BUNDLE(
+    coll,
+    name='Astraios.app',
+    icon=str(project_root / 'astraios' / 'resources' / 'icons' / 'astraios.icns'),
+    bundle_identifier='com.astraios.app',
+    info_plist={
+        'CFBundleShortVersionString': '0.1.0',
+        'NSHighResolutionCapable': True,
+    },
+)

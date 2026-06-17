@@ -3,7 +3,7 @@
 import pytest
 import numpy as np
 
-from cosmica.core.color_tools import (
+from astraios.core.color_tools import (
     ColorAdjustParams,
     SCNRMethod,
     SCNRParams,
@@ -12,7 +12,7 @@ from cosmica.core.color_tools import (
     _rgb_to_hsv,
     _hsv_to_rgb,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 class TestSCNR:

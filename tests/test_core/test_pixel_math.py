@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.pixel_math import (
+from astraios.core.pixel_math import (
     PixelMathError,
     evaluate,
     prepare_variables,

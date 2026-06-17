@@ -1,6 +1,6 @@
-# Cosmica — Processing Workflow
+# Astraios — Processing Workflow
 
-A step-by-step guide to processing astrophotography images with Cosmica.
+A step-by-step guide to processing astrophotography images with Astraios.
 
 ## Overview
 

@@ -1,6 +1,6 @@
-# Contributing to Cosmica
+# Contributing to Astraios
 
-Thank you for your interest in contributing! Cosmica is a community-driven project to build professional astrophotography software that's **free and open source**.
+Thank you for your interest in contributing! Astraios is a community-driven project to build professional astrophotography software that's **free and open source**.
 
 ## Getting Started
 
@@ -8,8 +8,8 @@ Thank you for your interest in contributing! Cosmica is a community-driven proje
 
 ```bash
 # Clone the repository
-git clone https://github.com/majmichu1/cosmica.git
-cd cosmica
+git clone https://github.com/majmichu1/astraios.git
+cd astraios
 
 # Install dependencies
 poetry install
@@ -21,9 +21,9 @@ poetry install --with dev
 ### 2. Run the application
 
 ```bash
-poetry run cosmica
+poetry run astraios
 # or
-poetry run python -m cosmica
+poetry run python -m astraios
 ```
 
 ### 3. Run tests
@@ -31,14 +31,14 @@ poetry run python -m cosmica
 ```bash
 poetry run pytest  # 729+ tests
 poetry run ruff check .  # Lint
-poetry run mypy cosmica  # Type check
+poetry run mypy astraios  # Type check
 ```
 
 ## How to Contribute
 
 ### Reporting Bugs
-- Open an issue at [GitHub Issues](https://github.com/majmichu1/cosmica/issues)
-- Include: OS, Python version, Cosmica version, steps to reproduce
+- Open an issue at [GitHub Issues](https://github.com/majmichu1/astraios/issues)
+- Include: OS, Python version, Astraios version, steps to reproduce
 - Attach screenshots if possible
 
 ### Suggesting Features
@@ -63,11 +63,11 @@ poetry run mypy cosmica  # Type check
 - **Tests**: Mirror the source structure in `tests/`
 
 ### GPU Acceleration
-Cosmica uses PyTorch for GPU acceleration. All GPU code MUST go through `get_device_manager()` in `cosmica/core/device_manager.py`. Never call `torch.cuda.*` directly elsewhere.
+Astraios uses PyTorch for GPU acceleration. All GPU code MUST go through `get_device_manager()` in `astraios/core/device_manager.py`. Never call `torch.cuda.*` directly elsewhere.
 
 ## AI Model Training
 
-Cosmica includes self-supervised AI models (Noise2Self for denoising). To train models:
+Astraios includes self-supervised AI models (Noise2Self for denoising). To train models:
 
 ```bash
 # Place FITS files in astro_data/

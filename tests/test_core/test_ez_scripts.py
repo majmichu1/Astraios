@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cosmica.core.ez_scripts import list_presets, run_preset
+from astraios.core.ez_scripts import list_presets, run_preset
 
 
 @pytest.fixture

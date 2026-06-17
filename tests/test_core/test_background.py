@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.background import BackgroundParams, extract_background
+from astraios.core.background import BackgroundParams, extract_background
 
 
 class TestBackgroundExtraction:
@@ -77,7 +77,7 @@ class TestEdgeGradientArtifact:
         return float(edge.mean()) - float(center.mean())
 
     def test_no_bright_edges_after_extraction(self):
-        from cosmica.core.background import BackgroundParams, extract_background
+        from astraios.core.background import BackgroundParams, extract_background
 
         for kind in ("vignette", "linear"):
             img = self._bg(kind)
@@ -88,7 +88,7 @@ class TestEdgeGradientArtifact:
     def test_smoothing_does_not_darken_model_edges(self):
         # The model's border values must stay close to the interior, not be
         # pulled toward zero by the smoothing.
-        from cosmica.core.background import BackgroundParams, extract_background
+        from astraios.core.background import BackgroundParams, extract_background
 
         img = self._bg("vignette")
         _, model = extract_background(img, BackgroundParams(smoothing=0.8))

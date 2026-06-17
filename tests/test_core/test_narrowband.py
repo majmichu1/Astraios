@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.narrowband import (
+from astraios.core.narrowband import (
     NarrowbandPalette,
     NarrowbandParams,
     combine_narrowband,

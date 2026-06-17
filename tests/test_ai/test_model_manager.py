@@ -3,9 +3,9 @@
 import pytest
 import torch
 
-from cosmica.ai.model_manager import ModelManager, ModelType, ModelInfo, MODEL_REGISTRY
-from cosmica.ai.models.denoise_model import DenoiseUNet
-from cosmica.ai.models.sharpen_model import SharpenUNet
+from astraios.ai.model_manager import ModelManager, ModelType, ModelInfo, MODEL_REGISTRY
+from astraios.ai.models.denoise_model import DenoiseUNet
+from astraios.ai.models.sharpen_model import SharpenUNet
 
 
 class TestModelType:
@@ -110,7 +110,7 @@ class TestModelManager:
         manager = ModelManager(models_dir=tmp_path)
 
         # Create a small model and save its state dict
-        from cosmica.ai.models.denoise_model import create_denoise_model
+        from astraios.ai.models.denoise_model import create_denoise_model
 
         original = create_denoise_model(
             in_channels=1, base_features=32, depth=4, use_noise_conditioning=True
@@ -137,7 +137,7 @@ class TestModelManager:
         """Save a dummy sharpen model, then load it via ModelManager."""
         manager = ModelManager(models_dir=tmp_path)
 
-        from cosmica.ai.models.sharpen_model import create_sharpen_model
+        from astraios.ai.models.sharpen_model import create_sharpen_model
 
         original = create_sharpen_model(
             in_channels=1, base_features=32, depth=4, use_psf_conditioning=True
@@ -165,7 +165,7 @@ class TestModelManager:
         """Saving then deleting a model should remove the file."""
         manager = ModelManager(models_dir=tmp_path)
 
-        from cosmica.ai.models.denoise_model import create_denoise_model
+        from astraios.ai.models.denoise_model import create_denoise_model
 
         model = create_denoise_model(
             in_channels=1, base_features=32, depth=4
@@ -186,7 +186,7 @@ class TestModelManager:
         """Cache size should reflect saved model files."""
         manager = ModelManager(models_dir=tmp_path)
 
-        from cosmica.ai.models.denoise_model import create_denoise_model
+        from astraios.ai.models.denoise_model import create_denoise_model
 
         model = create_denoise_model(
             in_channels=1, base_features=32, depth=4

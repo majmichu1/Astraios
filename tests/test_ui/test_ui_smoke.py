@@ -1,12 +1,12 @@
-"""Smoke tests for Cosmica UI components — no Qt dependency in tests."""
+"""Smoke tests for Astraios UI components — no Qt dependency in tests."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from cosmica.core.image_io import ImageData
-from cosmica.core.stretch import StretchParams
+from astraios.core.image_io import ImageData
+from astraios.core.stretch import StretchParams
 
 
 def _make_test_image(w=256, h=256, channels=3) -> ImageData:
@@ -79,49 +79,49 @@ class TestUIImports:
     """Verify all UI modules can be imported without errors."""
 
     def test_import_histogram(self):
-        from cosmica.ui.widgets.histogram import HistogramWidget
+        from astraios.ui.widgets.histogram import HistogramWidget
         assert HistogramWidget is not None
 
     def test_import_curves_widget(self):
-        from cosmica.ui.widgets.curves_widget import CurveEditor
+        from astraios.ui.widgets.curves_widget import CurveEditor
         assert CurveEditor is not None
 
     def test_import_image_canvas(self):
-        from cosmica.ui.widgets.image_canvas import ImageCanvas
+        from astraios.ui.widgets.image_canvas import ImageCanvas
         assert ImageCanvas is not None
 
     def test_import_log_panel(self):
-        from cosmica.ui.widgets.log_panel import LogPanel
+        from astraios.ui.widgets.log_panel import LogPanel
         assert LogPanel is not None
 
     def test_import_mask_controls(self):
-        from cosmica.ui.widgets.mask_controls import MaskSelector
+        from astraios.ui.widgets.mask_controls import MaskSelector
         assert MaskSelector is not None
 
     def test_import_export_dialog(self):
-        from cosmica.ui.dialogs.export_dialog import ExportDialog
+        from astraios.ui.dialogs.export_dialog import ExportDialog
         assert ExportDialog is not None
 
     def test_import_preferences_dialog(self):
-        from cosmica.ui.dialogs.preferences_dialog import PreferencesDialog
+        from astraios.ui.dialogs.preferences_dialog import PreferencesDialog
         assert PreferencesDialog is not None
 
     def test_import_main_window(self):
-        from cosmica.ui.main_window import MainWindow
+        from astraios.ui.main_window import MainWindow
         assert MainWindow is not None
 
     def test_import_theme(self):
-        from cosmica.ui.theme import get_dark_theme, DARK_THEME
+        from astraios.ui.theme import get_dark_theme, DARK_THEME
         assert isinstance(DARK_THEME, str)
         assert len(DARK_THEME) > 0
         assert "QMainWindow" in DARK_THEME
 
     def test_import_tools_panel(self):
-        from cosmica.ui.panels.tools_panel import ToolsPanel
+        from astraios.ui.panels.tools_panel import ToolsPanel
         assert ToolsPanel is not None
 
     def test_import_project_panel(self):
-        from cosmica.ui.panels.project_panel import ProjectPanel
+        from astraios.ui.panels.project_panel import ProjectPanel
         assert ProjectPanel is not None
 
 
@@ -129,7 +129,7 @@ class TestHistogramData:
     """Test histogram computation (core, no Qt)."""
 
     def test_compute_histogram(self):
-        from cosmica.core.stretch import compute_histogram
+        from astraios.core.stretch import compute_histogram
         data = np.full((3, 100, 100), 0.5, dtype=np.float32)
         hist = compute_histogram(data)
         assert "red" in hist
@@ -143,7 +143,7 @@ class TestCurvesCore:
     """Test curves computation (core, no Qt)."""
 
     def test_curves_lut_generation(self):
-        from cosmica.core.curves import CurvePoints
+        from astraios.core.curves import CurvePoints
         points = CurvePoints(points=[(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)])
         lut = points.build_lut()
         assert lut.shape[0] > 0
@@ -155,7 +155,7 @@ class TestExportDialogParams:
     """Test export dialog parameter logic without Qt."""
 
     def test_extension_detection(self):
-        from cosmica.ui.dialogs.export_dialog import FORMAT_FILTERS
+        from astraios.ui.dialogs.export_dialog import FORMAT_FILTERS
         assert ".tif" in FORMAT_FILTERS
         assert ".png" in FORMAT_FILTERS
         assert ".jpg" in FORMAT_FILTERS
@@ -165,7 +165,7 @@ class TestPreferencesDefaults:
     """Test preferences default values without Qt."""
 
     def test_default_values(self):
-        from cosmica.ui.dialogs.preferences_dialog import DEFAULTS
+        from astraios.ui.dialogs.preferences_dialog import DEFAULTS
         assert DEFAULTS["processing/use_gpu"] is True
         assert DEFAULTS["processing/tile_size"] == 1024
         assert DEFAULTS["update/check_on_startup"] is True

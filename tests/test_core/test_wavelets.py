@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.wavelets import (
+from astraios.core.wavelets import (
     WaveletParams,
     wavelet_decompose,
     wavelet_reconstruct,
@@ -79,7 +79,7 @@ class TestWaveletSharpen:
         assert result.max() <= 1.0
 
     def test_mask_support(self):
-        from cosmica.core.masks import Mask
+        from astraios.core.masks import Mask
         data = np.random.rand(64, 64).astype(np.float32) * 0.5
         mask_data = np.zeros((64, 64), dtype=np.float32)
         mask_data[:32] = 1.0

@@ -1,6 +1,6 @@
 """Regression tests for channel-layout bugs in colour-only tool handlers.
 
-Cosmica stores colour images channel-first ``(C, H, W)`` but
+Astraios stores colour images channel-first ``(C, H, W)`` but
 ``channel_match.align_channels`` and ``lens_distortion.correct_distortion``
 expect channel-last ``(H, W, C)``. The main-window handlers used to pass the
 internal array straight through, which made "Align RGB Channels" crash with a
@@ -13,7 +13,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cosmica.core.image_io import ImageData
+from astraios.core.image_io import ImageData
 
 
 def _color_chw(h=96, w=128):
@@ -26,7 +26,7 @@ def _color_chw(h=96, w=128):
 @pytest.fixture
 def window(qtbot):
     # qtbot ensures a QApplication exists; MainWindow is a controller, not a QWidget.
-    from cosmica.ui.main_window import MainWindow
+    from astraios.ui.main_window import MainWindow
 
     return MainWindow()
 

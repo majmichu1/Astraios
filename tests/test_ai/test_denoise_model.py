@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from cosmica.ai.models.denoise_model import (
+from astraios.ai.models.denoise_model import (
     DenoiseUNet,
     NoiseConditioningMLP,
     create_denoise_model,

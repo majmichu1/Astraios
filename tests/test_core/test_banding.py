@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.banding import BandingParams, banding_reduction
-from cosmica.core.masks import Mask
+from astraios.core.banding import BandingParams, banding_reduction
+from astraios.core.masks import Mask
 
 
 class TestBandingReduction:

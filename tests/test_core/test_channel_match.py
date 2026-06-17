@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.channel_match import (
+from astraios.core.channel_match import (
     ChannelMatchParams,
     _align_channel_ecc,
     _align_channel_fft,

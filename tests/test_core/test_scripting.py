@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from cosmica.core.batch import Pipeline, PipelineStep, _TOOL_REGISTRY, register_tool
-from cosmica.core.scripting import MacroRecorder, load_macro, play_macro, save_macro
+from astraios.core.batch import Pipeline, PipelineStep, _TOOL_REGISTRY, register_tool
+from astraios.core.scripting import MacroRecorder, load_macro, play_macro, save_macro
 
 
 def _mono_image(h=64, w=64, value=0.5):

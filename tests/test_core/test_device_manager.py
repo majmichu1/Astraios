@@ -2,7 +2,7 @@
 
 import torch
 import pytest
-from cosmica.core.device_manager import Backend, DeviceManager, get_device_manager
+from astraios.core.device_manager import Backend, DeviceManager, get_device_manager
 
 
 class TestDeviceManager:

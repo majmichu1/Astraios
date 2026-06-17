@@ -3,8 +3,8 @@
 import pytest
 import numpy as np
 
-from cosmica.core import plate_solve as ps
-from cosmica.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
+from astraios.core import plate_solve as ps
+from astraios.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
 
 
 def _star_image():
@@ -66,7 +66,7 @@ class TestExternalSolverAdapters:
                 "CRPIX1": 32, "CRPIX2": 32,
             },
         }
-        from cosmica.core import star_catalog
+        from astraios.core import star_catalog
         monkeypatch.setattr(star_catalog, "plate_solve_astap", lambda *a, **k: fake)
         result = ps.plate_solve_astap(img)
         assert result.success

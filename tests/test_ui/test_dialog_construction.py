@@ -14,7 +14,7 @@ import pkgutil
 import numpy as np
 import pytest
 
-import cosmica.ui.dialogs as dialogs_pkg
+import astraios.ui.dialogs as dialogs_pkg
 
 _IMG = np.clip(np.random.default_rng(0).random((3, 32, 32)) * 0.4 + 0.05, 0, 1).astype(np.float32)
 _CANDIDATE_KWARGS = [
@@ -26,7 +26,7 @@ _CANDIDATE_KWARGS = [
 def _all_dialog_classes():
     out = []
     for mod in pkgutil.iter_modules(dialogs_pkg.__path__):
-        m = importlib.import_module(f"cosmica.ui.dialogs.{mod.name}")
+        m = importlib.import_module(f"astraios.ui.dialogs.{mod.name}")
         for name, obj in inspect.getmembers(m, inspect.isclass):
             if name.endswith("Dialog") and obj.__module__ == m.__name__:
                 out.append(obj)
@@ -50,7 +50,7 @@ def test_dialog_constructs(qtbot, dialog_cls):
 
 
 def test_channel_combine_dialog_constructs(qtbot):
-    from cosmica.ui.dialogs.channel_combine_dialog import ChannelCombineDialog
+    from astraios.ui.dialogs.channel_combine_dialog import ChannelCombineDialog
 
     dlg = ChannelCombineDialog(current_image=_IMG)
     assert len(dlg._channel_rows) >= 1

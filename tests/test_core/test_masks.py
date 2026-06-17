@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.masks import (
+from astraios.core.masks import (
     Mask,
     MaskType,
     apply_mask,

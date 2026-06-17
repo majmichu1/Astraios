@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.chroma_denoise import chroma_denoise
+from astraios.core.chroma_denoise import chroma_denoise
 
 
 def _noisy_color(h=120, w=160, seed=0):

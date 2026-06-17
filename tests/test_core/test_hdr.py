@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.hdr import HDRMethod, HDRParams, hdr_compose
+from astraios.core.hdr import HDRMethod, HDRParams, hdr_compose
 
 
 class TestHDRCompose:

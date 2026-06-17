@@ -2,12 +2,12 @@
 
 import numpy as np
 
-from cosmica.core.deconvolution import (
+from astraios.core.deconvolution import (
     DeconvolutionParams,
     _create_gaussian_psf,
     richardson_lucy,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 class TestGaussianPSF:

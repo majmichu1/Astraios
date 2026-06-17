@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.transforms import (
+from astraios.core.transforms import (
     BinMode,
     BinParams,
     CropParams,

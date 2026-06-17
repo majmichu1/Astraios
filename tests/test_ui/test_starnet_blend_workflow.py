@@ -10,13 +10,13 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cosmica.ai.inference.starnet import StarNetResult
-from cosmica.core.image_io import ImageData
+from astraios.ai.inference.starnet import StarNetResult
+from astraios.core.image_io import ImageData
 
 
 @pytest.fixture
 def window(qtbot):
-    from cosmica.ui.main_window import MainWindow
+    from astraios.ui.main_window import MainWindow
 
     return MainWindow()
 
@@ -34,7 +34,7 @@ def test_starnet_keeps_star_layer_and_blend_uses_it(window):
     assert window._extracted_stars is not None
 
     # Blend dialog should accept the extracted stars and screen them back.
-    from cosmica.ui.dialogs.blend_dialog import BlendDialog
+    from astraios.ui.dialogs.blend_dialog import BlendDialog
 
     dlg = BlendDialog(base_image=window._current_image.data, parent=window)
     dlg.set_extracted_stars(window._extracted_stars)

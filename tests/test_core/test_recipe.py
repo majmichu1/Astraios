@@ -2,7 +2,7 @@
 
 import json
 
-from cosmica.core.recipe import RecipeBook, get_recipe_book
+from astraios.core.recipe import RecipeBook, get_recipe_book
 
 
 def test_type_recipe_applies():
@@ -54,7 +54,7 @@ def test_missing_recipes_file_is_safe(tmp_path):
 def test_every_catalog_object_type_has_a_recipe():
     # The type recipes should cover the object types the catalog actually uses,
     # so no real target falls through to bare heuristics.
-    from cosmica.core.catalog import _CATALOG_JSON
+    from astraios.core.catalog import _CATALOG_JSON
 
     with open(_CATALOG_JSON, encoding="utf-8") as fh:
         catalog = json.load(fh)

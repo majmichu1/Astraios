@@ -1,9 +1,9 @@
 [project]
-name = "cosmica"
+name = "astraios"
 version = "0.1.0"
 description = "Professional GPU-accelerated astrophotography image processing"
 authors = [
-    {name = "Cosmica Contributors"}
+    {name = "Astraios Contributors"}
 ]
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
@@ -51,17 +51,17 @@ build = [
 ]
 
 [project.scripts]
-cosmica = "cosmica.__main__:main"
+astraios = "astraios.__main__:main"
 
 [project.gui-scripts]
-cosmica-gui = "cosmica.__main__:main"
+astraios-gui = "astraios.__main__:main"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-packages = [{include = "cosmica"}]
+packages = [{include = "astraios"}]
 
 [tool.ruff]
 target-version = "py311"

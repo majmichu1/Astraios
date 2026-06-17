@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.image_io import ImageData
-from cosmica.core.stacking import (
+from astraios.core.image_io import ImageData
+from astraios.core.stacking import (
     IntegrationMethod,
     NormalizationMethod,
     RegistrationMode,
@@ -226,7 +226,7 @@ class TestFFTAlignment:
 
 class TestCometAlignment:
     def test_comet_nucleus_found(self):
-        from cosmica.core.stacking import _find_comet_nucleus
+        from astraios.core.stacking import _find_comet_nucleus
 
         frame = np.zeros((100, 100), dtype=np.float32)
         frame[40, 60] = 1.0
@@ -235,7 +235,7 @@ class TestCometAlignment:
         assert abs(cy - 40) < 1.0
 
     def test_comet_aligns_shifted_frames(self):
-        from cosmica.core.stacking import _comet_align_frames
+        from astraios.core.stacking import _comet_align_frames
 
         base = np.zeros((80, 80), dtype=np.float32)
         base[40, 40] = 1.0  # nucleus at (40, 40)
@@ -251,7 +251,7 @@ class TestCometAlignment:
         aligned = _comet_align_frames(imgs, params, lambda f, m: None)
         assert len(aligned) == 2
         # After alignment, nucleus in frame 2 should be near (40, 40)
-        from cosmica.core.stacking import _find_comet_nucleus
+        from astraios.core.stacking import _find_comet_nucleus
         cx, cy = _find_comet_nucleus(aligned[1].data, 15)
         assert abs(cx - 40) < 2.0
         assert abs(cy - 40) < 2.0

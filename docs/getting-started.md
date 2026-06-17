@@ -1,28 +1,28 @@
-# Cosmica — Getting Started Guide
+# Astraios — Getting Started Guide
 
-Welcome to **Cosmica**, a professional astrophotography image processing application.
+Welcome to **Astraios**, a professional astrophotography image processing application.
 
 ## Installation
 
-**Note:** Cosmica is currently available as **source code only**. We are working on pre-compiled installers (.exe, .dmg, .AppImage) for a future release.
+**Note:** Astraios is currently available as **source code only**. We are working on pre-compiled installers (.exe, .dmg, .AppImage) for a future release.
 
 ### From Source (Linux, macOS, Windows)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/majmichu1/cosmica.git
-cd cosmica
+git clone https://github.com/majmichu1/astraios.git
+cd astraios
 
 # 2. Install dependencies (requires Poetry)
 # If you don't have Poetry: https://python-poetry.org/docs/#installation
 poetry install
 
 # 3. Run the application
-poetry run cosmica
+poetry run astraios
 
 ## First Launch
 
-When you first open Cosmica, you'll see the main interface with four panels:
+When you first open Astraios, you'll see the main interface with four panels:
 
 ```
 ┌─────────────┬──────────────────────┬─────────────┐
@@ -105,7 +105,7 @@ The recommended processing order for a typical astrophotography image:
 
 ## Features
 
-Cosmica is currently **100% free and open-source**. All features are available to everyone.
+Astraios is currently **100% free and open-source**. All features are available to everyone.
 
 ### Processing Pipeline
 - **Calibration**: Dark/Flat/Bias frame management.
@@ -175,11 +175,11 @@ Background, Stars, Score) sort as numbers rather than strings.
 
 Once you score a set of frames the results are saved into your project JSON
 file automatically.  The next time you open the project and run **Weighted
-Average** stacking, Cosmica reuses the cached scores — no re-measurement
+Average** stacking, Astraios reuses the cached scores — no re-measurement
 needed.  This is especially useful for large datasets where scoring takes
 several minutes.
 
 ## Need Help?
 
-- **Help → About Cosmica** — version info
-- **GitHub Issues** — [Report bugs](https://github.com/majmichu1/cosmica/issues)
+- **Help → About Astraios** — version info
+- **GitHub Issues** — [Report bugs](https://github.com/majmichu1/astraios/issues)

@@ -5,13 +5,13 @@ import pytest
 from astropy.io import fits
 from pathlib import Path
 
-from cosmica.core.calibration import (
+from astraios.core.calibration import (
     calibrate_light,
     create_master_bias,
     create_master_dark,
     create_master_flat,
 )
-from cosmica.core.image_io import FrameType, ImageData
+from astraios.core.image_io import FrameType, ImageData
 
 
 def _make_fits(tmp_path, name, data, image_type="Light"):

@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from cosmica.core.gpu_stars import (
+from astraios.core.gpu_stars import (
     Star,  # re-exported from star_detection
     compose_affine_transforms,
     detect_stars_gpu,
@@ -46,7 +46,7 @@ class TestDetectStarsGPU:
 
     def test_star_is_same_type_as_star_detection(self):
         """Star class should be the same object from star_detection (no duplicate)."""
-        from cosmica.core.star_detection import Star as StarCPU
+        from astraios.core.star_detection import Star as StarCPU
         assert Star is StarCPU
 
 

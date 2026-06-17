@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from cosmica.ai.inference.starnet import StarNetResult, find_starnet_binary, run_starnet
+from astraios.ai.inference.starnet import StarNetResult, find_starnet_binary, run_starnet
 
 
 def _mono_image(h=64, w=64, value=0.5):
@@ -83,13 +83,13 @@ class TestRunStarnet:
     def test_returns_failure_with_none_path(self):
         """When auto-detection fails, should return failure."""
         data = _mono_image()
-        with patch("cosmica.ai.inference.starnet.find_starnet_binary", return_value=None):
+        with patch("astraios.ai.inference.starnet.find_starnet_binary", return_value=None):
             result = run_starnet(data)
         assert result.success is False
 
-    @patch("cosmica.ai.inference.starnet.find_starnet_binary")
-    @patch("cosmica.ai.inference.starnet.save_fits")
-    @patch("cosmica.ai.inference.starnet.load_image")
+    @patch("astraios.ai.inference.starnet.find_starnet_binary")
+    @patch("astraios.ai.inference.starnet.save_fits")
+    @patch("astraios.ai.inference.starnet.load_image")
     @patch("subprocess.run")
     def test_successful_run(self, mock_subprocess, mock_load, mock_save, mock_find, tmp_path):
         """Simulate a successful StarNet run with mocked subprocess."""
@@ -122,8 +122,8 @@ class TestRunStarnet:
         assert result.success is True
         np.testing.assert_array_equal(result.starless, starless)
 
-    @patch("cosmica.ai.inference.starnet.find_starnet_binary")
-    @patch("cosmica.ai.inference.starnet.save_fits")
+    @patch("astraios.ai.inference.starnet.find_starnet_binary")
+    @patch("astraios.ai.inference.starnet.save_fits")
     @patch("subprocess.run")
     def test_subprocess_failure(self, mock_subprocess, mock_save, mock_find, tmp_path):
         """StarNet returning non-zero exit code should be reported as failure."""

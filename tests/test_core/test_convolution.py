@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.filters import ConvolutionKernel, ConvolutionParams, convolve
-from cosmica.core.masks import Mask
+from astraios.core.filters import ConvolutionKernel, ConvolutionParams, convolve
+from astraios.core.masks import Mask
 
 
 def _img(color=False):

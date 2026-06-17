@@ -1,28 +1,28 @@
-# Cosmica - Open Source AI Image Processing Suite for Astrophotography
+# Astraios - Open Source AI Image Processing Suite for Astrophotography
 
 **Professional astrophotography image processing. GPU-accelerated, free, and open source alternative to PixInsight.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://github.com/majmichu1/cosmica/actions/workflows/ci.yml/badge.svg)](https://github.com/majmichu1/cosmica/actions)
+[![Tests](https://github.com/majmichu1/astraios/actions/workflows/ci.yml/badge.svg)](https://github.com/majmichu1/astraios/actions)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-donate-yellow)](https://buymeacoffee.com/majmichu)
 
 <img width="2559" height="1600" alt="obraz" src="https://github.com/user-attachments/assets/a688865b-476d-4139-9cfc-4efbe89435a7" />
 
 ## Download
 
-You don't need to install Python to use Cosmica. Download the standalone, ready-to-use versions (the AppImage is a portable CPU-only version; for full NVIDIA GPU acceleration, install via Poetry):
+You don't need to install Python to use Astraios. Download the standalone, ready-to-use versions (the AppImage is a portable CPU-only version; for full NVIDIA GPU acceleration, install via Poetry):
 
-- **Windows:** [Download .exe (v0.1.9)](https://github.com/majmichu1/Cosmica/releases/latest)
-- **Linux:** [Download .AppImage (v0.1.9)](https://github.com/majmichu1/Cosmica/releases/latest)
+- **Windows:** [Download .exe (v0.1.9)](https://github.com/majmichu1/Astraios/releases/latest)
+- **Linux:** [Download .AppImage (v0.1.9)](https://github.com/majmichu1/Astraios/releases/latest)
 
 Bug reports and feedback are welcome in the Issues tab.
 
-## Why Cosmica?
+## Why Astraios?
 
-Cosmica is built as a modern workflow tool from calibration to export, featuring out-of-the-box AI integration.
+Astraios is built as a modern workflow tool from calibration to export, featuring out-of-the-box AI integration.
 
-| Feature | Cosmica | Siril | PixInsight |
+| Feature | Astraios | Siril | PixInsight |
 |---|---|---|---|
 | Price | Free (GPL v3) | Free | EUR 230+ |
 | GPU Acceleration | Full PyTorch | Partial | Partial |
@@ -128,7 +128,7 @@ Local AI models download automatically on first use. No cloud required.
 - **ICC Color Management** -- Display profile-aware color rendering
 - **Undo / Redo** -- Full history stack with display-reference matching
 - **Presets** -- Save and recall tool settings
-- **Plugin System** -- Extend Cosmica with Python plugins loaded from cosmica/plugins/
+- **Plugin System** -- Extend Astraios with Python plugins loaded from astraios/plugins/
 
 ### File Support
 - **Read:** FITS, XISF, TIFF, PNG, JPEG (auto-debayer for OSC)
@@ -144,21 +144,21 @@ Local AI models download automatically on first use. No cloud required.
 
 ```bash
 # Clone the repository
-git clone https://github.com/majmichu1/cosmica.git
-cd cosmica
+git clone https://github.com/majmichu1/astraios.git
+cd astraios
 
 # Install with dev dependencies
 poetry install --with dev
 
 # Run the application
-poetry run cosmica
+poetry run astraios
 ```
 
 ### Building Standalone Binary
 
 ```bash
 poetry install --with build
-poetry run pyinstaller build/cosmica.spec
+poetry run pyinstaller build/astraios.spec
 ```
 
 ## Development
@@ -179,12 +179,12 @@ poetry run ruff check .
 ### Run Type Checker
 
 ```bash
-poetry run mypy cosmica
+poetry run mypy astraios
 ```
 
 ## AI Model Training
 
-Cosmica includes self-supervised AI training scripts. You can train your own denoise model on your astro images:
+Astraios includes self-supervised AI training scripts. You can train your own denoise model on your astro images:
 
 ```bash
 # Place your FITS files in astro_data/
@@ -200,7 +200,7 @@ The model uses Noise2Self -- a self-supervised approach that learns to denoise f
 ## Architecture
 
 ```
-cosmica/
+astraios/
 ├── __main__.py          # Entry point
 ├── core/                # 66 image processing modules (GPU-accelerated)
 ├── ai/                  # AI inference, training, model management
@@ -217,7 +217,7 @@ Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/` and `t
 
 This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
 
-The GPL v3 is required because Cosmica uses PyQt6, which is licensed under GPL v3 for open-source use.
+The GPL v3 is required because Astraios uses PyQt6, which is licensed under GPL v3 for open-source use.
 
 ## Acknowledgments
 

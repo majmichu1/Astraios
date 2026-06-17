@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.channels import (
+from astraios.core.channels import (
     combine_channels,
     extract_luminance,
     hsl_to_rgb,

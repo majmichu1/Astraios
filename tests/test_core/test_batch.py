@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 import numpy as np
 import pytest
 
-from cosmica.core.batch import (
+from astraios.core.batch import (
     BatchResult,
     Pipeline,
     PipelineStep,
@@ -250,7 +250,7 @@ class TestBatchProcess:
 
     def test_batch_process_with_temp_files(self, tmp_path):
         """End-to-end batch processing with real temp files."""
-        from cosmica.core.image_io import ImageData, save_fits
+        from astraios.core.image_io import ImageData, save_fits
 
         # Register a simple tool
         def invert(data):
@@ -352,7 +352,7 @@ class TestNewToolsRegistered:
         return np.clip(rng.random((3, h, w)) * 0.4 + 0.1, 0, 1).astype(np.float32)
 
     def test_new_tools_in_registry(self):
-        from cosmica.core.batch import _register_default_tools
+        from astraios.core.batch import _register_default_tools
 
         _TOOL_REGISTRY.clear()
         _register_default_tools()
@@ -389,7 +389,7 @@ class TestMacroRoundTrip:
     """Interactive record -> save -> replay must work for the new tools."""
 
     def test_recorded_macro_replays(self):
-        from cosmica.core.scripting import MacroRecorder, play_macro
+        from astraios.core.scripting import MacroRecorder, play_macro
 
         rec = MacroRecorder()
         rec.start("feature macro")
@@ -413,7 +413,7 @@ class TestMorphologyToolRegistration:
     KeyError on every call via batch/macro/scripting/graph."""
 
     def test_morphology_runs_with_defaults(self):
-        from cosmica.core.batch import get_registered_tools
+        from astraios.core.batch import get_registered_tools
 
         tool = get_registered_tools()["morphology"]
         img = np.random.default_rng(0).random((32, 32)).astype(np.float32)
@@ -422,7 +422,7 @@ class TestMorphologyToolRegistration:
         assert np.all(np.isfinite(out))
 
     def test_morphology_accepts_disk_alias_and_lowercase(self):
-        from cosmica.core.batch import get_registered_tools
+        from astraios.core.batch import get_registered_tools
 
         tool = get_registered_tools()["morphology"]
         img = np.random.default_rng(0).random((32, 32)).astype(np.float32)

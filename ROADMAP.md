@@ -17,9 +17,9 @@ to whole-image behaviour. `git checkout ui-redesign` reverts the whole effort.
   user-typed name (`catalog.lookup`). Plate solving uses nova.astrometry.net
   online when an API key is set (Preferences) — the keystone that unlocks
   position-aware processing.
-- **Catalog** (`cosmica/resources/catalog.json`, 139 hand-curated targets):
+- **Catalog** (`astraios/resources/catalog.json`, 139 hand-curated targets):
   per-target metadata + `processing_hints` consumed by `_build_plan`.
-- **Object mask** (`cosmica/core/object_mask.py`): soft elliptical [0,1] mask of
+- **Object mask** (`astraios/core/object_mask.py`): soft elliptical [0,1] mask of
   the subject, positioned via WCS or centred fallback, carried on
   `ProcessingPlan.object_mask`. Steers enhancement toward the subject.
 
@@ -109,7 +109,7 @@ future extension, not built.)
 - Colour overstretch: per-channel local contrast made bg-preserving — `b4b641e`
 - Noisy/faint backgrounds: gentle background-floor pull for non-HDR frames — `2fae6f9`
 
-- Post-stretch gradient / flat (vignette) tool: `cosmica/core/gradient_removal.py`
+- Post-stretch gradient / flat (vignette) tool: `astraios/core/gradient_removal.py`
   + auto object-aware cleanup stage — `24562ef`. NGC 7023 corner spread 0.16 → 0.05.
 
 ### Known-hard cases / data-limited
@@ -123,12 +123,12 @@ future extension, not built.)
   is the next fix. Stars are a touch bloated because **StarNet isn't installed**
   here, so `use_starnet: true` falls back to the built-in remover.
 
-- Chroma (colour) noise reduction for OSC: `cosmica/core/chroma_denoise.py` +
+- Chroma (colour) noise reduction for OSC: `astraios/core/chroma_denoise.py` +
   post-stretch step — `7bf4ef4`. NGC 7023 chroma noise 0.085 → 0.018.
 - Star-core deconv protection over-softened soft-PSF stars (M42) → gated to
   sharp PSFs only — `3c3c14f`.
 
-- Recipe book: `cosmica/resources/recipes.json` + `cosmica/core/recipe.py` —
+- Recipe book: `astraios/resources/recipes.json` + `astraios/core/recipe.py` —
   per-type recipes + named overrides, resolved after plate solve, merged into
   hints (`ae56f72`). NGC 7023 → chroma 2.0 + StarNet + gentle. The seam for #4.
 

@@ -2,14 +2,14 @@
 
 import numpy as np
 
-from cosmica.core.frequency_separation import (
+from astraios.core.frequency_separation import (
     FrequencySeparationParams,
     SeparationMethod,
     frequency_separation,
     recombine,
     separate,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 def _image(h=96, w=128, color=False):

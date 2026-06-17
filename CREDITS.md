@@ -1,6 +1,6 @@
-# Cosmica — Credits & Open Source Acknowledgments
+# Astraios — Credits & Open Source Acknowledgments
 
-Cosmica is built on the shoulders of many excellent open source projects.
+Astraios is built on the shoulders of many excellent open source projects.
 
 ## Core Dependencies
 

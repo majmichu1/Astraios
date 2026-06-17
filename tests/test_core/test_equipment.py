@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pytest
 
-from cosmica.core.equipment import (
+from astraios.core.equipment import (
     CameraProfile,
     EquipmentProfile,
     FilterProfile,

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.mosaic import MosaicParams, MosaicResult, mosaic_stitch
+from astraios.core.mosaic import MosaicParams, MosaicResult, mosaic_stitch
 
 
 class TestMosaicStitch:

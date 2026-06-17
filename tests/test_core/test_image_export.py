@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from cosmica.core.image_io import ImageData, save_image
+from astraios.core.image_io import ImageData, save_image
 
 
 def _make_mono_image(w=64, h=64) -> ImageData:

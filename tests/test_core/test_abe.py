@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.abe import ABEParams, abe_extract
-from cosmica.core.masks import Mask
+from astraios.core.abe import ABEParams, abe_extract
+from astraios.core.masks import Mask
 
 
 # ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from cosmica.core.image_io import FrameType
-from cosmica.core.project import Project
+from astraios.core.image_io import FrameType
+from astraios.core.project import Project
 
 
 class TestProject:

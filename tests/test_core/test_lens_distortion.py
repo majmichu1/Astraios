@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from cosmica.core.lens_distortion import (
+from astraios.core.lens_distortion import (
     LensDistortionParams,
     _compute_camera_matrix,
     _radial_distortion_map,

@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.histogram_transform import HistogramTransformParams, histogram_transform
-from cosmica.core.masks import Mask
+from astraios.core.histogram_transform import HistogramTransformParams, histogram_transform
+from astraios.core.masks import Mask
 
 
 class TestHistogramTransform:

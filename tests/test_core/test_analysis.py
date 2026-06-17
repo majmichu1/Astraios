@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.analysis.aperture_photometry import (
+from astraios.core.analysis.aperture_photometry import (
     PhotometryParams,
     PhotometryResult,
     _annulus_stats,
@@ -11,13 +11,13 @@ from cosmica.core.analysis.aperture_photometry import (
     _detect_sources,
     run_photometry,
 )
-from cosmica.core.analysis.fwhm_map import (
+from astraios.core.analysis.fwhm_map import (
     FWHMMapResult,
     _detect_stars_zone,
     _measure_fwhm_vectorized,
     compute_fwhm_map,
 )
-from cosmica.core.analysis.tilt_analysis import (
+from astraios.core.analysis.tilt_analysis import (
     TiltAnalysisParams,
     TiltAnalysisResult,
     _measure_star_shape,

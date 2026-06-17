@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.mure_denoise import (
+from astraios.core.mure_denoise import (
     _patch_std_map,
     estimate_noise,
     estimate_noise_from_dark,

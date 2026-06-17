@@ -2,8 +2,8 @@
 
 import numpy as np
 
-from cosmica.core.masks import Mask
-from cosmica.core.star_stretch import StarStretchParams, star_stretch
+from astraios.core.masks import Mask
+from astraios.core.star_stretch import StarStretchParams, star_stretch
 
 
 def _star_image(h=64, w=64):

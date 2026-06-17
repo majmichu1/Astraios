@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.ai.smart_processor import (
+from astraios.ai.smart_processor import (
     ImageAnalysis,
     InputType,
     ProcessingPlan,
@@ -11,7 +11,7 @@ from cosmica.ai.smart_processor import (
     SmartProcessor,
     SmartProcessorResult,
 )
-from cosmica.core.equipment import (
+from astraios.core.equipment import (
     CameraProfile,
     EquipmentProfile,
     FilterProfile,
@@ -477,7 +477,7 @@ class TestStarAwareStarReduction:
 
 
 def test_smart_dialog_wires_star_reduction(qtbot):
-    from cosmica.ui.dialogs.smart_process_dialog import SmartProcessDialog
+    from astraios.ui.dialogs.smart_process_dialog import SmartProcessDialog
 
     dlg = SmartProcessDialog()
     assert dlg._stage_star_aware.isChecked()
@@ -502,8 +502,8 @@ class TestSPCCColorCalibration:
     _WCS = {"ra_center": 83.8, "dec_center": -5.39, "scale": 2.0}
 
     def test_spcc_applied_when_plate_solved_and_catalog(self, processor_no_equipment, monkeypatch):
-        from cosmica.core import color_calibration, star_catalog
-        from cosmica.core.color_calibration import ColorCalibrationResult
+        from astraios.core import color_calibration, star_catalog
+        from astraios.core.color_calibration import ColorCalibrationResult
 
         fake_stars = [
             star_catalog.StarCatalogEntry(83.8 + i * 0.001, -5.39, 12.0, 12.3, 11.7, str(i))
@@ -531,7 +531,7 @@ class TestSPCCColorCalibration:
         assert "Statistical colour balance (no SPCC" in "\n".join(result.processing_log)
 
     def test_falls_back_when_too_few_catalog_stars(self, processor_no_equipment, monkeypatch):
-        from cosmica.core import star_catalog
+        from astraios.core import star_catalog
         monkeypatch.setattr(star_catalog, "query_gaia_dr3", lambda *a, **k: [])
         result = processor_no_equipment.process(
             self._color(), input_type_hint=InputType.OSC_RGB, wcs_dict=self._WCS,
@@ -575,15 +575,15 @@ class TestAIDenoise:
 
     def test_run_denoise_falls_back_on_error(self, processor_no_equipment, monkeypatch):
         # If the AI path raises, it must fall back to wavelet, not crash.
-        import cosmica.ai.inference.denoise as aidn
+        import astraios.ai.inference.denoise as aidn
         monkeypatch.setattr(aidn, "ai_denoise", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-        from cosmica.core.denoise import DenoiseParams
+        from astraios.core.denoise import DenoiseParams
         out = processor_no_equipment._run_denoise(self._mono(), DenoiseParams())
         assert out.shape == (64, 64)
 
 
 def test_smart_dialog_wires_ai_denoise(qtbot):
-    from cosmica.ui.dialogs.smart_process_dialog import SmartProcessDialog
+    from astraios.ui.dialogs.smart_process_dialog import SmartProcessDialog
 
     dlg = SmartProcessDialog()
     assert dlg._ai_denoise_cb.isChecked()
@@ -695,7 +695,7 @@ class TestExtremeDRCoreNotEaten:
         return img.astype(np.float32), r2
 
     def test_core_stays_brightest_no_plate_solve(self, processor_no_equipment):
-        from cosmica.ai.smart_processor import InputType
+        from astraios.ai.smart_processor import InputType
 
         img, r2 = self._frame_filling_m42()
         res = processor_no_equipment.process(
@@ -709,7 +709,7 @@ class TestExtremeDRCoreNotEaten:
         assert float(out[core].mean()) > float(out[mid].mean())
 
     def test_plan_flags_object_dominated_for_m42(self, processor_no_equipment):
-        from cosmica.ai.smart_processor import InputType
+        from astraios.ai.smart_processor import InputType
 
         img, _ = self._frame_filling_m42()
         res = processor_no_equipment.process(
@@ -740,7 +740,7 @@ class TestHDRCoreNotDarkened:
         return img.astype(np.float32), r2
 
     def test_core_brighter_than_nebula_after_hdr(self, processor_no_equipment):
-        from cosmica.ai.smart_processor import InputType
+        from astraios.ai.smart_processor import InputType
 
         img, r2 = self._faint_m42()
         res = processor_no_equipment.process(

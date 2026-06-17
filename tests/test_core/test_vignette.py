@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.vignette import VignetteParams, correct_vignette
-from cosmica.core.masks import Mask
+from astraios.core.vignette import VignetteParams, correct_vignette
+from astraios.core.masks import Mask
 
 
 class TestVignetteParams:

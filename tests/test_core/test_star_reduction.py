@@ -2,12 +2,12 @@
 
 import numpy as np
 
-from cosmica.core.star_reduction import (
+from astraios.core.star_reduction import (
     StarReductionParams,
     create_star_mask,
     reduce_stars,
 )
-from cosmica.core.masks import MaskType
+from astraios.core.masks import MaskType
 
 
 def _star_image(n_stars=5):

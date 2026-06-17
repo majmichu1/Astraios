@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.drizzle import DrizzleParams, DrizzleResult, drizzle_integrate
+from astraios.core.drizzle import DrizzleParams, DrizzleResult, drizzle_integrate
 
 
 class TestDrizzle:

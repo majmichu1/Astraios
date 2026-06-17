@@ -3,7 +3,7 @@ dropped on load — findText() returns -1 for a name like 'Custom 268mm f/3.6',
 so the combo kept its default and the focal length/aperture were never restored.
 """
 
-from cosmica.core.equipment import (
+from astraios.core.equipment import (
     CameraProfile,
     EquipmentProfile,
     TelescopeProfile,
@@ -23,13 +23,13 @@ def _profile_with_custom_scope() -> EquipmentProfile:
 
 
 def load_first_camera() -> CameraProfile:
-    from cosmica.core.equipment import load_camera_database
+    from astraios.core.equipment import load_camera_database
 
     return load_camera_database()[0]
 
 
 def test_custom_telescope_round_trips_through_dialog(qtbot):
-    from cosmica.ui.dialogs.equipment_dialog import EquipmentDialog
+    from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
 
     prof = _profile_with_custom_scope()
     dlg = EquipmentDialog(current_profile=prof)
@@ -49,8 +49,8 @@ def test_custom_telescope_round_trips_through_dialog(qtbot):
 
 
 def test_database_telescope_still_selects_normally(qtbot):
-    from cosmica.core.equipment import load_telescope_database
-    from cosmica.ui.dialogs.equipment_dialog import EquipmentDialog
+    from astraios.core.equipment import load_telescope_database
+    from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
 
     scope = load_telescope_database()[0]
     prof = EquipmentProfile(camera=load_first_camera(), telescope=scope, filters={})

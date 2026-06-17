@@ -1,4 +1,4 @@
-# Cosmica — Tools Reference
+# Astraios — Tools Reference
 
 Complete reference for all processing tools in the Tools Panel.
 

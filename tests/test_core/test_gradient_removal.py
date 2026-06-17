@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.gradient_removal import GradientRemovalParams, remove_gradient
+from astraios.core.gradient_removal import GradientRemovalParams, remove_gradient
 
 
 def _gradient_field(h=300, w=400, axis="x"):

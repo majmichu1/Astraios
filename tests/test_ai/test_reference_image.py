@@ -4,8 +4,8 @@ import io
 
 import numpy as np
 
-from cosmica.ai import reference_image
-from cosmica.ai.reference_image import fetch_reference_image, reference_object_mask
+from astraios.ai import reference_image
+from astraios.ai.reference_image import fetch_reference_image, reference_object_mask
 
 
 def _fake_fits_bytes(arr):

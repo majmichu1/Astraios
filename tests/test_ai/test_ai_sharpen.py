@@ -3,9 +3,9 @@
 import numpy as np
 import pytest
 
-from cosmica.ai.inference.sharpen import AISharpenParams, ai_sharpen
-from cosmica.ai.models.unet import UNet
-from cosmica.core.masks import Mask
+from astraios.ai.inference.sharpen import AISharpenParams, ai_sharpen
+from astraios.ai.models.unet import UNet
+from astraios.core.masks import Mask
 
 
 def _small_model():

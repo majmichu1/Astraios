@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-from cosmica.core.image_io import (
+from astraios.core.image_io import (
     FrameType,
     ImageData,
     auto_stretch_for_display,
@@ -127,7 +127,7 @@ class TestFitsIO:
 
 class TestNormalizeFitsTile:
     def test_fits_tile_normalization_matches_full_load(self, tmp_path):
-        from cosmica.core.stacking import _load_fits_tile
+        from astraios.core.stacking import _load_fits_tile
 
         raw = np.random.randint(100, 60000, (40, 50), dtype=np.uint16)
         hdu = fits.PrimaryHDU(raw)

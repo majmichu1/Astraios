@@ -47,16 +47,16 @@ jobs:
         run: pip install --no-cache-dir pyinstaller
 
       - name: Build Windows exe
-        run: pyinstaller cosmica.spec --clean --noconfirm
+        run: pyinstaller astraios.spec --clean --noconfirm
 
       - name: Zip dist folder
         shell: pwsh
-        run: Compress-Archive -Path dist\Cosmica -DestinationPath Cosmica-windows-x64.zip
+        run: Compress-Archive -Path dist\Astraios -DestinationPath Astraios-windows-x64.zip
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Cosmica-windows-x64.zip
+          files: Astraios-windows-x64.zip
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -101,21 +101,21 @@ jobs:
         run: pip install --no-cache-dir pyinstaller PyQt6
 
       - name: Build Linux binary
-        run: pyinstaller cosmica.spec --clean --noconfirm
+        run: pyinstaller astraios.spec --clean --noconfirm
 
       - name: Create AppImage
         run: |
           wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           mkdir -p AppDir/usr/bin
-          cp -r dist/Cosmica/* AppDir/usr/bin/
-          cp cosmica/resources/icons/*.png AppDir/cosmica.png 2>/dev/null || touch AppDir/cosmica.png
-          printf '[Desktop Entry]\nName=Cosmica\nExec=Cosmica\nIcon=cosmica\nType=Application\nCategories=Graphics;\n' > AppDir/cosmica.desktop
-          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexec "${HERE}/usr/bin/Cosmica" "$@"\n' > AppDir/AppRun
+          cp -r dist/Astraios/* AppDir/usr/bin/
+          cp astraios/resources/icons/*.png AppDir/astraios.png 2>/dev/null || touch AppDir/astraios.png
+          printf '[Desktop Entry]\nName=Astraios\nExec=Astraios\nIcon=astraios\nType=Application\nCategories=Graphics;\n' > AppDir/astraios.desktop
+          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexec "${HERE}/usr/bin/Astraios" "$@"\n' > AppDir/AppRun
           chmod +x AppDir/AppRun
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --no-appstream AppDir Cosmica-x86_64.AppImage
+          ARCH=x86_64 ./appimagetool-x86_64.AppImage --no-appstream AppDir Astraios-x86_64.AppImage
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Cosmica-x86_64.AppImage
+          files: Astraios-x86_64.AppImage

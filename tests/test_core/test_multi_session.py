@@ -5,14 +5,14 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from cosmica.core.image_io import ImageData
-from cosmica.core.multi_session import (
+from astraios.core.image_io import ImageData
+from astraios.core.multi_session import (
     MultiSessionParams,
     SessionGroup,
     auto_group_sessions,
     stack_multi_session,
 )
-from cosmica.core.stacking import StackingParams, RejectionMethod
+from astraios.core.stacking import StackingParams, RejectionMethod
 
 
 def _make_session(n_frames=3, shape=(3, 32, 32), offset=0.0, name="S") -> SessionGroup:

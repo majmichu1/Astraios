@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.core.local_contrast import LocalContrastParams, local_contrast_enhance
+from astraios.core.local_contrast import LocalContrastParams, local_contrast_enhance
 
 
 class TestLocalContrast:
@@ -35,7 +35,7 @@ class TestLocalContrast:
         assert diff_half <= diff_full + 0.01
 
     def test_mask_support(self):
-        from cosmica.core.masks import Mask
+        from astraios.core.masks import Mask
         data = np.random.rand(100, 100).astype(np.float32) * 0.5
         mask_data = np.zeros((100, 100), dtype=np.float32)
         mask_data[:50] = 1.0

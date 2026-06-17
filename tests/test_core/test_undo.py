@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from cosmica.core.image_io import ImageData
-from cosmica.core.undo import CosmicaUndoStack, ImageEditCommand
+from astraios.core.image_io import ImageData
+from astraios.core.undo import AstraiosUndoStack, ImageEditCommand
 
 
 def _make_image(value: float = 0.5, shape=(10, 10)) -> ImageData:
@@ -52,10 +52,10 @@ class TestImageEditCommand:
         assert target[0].data[0, 0] == pytest.approx(0.3, abs=1e-6)
 
 
-class TestCosmicaUndoStack:
+class TestAstraiosUndoStack:
     def test_push_and_undo(self):
         target = [_make_image(0.5)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         before = _make_image(0.3)
@@ -71,7 +71,7 @@ class TestCosmicaUndoStack:
 
     def test_push_undo_redo(self):
         target = [_make_image(0.5)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         stack.push(_make_image(0.3), _make_image(0.5), "Op 1")
@@ -93,13 +93,13 @@ class TestCosmicaUndoStack:
         assert target[0].data[0, 0] == pytest.approx(0.3, abs=1e-6)
 
     def test_can_undo_redo_initial(self):
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         assert not stack.can_undo()
         assert not stack.can_redo()
 
     def test_clear(self):
         target = [_make_image(0.5)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         stack.push(_make_image(0.3), _make_image(0.5), "Op")
@@ -110,7 +110,7 @@ class TestCosmicaUndoStack:
 
     def test_undo_text(self):
         target = [_make_image(0.5)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         stack.push(_make_image(0.3), _make_image(0.5), "Stretch")
@@ -118,7 +118,7 @@ class TestCosmicaUndoStack:
 
     def test_redo_text(self):
         target = [_make_image(0.5)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         stack.push(_make_image(0.3), _make_image(0.5), "Stretch")
@@ -129,7 +129,7 @@ class TestCosmicaUndoStack:
 
     def test_multiple_operations(self):
         target = [_make_image(0.0)]
-        stack = CosmicaUndoStack()
+        stack = AstraiosUndoStack()
         stack.set_target(target)
 
         for i in range(1, 6):

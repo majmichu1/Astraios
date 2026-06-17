@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from cosmica.ai.inference.star_removal import _diffuse_inpaint, remove_stars_builtin
+from astraios.ai.inference.star_removal import _diffuse_inpaint, remove_stars_builtin
 
 
 def _nebula_with_stars(h=160, w=160):

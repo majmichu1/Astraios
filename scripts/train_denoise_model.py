@@ -17,8 +17,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cosmica.ai.training.train_n2s import train_model, export_for_inference
-from cosmica.ai.training.prepare_data import prepare_dataset, load_dataset
+from astraios.ai.training.train_n2s import train_model, export_for_inference
+from astraios.ai.training.prepare_data import prepare_dataset, load_dataset
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train N2S denoise model")
     parser.add_argument("--input", type=Path, default=Path("./astro_data"),
                         help="Directory with FITS files")
-    parser.add_argument("--output", type=Path, default=Path("./cosmica/ai/models"),
+    parser.add_argument("--output", type=Path, default=Path("./astraios/ai/models"),
                         help="Output directory for model")
     parser.add_argument("--epochs", type=int, default=100)
     parser.add_argument("--batch-size", type=int, default=8)
@@ -43,7 +43,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     log.info("=" * 60)
-    log.info("  Cosmica Noise2Self Denoise Model Training")
+    log.info("  Astraios Noise2Self Denoise Model Training")
     log.info("=" * 60)
 
     # Prepare data
@@ -90,5 +90,5 @@ Place at least 10-50 FITS files in the input directory.
     export_for_inference(best_model, args.output / "cosmica_denoise_n2s_v1.pt")
 
     log.info("")
-    log.info("Training complete! Model ready for use in Cosmica.")
-    log.info("Copy the model file to: cosmica/ai/models/cosmica_denoise_n2s_v1.pt")
+    log.info("Training complete! Model ready for use in Astraios.")
+    log.info("Copy the model file to: astraios/ai/models/cosmica_denoise_n2s_v1.pt")

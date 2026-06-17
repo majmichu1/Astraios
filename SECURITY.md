@@ -17,10 +17,10 @@ We will respond ASP and work with you to resolve the issue.
 ## Security Considerations
 
 ### Model Downloads
-Cosmica can download AI model weights. We verify downloads via SHA-256 checksums.
+Astraios can download AI model weights. We verify downloads via SHA-256 checksums.
 
 ### License System
-Cosmica has NO invasive DRM. License status is cached locally and trusted when the validation server is unavailable.
+Astraios has NO invasive DRM. License status is cached locally and trusted when the validation server is unavailable.
 
 ### Data Privacy
 - All processing happens **locally** on your machine

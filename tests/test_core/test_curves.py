@@ -3,13 +3,13 @@
 import numpy as np
 import pytest
 
-from cosmica.core.curves import (
+from astraios.core.curves import (
     CurvePoints,
     CurvesParams,
     apply_curve_lut,
     curves_transform,
 )
-from cosmica.core.masks import Mask
+from astraios.core.masks import Mask
 
 
 class TestCurvePoints:

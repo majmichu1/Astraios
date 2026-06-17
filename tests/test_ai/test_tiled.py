@@ -5,8 +5,8 @@ import pytest
 import torch
 import torch.nn as nn
 
-from cosmica.ai.inference.tiled import _create_blend_weight, tiled_inference
-from cosmica.ai.models.unet import UNet
+from astraios.ai.inference.tiled import _create_blend_weight, tiled_inference
+from astraios.ai.models.unet import UNet
 
 
 def _identity_model():

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from cosmica.core.star_detection import (
+from astraios.core.star_detection import (
     Star,
     StarField,
     align_image,
