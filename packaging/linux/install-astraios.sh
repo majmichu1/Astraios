@@ -82,10 +82,13 @@ warn "→ Fetching the latest Astraios..."
 WHEEL_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
     | grep -o '"browser_download_url": *"[^"]*\.whl"' | head -1 | cut -d'"' -f4)
 [ -n "$WHEEL_URL" ] || die "Could not find an Astraios wheel in the latest release."
-curl -fsSL "$WHEEL_URL" -o "$APP_DIR/astraios.whl" || die "Failed to download Astraios."
-"$UV" pip install --python "$VENV/bin/python" "$APP_DIR/astraios.whl" >>"$LOG" 2>&1 \
+# Keep the wheel's real PEP 427 filename (name-version-...-.whl) — uv rejects a
+# wheel whose filename has no version (e.g. a generic 'astraios.whl').
+WHEEL_FILE="$APP_DIR/$(basename "$WHEEL_URL")"
+curl -fsSL "$WHEEL_URL" -o "$WHEEL_FILE" || die "Failed to download Astraios."
+"$UV" pip install --python "$VENV/bin/python" "$WHEEL_FILE" >>"$LOG" 2>&1 \
     || die "Astraios install failed (see $LOG)."
-rm -f "$APP_DIR/astraios.whl"
+rm -f "$WHEEL_FILE"
 say "✓ Astraios installed"
 
 # ---- 6. Smoke test -----------------------------------------------------
