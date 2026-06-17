@@ -84,6 +84,24 @@ future extension, not built.)
 
 ## Polish fixes landed alongside (branch)
 
+- **Milky-background root cause (the big one):** the stretch targeted the
+  whole-frame *median* (~0.29). On a sky-dominated frame the median IS the sky,
+  so the background was brightened to ~0.24 and the subject to ~0.29 — nearly the
+  same level, i.e. no separation = the washed "screen-stretch" look. Fixed:
+  non-HDR frames now target a **dark finished background** (~0.10, 0.085 for
+  reflection/gentle), the high-SNR `×1.15` brightening (which made *clean* data
+  worse) is removed, and the merged recipe hints are written back onto the target
+  so `_stretch_target_median` actually sees `stretch: gentle`. The HDR/M42 path is
+  untouched. NGC 7023: sky median 0.21 → 0.09, sky floor 0.068 → 0.036; subject
+  (0.14) now clearly above the sky. This was a bug, **not** the data.
+- **SCNR green-noise removal for OSC:** OSC's 2× green photosites make green
+  chroma noise + a green cast the dominant mid-tone speckle (the part a black
+  point can't crush). SCNR average-neutral (`amount=0.8`, luminance-preserved)
+  was enabled for narrowband only — now also for `OSC_RGB`. Neutralizes the green
+  mottle while keeping the blue nebula and white stars.
+- Firmer non-HDR sky-veil pull (0.06 → 0.035 floor) — the final step to a clean
+  black floor; the subtract+clip also crushes the lower half of the background
+  speckle into black.
 - Star dark-rings: additive recombine `working + (enhanced - starless)` — `9dbf909`
 - Residual vignette: order-3 clamped background on object-dominated frames — `fcd3e2a`
 - Deconvolution ringing on soft/large PSFs: gentler RL for FWHM > 5px — `19a70bb`
@@ -96,10 +114,14 @@ future extension, not built.)
 
 ### Known-hard cases / data-limited
 
-- **NGC 7023 (faint OSC colour, dense field):** the LC, sky-veil, and gradient
-  fixes darkened + flattened the background (corner spread 0.16 → 0.05) and the
-  Iris nebula separates cleanly. Residual **colour noise** is the data floor
-  (faint subs) — stronger colour denoise is the remaining lever.
+- **NGC 7023 (11h OSC colour, dense field):** earlier called "data-limited" —
+  it was NOT. The milky look was the median-targeting stretch bug above; with the
+  finished-background stretch + OSC SCNR the Iris separates with visible dust
+  lanes on a dark, neutral background. The remaining lever is **luminance grain**
+  in the mid-tone ring around the nebula (the stretch amplifies it and the black
+  point only reaches the shadows) → a background-masked post-stretch luma denoise
+  is the next fix. Stars are a touch bloated because **StarNet isn't installed**
+  here, so `use_starnet: true` falls back to the built-in remover.
 
 - Chroma (colour) noise reduction for OSC: `cosmica/core/chroma_denoise.py` +
   post-stretch step — `7bf4ef4`. NGC 7023 chroma noise 0.085 → 0.018.
@@ -112,6 +134,14 @@ future extension, not built.)
 
 ### 🔜 Next
 
+- [ ] **Luminance-grain evenness:** gentle post-stretch luma denoise masked to
+      the background (non-subject) region, to clean the mid-tone grain the black
+      point can't reach — without softening the subject. The remaining NGC 7023
+      gap vs the manual edit.
+- [ ] **StarNet install/wiring:** the recipe asks for it but the binary isn't
+      present, so dense fields fall back to the built-in remover and stars stay
+      bloated. Either bundle a StarNet check/install hint in the UI or improve the
+      built-in remover for dense fields.
 - [ ] **Curate/tune recipes** as targets are tested (it's now one JSON edit per
       target — e.g. tune the Iris, add Veil/M31/M81 overrides). This is the
       ongoing knob now, replacing scattered heuristic edits.

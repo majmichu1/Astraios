@@ -718,6 +718,12 @@ class SmartProcessor:
             if t.dynamic_range == "extreme":
                 hints["dynamic_range"] = "extreme"
                 is_extreme_dr = True
+            # Write the merged recipe back onto the target so EVERY downstream
+            # reader (stretch target, saturation, …) sees the recipe — not just
+            # the per-channel planner. Without this, the recipe's `stretch`,
+            # `bg_sensitive`, etc. were silently dropped by helpers that read
+            # `primary_target.processing_hints` directly.
+            t.processing_hints = dict(hints)
 
             # Recipe-level processor knobs override the per-call defaults (the
             # recipe is the smart per-target choice).
@@ -765,6 +771,21 @@ class SmartProcessor:
                 preserve_luminance=True,
             )
             self._log_msg("Plan: SCNR enabled for narrowband data")
+        elif analysis.input_type == InputType.OSC_RGB:
+            # OSC sensors carry 2× green photosites, so green chroma noise (and a
+            # green sky cast) dominate the speckle in the mid-tones around the
+            # subject — the part a black point can't crush. SCNR average-neutral
+            # only pulls green DOWN where it exceeds the (R+B)/2 neutral, with
+            # luminance preserved: it neutralizes the green speckle/cast while
+            # leaving genuinely white/blue/red structure untouched. Standard step
+            # in every OSC workflow (Siril, PixInsight); we were skipping it.
+            do_scnr = True
+            scnr_params = SCNRParams(
+                method=SCNRMethod.AVERAGE_NEUTRAL,
+                amount=0.8,
+                preserve_luminance=True,
+            )
+            self._log_msg("Plan: SCNR enabled for OSC (green-noise removal)")
 
         if analysis.n_channels >= 3:
             target_sat = self._get_saturation_target(analysis, hints)
@@ -1823,40 +1844,63 @@ class SmartProcessor:
     def _stretch_target_median(
         self, analysis: ImageAnalysis, snr: float, full_plan: ProcessingPlan
     ) -> float:
-        """Adaptive target background level for the stretch (LP/SNR/hints)."""
-        base_target = 0.25
-        if analysis.lp_severity == "severe":
-            base_target = 0.18
-        elif analysis.lp_severity == "moderate":
-            base_target = 0.22
+        """Adaptive target background level for the stretch (LP/SNR/hints).
 
+        The MTF solve maps the *median* of the (rescaled, black-pointed) data to
+        this target. On a sky-dominated frame — which is most deep-sky data — the
+        median IS the sky, so this number is effectively *how bright the
+        background ends up*. Targeting it high (the old 0.25–0.29) brightens the
+        sky into a milky grey that sits at nearly the same level as the subject,
+        which is exactly the washed-out "screen-stretch" look. A finished image
+        keeps the background dark (~0.05–0.12) so the subject separates from it.
+        """
         hints = analysis.primary_target.processing_hints if analysis.primary_target else {}
         stretch_hint = hints.get("stretch", "moderate")
-        if stretch_hint == "gentle":
-            base_target *= 0.75
-        elif stretch_hint == "aggressive":
-            base_target *= 1.2
-
         hdr_active = full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages
+
         if hdr_active:
-            # Stretch extreme-DR targets (M42 etc.) more gently: the HDR
-            # core-protection pass tames the bright core, and the downstream
-            # local-contrast passes add midtone brightness, so a hot target here
-            # over-brightens the whole frame into a milky veil. 0.55 was too dark
-            # (faint signal invisible); 0.85 was far too bright — 0.65 keeps the
-            # background controlled while the faint nebulosity stays visible.
+            # Extreme-DR targets (M42 etc.) keep the carefully-tuned HDR path: the
+            # core-protect pass tames the bright core and the LC passes add midtone
+            # brightness, so a hot target over-brightens into a milky veil. This
+            # branch is unchanged — M42 was tuned against it.
+            base_target = 0.25
+            if analysis.lp_severity == "severe":
+                base_target = 0.18
+            elif analysis.lp_severity == "moderate":
+                base_target = 0.22
+            if stretch_hint == "gentle":
+                base_target *= 0.75
+            elif stretch_hint == "aggressive":
+                base_target *= 1.2
             base_target *= 0.65
+            if snr < 8:
+                base_target *= 0.8
+            elif snr > 50:
+                base_target *= 1.15
+            return max(0.10, min(0.30, base_target))
 
-        if snr < 8:
+        # Non-HDR (the common case): target a dark, finished background. The
+        # subject rises above it via the MTF curve and the object-mask stretch
+        # judging; here we only set where the *sky* lands.
+        base_target = 0.10
+        if stretch_hint == "gentle":
+            base_target = 0.085  # reflection nebulae, dark nebulae — clean dark sky
+        elif stretch_hint == "aggressive":
+            base_target = 0.12  # SNRs / faint galaxies — lift the faint signal
+        # A bright light-polluted sky must be pulled down harder, not lifted.
+        if analysis.lp_severity == "severe":
             base_target *= 0.8
-        elif snr > 50:
-            base_target *= 1.15
-        # Pull back for blown highlights only when HDR core-protection ISN'T
-        # already handling them — otherwise this double-darkens the image.
-        if analysis.has_blown_highlights and not hdr_active:
+        elif analysis.lp_severity == "moderate":
+            base_target *= 0.9
+        # Noisy data: go a touch darker so amplified grain doesn't dominate.
+        if snr < 8:
             base_target *= 0.85
-
-        return max(0.10, min(0.30, base_target))
+        # NOTE: deliberately NO high-SNR brightening. Clean, deep data should
+        # keep a dark background — lifting it (the old ×1.15) turned good data
+        # into a milky veil, which is the #1 complaint on bright targets.
+        if analysis.has_blown_highlights:
+            base_target *= 0.9
+        return max(0.05, min(0.16, base_target))
 
     def _solve_shared_midtone(
         self, working: np.ndarray, analysis: ImageAnalysis, full_plan: ProcessingPlan
@@ -2323,7 +2367,12 @@ class SmartProcessor:
             if full_plan.needs_hdr_merge:
                 pull = max(0.0, sky - 0.02) * 0.7  # firm, ~0.02 floor
             else:
-                pull = max(0.0, sky - 0.06) * 0.6  # gentle, ~0.06 floor
+                # The stretch now lands the sky low already, so this is the final
+                # step to a clean black floor (~0.04) — what separates a finished
+                # image from a grey screen-stretch. A linear subtract + clip also
+                # crushes the lower half of the background noise into pure black,
+                # which is the cheapest, most effective colour-speckle reduction.
+                pull = max(0.0, sky - 0.035) * 0.65  # ~0.035 floor
             if pull > 0.001:
                 working = np.clip(working - pull, 0, 1)
                 self._log_msg(f"[{name}] Sky-veil pull: -{pull:.3f} (sky was {sky:.3f})")
