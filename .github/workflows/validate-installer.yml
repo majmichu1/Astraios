@@ -1,0 +1,91 @@
+name: Validate Windows Installer
+
+# Runs the REAL install-time bootstrap on a genuine Windows runner, so the
+# installer is verified end-to-end without needing a local Windows machine.
+# The runner has no NVIDIA GPU, so this exercises the CPU path; the only
+# difference for GPU users is the torch index URL (checked separately by a
+# dry-run resolve of the cu128 wheels).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packaging/windows/**'
+      - '.github/workflows/validate-installer.yml'
+      - 'pyproject.toml'
+      - 'astraios/__init__.py'
+      - 'astraios/__main__.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build the wheel
+        run: |
+          pip install --no-cache-dir poetry
+          poetry build --format wheel
+
+      - name: Download uv
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "https://github.com/astral-sh/uv/releases/latest/download/uv-x86_64-pc-windows-msvc.zip" -OutFile uv.zip
+          Expand-Archive uv.zip uv_extract -Force
+
+      - name: Stage an install dir (what the installer lays down)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force testinstall | Out-Null
+          Copy-Item uv_extract\uv.exe testinstall\
+          Copy-Item dist\*.whl testinstall\
+          Copy-Item packaging\windows\bootstrap.ps1 testinstall\
+
+      - name: Run the real bootstrap (venv + torch + app + import smoke)
+        shell: pwsh
+        run: |
+          $dir = (Resolve-Path testinstall).Path
+          powershell -NoProfile -ExecutionPolicy Bypass -File "$dir\bootstrap.ps1" -AppDir "$dir"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "----- setup.log -----"
+            Get-Content "$dir\setup.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      - name: Verify the shortcut target (pythonw.exe) exists
+        shell: pwsh
+        run: |
+          $pyw = "testinstall\.venv\Scripts\pythonw.exe"
+          if (-not (Test-Path $pyw)) {
+            Write-Host "::error::pythonw.exe missing in the venv — the Start Menu/desktop shortcut target would be broken"
+            Get-ChildItem testinstall\.venv\Scripts
+            exit 1
+          }
+          Write-Host "pythonw.exe present: $pyw"
+
+      - name: Launch test — construct the GUI offscreen
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $py = "testinstall\.venv\Scripts\python.exe"
+          & $py -c "from PyQt6.QtWidgets import QApplication; from astraios.ui.main_window import MainWindow; app=QApplication([]); w=MainWindow(); w.close(); print('GUI constructs and closes OK')"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Confirm the GPU (cu128) wheels resolve for py3.11
+        shell: pwsh
+        run: |
+          & testinstall\uv.exe pip install --python testinstall\.venv\Scripts\python.exe --dry-run torch torchvision --index-url https://download.pytorch.org/whl/cu128
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "::error::cu128 GPU wheels did not resolve — the GPU install path would fail"
+            exit 1
+          }
+          Write-Host "cu128 GPU wheels resolve OK"
