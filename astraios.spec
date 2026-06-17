@@ -9,12 +9,18 @@ block_cipher = None
 torch_datas = collect_data_files('torch', include_py_files=False)
 # Collect astropy data
 astropy_datas = collect_data_files('astropy')
-# App resources and bundled model — paths are relative to spec file location
+# App resources and bundled model — paths are relative to spec file location.
 extra_datas = [
     (str(Path('astraios') / 'resources'), str(Path('astraios') / 'resources')),
-    (str(Path('astraios') / 'ai' / 'models' / 'cosmica_denoise_v1.pt'),
-     str(Path('astraios') / 'ai' / 'models')),
 ]
+# Bundle any AI model weights that are actually present. The models are
+# gitignored (downloaded from the CDN on first use), so they're absent in CI —
+# PyInstaller errors out if a declared data file doesn't exist, so only add the
+# ones that are there rather than hard-coding a single filename.
+_models_dir = Path('astraios') / 'ai' / 'models'
+if _models_dir.is_dir():
+    for _m in _models_dir.glob('*.pt'):
+        extra_datas.append((str(_m), str(_models_dir)))
 
 hidden_imports = [
     # PyQt6
