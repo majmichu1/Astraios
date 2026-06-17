@@ -81,73 +81,43 @@ jobs:
           files: packaging/windows/installer_output/*.exe
 
   # ------------------------------------------------------------------ #
-  #  Linux — CPU AppImage (GPU smart-install is a later follow-up)     #
+  #  Linux — smart installer (GPU, like Windows)                       #
+  #  Ships the tiny install-astraios.sh + the wheel it downloads. The  #
+  #  script detects the GPU and installs CUDA/CPU PyTorch on the user's #
+  #  machine. No more frozen CPU-only AppImage. The wheel is also the   #
+  #  asset the script fetches from the release.                        #
   # ------------------------------------------------------------------ #
-  build-linux:
+  publish-linux-installer:
     runs-on: ubuntu-22.04
-    env:
-      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
       - uses: actions/checkout@v4
-
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
-            /usr/local/share/boost /usr/lib/jvm /opt/hostedtoolcache/CodeQL \
-            /usr/share/swift /usr/local/.ghcup
-          sudo docker image prune -af || true
-          df -h
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install system deps
+      - name: Build the wheel
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            libgl1 libglib2.0-0 libxcb-xinerama0 libxkbcommon-x11-0 \
-            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
-            libxcb-render-util0 libxcb-shape0 fuse libopenblas-dev
+          pip install --no-cache-dir poetry
+          poetry build --format wheel
 
-      - name: Install Poetry
-        run: pip install --no-cache-dir poetry
-
-      - name: Install dependencies
+      - name: Collect release files
         run: |
-          poetry config virtualenvs.create false
-          poetry install --no-interaction
+          mkdir -p out
+          cp packaging/linux/install-astraios.sh out/
+          cp dist/*.whl out/
 
-      - name: Force CPU PyTorch (small AppImage)
-        run: pip install torch --index-url https://download.pytorch.org/whl/cpu --force-reinstall --no-cache-dir
-
-      - name: Install PyInstaller and PyQt6
-        run: pip install --no-cache-dir pyinstaller PyQt6
-
-      - name: Build Linux binary
-        run: pyinstaller astraios.spec --clean --noconfirm
-
-      - name: Create AppImage
-        run: |
-          wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-          chmod +x appimagetool-x86_64.AppImage
-          mkdir -p AppDir/usr/bin
-          cp -r dist/Astraios/* AppDir/usr/bin/
-          cp astraios/resources/icons/*.png AppDir/astraios.png 2>/dev/null || touch AppDir/astraios.png
-          printf '[Desktop Entry]\nName=Astraios\nExec=Astraios\nIcon=astraios\nType=Application\nCategories=Graphics;\n' > AppDir/astraios.desktop
-          printf '#!/bin/bash\nHERE="$(dirname "$(readlink -f "${0}")")"\nexec "${HERE}/usr/bin/Astraios" "$@"\n' > AppDir/AppRun
-          chmod +x AppDir/AppRun
-          ARCH=x86_64 ./appimagetool-x86_64.AppImage --no-appstream AppDir Astraios-x86_64.AppImage
-
-      - name: Upload AppImage artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Astraios-Linux-AppImage
-          path: Astraios-x86_64.AppImage
+          name: Astraios-Linux-Installer
+          path: out/*
 
       - name: Upload to Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: Astraios-x86_64.AppImage
+          files: |
+            packaging/linux/install-astraios.sh
+            dist/*.whl
