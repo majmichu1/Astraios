@@ -93,3 +93,8 @@ docs/superpowers/
 
 # local state
 sigma
+
+# Windows installer build artifacts (staged during CI, never committed)
+packaging/windows/uv.exe
+packaging/windows/*.whl
+packaging/windows/installer_output/
