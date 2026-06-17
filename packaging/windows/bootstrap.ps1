@@ -85,11 +85,15 @@ try {
     & $uv pip install --python $py torch torchvision --index-url $torchIndex
     if ($LASTEXITCODE -ne 0) { throw "torch install failed ($LASTEXITCODE)" }
 
-    # --- 4. Install Astraios + remaining dependencies ------------------------
-    # PyPI as the default index for everything else; the torch index stays as an
-    # extra so torchvision's torch pin still resolves to the GPU build.
+    # --- 4. Install Astraios + remaining dependencies (PyPI only) ------------
+    # torch/torchvision were installed from the GPU/CPU index in step 3 and
+    # already satisfy the app's `torch>=2.2,<3` pin, so they're left untouched.
+    # We deliberately do NOT pass the torch index here: uv's default first-index
+    # strategy would then resolve OTHER deps (requests, etc.) against the PyTorch
+    # index, which carries stale pins, and the install would fail. Everything
+    # except torch comes cleanly from PyPI.
     Log "Installing Astraios and dependencies..."
-    & $uv pip install --python $py $wheel.FullName --extra-index-url $torchIndex
+    & $uv pip install --python $py $wheel.FullName
     if ($LASTEXITCODE -ne 0) { throw "Astraios install failed ($LASTEXITCODE)" }
 
     # --- 5. Smoke test -------------------------------------------------------
