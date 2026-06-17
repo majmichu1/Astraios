@@ -11,6 +11,7 @@ on:
     branches: [main]
     paths:
       - 'packaging/windows/**'
+      - 'packaging/linux/**'
       - '.github/workflows/validate-installer.yml'
       - 'pyproject.toml'
       - 'astraios/__init__.py'
@@ -89,3 +90,28 @@ jobs:
             exit 1
           }
           Write-Host "cu128 GPU wheels resolve OK"
+
+  # Runs the REAL Linux installer end-to-end on a clean Ubuntu runner (no GPU →
+  # CPU path). Validates uv download/extract, venv creation, torch install,
+  # downloading the wheel from the latest release, the app install, and the
+  # import smoke test — i.e. exactly what a Linux user's machine would do.
+  validate-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run the Linux installer end-to-end
+        run: bash packaging/linux/install-astraios.sh
+
+      - name: Confirm the install works + GUI imports (offscreen)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxcb-cursor0 libxkbcommon0 libxcb-xinerama0 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 >/dev/null
+          PY="$HOME/.local/share/Astraios/venv/bin/python"
+          "$PY" -c "import astraios, torch; print('install OK', astraios.__version__, '| torch', torch.__version__)"
+          "$PY" -c "from PyQt6.QtWidgets import QApplication; import astraios.ui.main_window; app=QApplication([]); print('GUI module imports OK')"
