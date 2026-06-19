@@ -694,12 +694,18 @@ class SmartProcessor:
             bg_medians = [s["median"] for s in channel_stats[:3]]
             bg_spread = max(bg_medians) - min(bg_medians)
 
-        # Measure gradient strength via std of heavily-smoothed image
+        # Measure gradient strength via the std of a heavily-smoothed image.
+        # A heavy smooth is purely low-frequency, so we downsample to a thumbnail
+        # FIRST: a full-res Gaussian with sigma = max_side // 8 is enormous (on a
+        # 65 MP image sigma ~1200, kernel ~10k px wide -> minutes). On a ~512 px
+        # thumbnail it's instant and the gradient std is the same.
         from scipy.ndimage import gaussian_filter
+        step = max(1, max(data.shape[-2:]) // 512)
         if data.ndim == 2:
-            smoothed = gaussian_filter(data, sigma=max(data.shape) // 8)
+            small = data[::step, ::step]
         else:
-            smoothed = gaussian_filter(np.mean(data, axis=0), sigma=max(data.shape[1:]) // 8)
+            small = np.mean(data[:, ::step, ::step], axis=0)
+        smoothed = gaussian_filter(small, sigma=max(1, max(small.shape) // 8))
         gradient_std = float(np.std(smoothed))
 
         if bg_level > 0.15 or bg_spread > 0.05 or gradient_std > 0.08:
