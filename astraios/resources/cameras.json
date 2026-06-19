@@ -687,7 +687,7 @@
   },
   {
     "name": "Nikon D5600",
-    "sensor": "Sony IMX071 (24.2 MP)",
+    "sensor": "Sony 24.2 MP APS-C CMOS",
     "pixel_size_um": 3.92,
     "read_noise_e": 3.8,
     "dark_current_e_per_s": 0.12,
@@ -697,6 +697,20 @@
     "bayer_pattern": "RGGB",
     "resolution_x": 6000,
     "resolution_y": 4000,
+    "camera_type": "color"
+  },
+  {
+    "name": "Pentax K-5 IIs",
+    "sensor": "Sony IMX071 (16.3 MP, no AA filter)",
+    "pixel_size_um": 4.78,
+    "read_noise_e": 4.0,
+    "dark_current_e_per_s": 0.5,
+    "full_well_e": 33000,
+    "qe_peak": 0.50,
+    "qe_curve": [[350, 0.03], [400, 0.18], [450, 0.38], [500, 0.48], [550, 0.50], [600, 0.42], [656, 0.16], [700, 0.08], [800, 0.03]],
+    "bayer_pattern": "RGGB",
+    "resolution_x": 4928,
+    "resolution_y": 3264,
     "camera_type": "color"
   }
 ]

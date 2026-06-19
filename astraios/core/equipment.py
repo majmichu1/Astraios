@@ -265,6 +265,36 @@ def load_camera_database(path: Path | None = None) -> list[CameraProfile]:
     return cameras
 
 
+def _norm_cam_name(name: str) -> str:
+    """Lowercase, alphanumeric-only form for loose camera-name matching."""
+    return "".join(c for c in name.lower() if c.isalnum())
+
+
+def match_camera_by_name(name: str | None, path: Path | None = None) -> CameraProfile | None:
+    """Best-effort match a camera/instrument name (e.g. a FITS ``INSTRUME``)
+    against the database, so an unknown rig with a recognizable camera can still
+    supply a pixel size. Returns None when nothing matches confidently."""
+    if not name or not name.strip():
+        return None
+    target = _norm_cam_name(name)
+    if len(target) < 4:
+        return None
+    try:
+        cams = load_camera_database(path)
+    except Exception:
+        return None
+    for c in cams:  # exact normalized match first
+        if _norm_cam_name(c.name) == target:
+            return c
+    best = None  # else the longest containment match either way
+    for c in cams:
+        n = _norm_cam_name(c.name)
+        if len(n) >= 4 and (target in n or n in target):
+            if best is None or len(_norm_cam_name(best.name)) < len(n):
+                best = c
+    return best
+
+
 def load_telescope_database(path: Path | None = None) -> list[TelescopeProfile]:
     """Load the built-in telescope database (or a custom one) from JSON."""
     path = path or (_RESOURCES_DIR / "telescopes.json")
@@ -457,5 +487,16 @@ def detect_from_fits_header(header: dict[str, Any]) -> dict[str, Any]:
             info["ra"] = ra_val
         if dec_val is not None:
             info["dec"] = dec_val
+
+    # If the header named a camera but gave no pixel size, fill it from the
+    # camera database so a plate scale can still be computed for unknown gear.
+    if "pixel_size_um" not in info and info.get("camera_name"):
+        cam = match_camera_by_name(info["camera_name"])
+        if cam is not None:
+            info["pixel_size_um"] = cam.pixel_size_um
+            info["matched_camera"] = cam.name
+            bayer = getattr(cam, "bayer_pattern", None)
+            if "bayer_pattern" not in info and bayer:
+                info["bayer_pattern"] = bayer
 
     return info
