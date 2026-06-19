@@ -89,9 +89,28 @@ class AstraiosUndoStack:
     def __init__(self, max_depth: int = MAX_UNDO_DEPTH):
         self._stack = QUndoStack()
         self._max_depth = max_depth
+        # Qt only honours setUndoLimit while the stack is empty, so set it here
+        # (and again in configure_for_image after a clear). Without this the limit
+        # was never applied and undo history grew unbounded.
+        self._stack.setUndoLimit(max_depth)
         self._target_ref: list[ImageData | None] = [None]
         # Shared box: undo/redo commands write the display ref here after executing
         self._display_ref_box: list = [None]
+
+    def configure_for_image(self, image_nbytes: int) -> None:
+        """Adapt undo depth to the image size and reset history.
+
+        Each step stores a before+after copy (~2x the image), so a large image
+        (a half-gigapixel TIFF) would blow up RAM at the fixed depth. Cap total
+        undo memory to a budget and shrink the depth accordingly. Clears first so
+        Qt actually applies the new limit (it's ignored on a non-empty stack).
+        """
+        self._stack.clear()
+        budget_bytes = 1_500_000_000  # ~1.5 GB of undo history at most
+        per_step = max(1, 2 * int(image_nbytes))
+        depth = max(1, min(self._max_depth, budget_bytes // per_step))
+        self._stack.setUndoLimit(int(depth))
+        log.debug("Undo depth set to %d (image state %.0f MB)", depth, image_nbytes / 1e6)
 
     def set_target(self, target_ref: list) -> None:
         """Set the mutable reference to the current image."""
@@ -120,9 +139,6 @@ class AstraiosUndoStack:
             before_display_ref: The stretch reference (numpy array or None) that was
                 used to display the ``before`` state.  Restored on undo.
         """
-        if self._stack.count() >= self._max_depth:
-            self._stack.setUndoLimit(self._max_depth)
-
         cmd = ImageEditCommand(before, after, description, before_display_ref=before_display_ref)
         cmd.set_target(self._target_ref)
         cmd.set_display_ref_box(self._display_ref_box)

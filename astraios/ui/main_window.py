@@ -1882,6 +1882,10 @@ class MainWindow(QMainWindow):
             return load_image(path)
 
         def _on_loaded(image):
+            # Reset undo history for the new image and size its depth to the
+            # image (large images keep fewer steps so RAM stays bounded).
+            self._undo_stack.configure_for_image(image.data.nbytes)
+            self._update_undo_actions()
             self._display_image(image)
             self._log_panel.log(f"Loaded: {Path(path).name} ({image.shape_str})", "info")
             # Reset processing graph for the new image

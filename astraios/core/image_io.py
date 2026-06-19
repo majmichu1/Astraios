@@ -520,20 +520,16 @@ def _load_common_image(path: Path) -> ImageData:
         try:
             import tifffile
             raw = tifffile.imread(str(path))
-            data = raw.astype(np.float32)
-            if data.ndim == 2:
-                # Mono — normalize to [0, 1]
-                dmin, dmax = data.min(), data.max()
-                if dmax > dmin:
-                    data = (data - dmin) / (dmax - dmin)
-            elif data.ndim == 3:
-                if data.shape[2] in (3, 4):
-                    # HWC → CHW, drop alpha
-                    data = np.transpose(data[:, :, :3], (2, 0, 1))
-                # else already CHW — leave as-is
-                dmin, dmax = data.min(), data.max()
-                if dmax > dmin:
-                    data = (data - dmin) / (dmax - dmin)
+            # asarray avoids a second full-size copy when the data is already
+            # float32 (e.g. Siril stacks); for integer TIFFs it converts once.
+            data = np.asarray(raw, dtype=np.float32)
+            if data is not raw:
+                del raw  # free the source buffer immediately
+            if data.ndim == 3 and data.shape[2] in (3, 4):
+                # HWC → CHW, drop alpha — one contiguous copy
+                data = np.ascontiguousarray(np.transpose(data[:, :, :3], (2, 0, 1)))
+            # Normalize to [0, 1] IN PLACE — no extra full-size temporaries.
+            data = _normalize01_inplace(data)
             return ImageData(data=data, file_path=path, frame_type=FrameType.UNKNOWN)
         except Exception:
             pass  # fall through to Pillow
@@ -542,22 +538,36 @@ def _load_common_image(path: Path) -> ImageData:
 
     img = Image.open(path)
     if img.mode in ("I;16", "I;16B"):
-        data = np.array(img, dtype=np.uint16)
-        data = data.astype(np.float32) / 65535.0
+        data = np.asarray(img, dtype=np.uint16).astype(np.float32)
+        data *= 1.0 / 65535.0
     elif img.mode == "I":
-        data = np.array(img, dtype=np.int32)
-        data = (data.astype(np.float32) - data.min()) / max(1, data.max() - data.min())
+        data = np.asarray(img, dtype=np.int32).astype(np.float32)
+        data = _normalize01_inplace(data)
     elif img.mode == "F":
         data = np.array(img, dtype=np.float32)
-        dmin, dmax = data.min(), data.max()
-        if dmax > dmin:
-            data = (data - dmin) / (dmax - dmin)
+        data = _normalize01_inplace(data)
     else:
         img = img.convert("RGB")
-        data = np.array(img, dtype=np.float32) / 255.0
-        data = np.transpose(data, (2, 0, 1))  # (H, W, C) -> (C, H, W)
+        data = np.asarray(img, dtype=np.float32) * (1.0 / 255.0)
+        data = np.ascontiguousarray(np.transpose(data, (2, 0, 1)))  # (H,W,C) -> (C,H,W)
 
     return ImageData(data=data, file_path=path, frame_type=FrameType.UNKNOWN)
+
+
+def _normalize01_inplace(data: np.ndarray) -> np.ndarray:
+    """Scale a float32 array to [0, 1] with no full-size temporaries.
+
+    Operates in place when possible; copies only a read-only buffer. Returns the
+    array to use (callers must assign the result).
+    """
+    dmin = float(data.min())
+    dmax = float(data.max())
+    if dmax > dmin:
+        if not data.flags.writeable:
+            data = data.copy()
+        data -= dmin
+        data *= 1.0 / (dmax - dmin)
+    return data
 
 
 def save_image(
