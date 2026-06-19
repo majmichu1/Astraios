@@ -514,7 +514,18 @@ class SmartProcessor:
                         f"Dec={solve_result.dec_center:.4f}, "
                         f"scale={solve_result.pixel_scale:.2f} arcsec/px"
                     )
-                    if not plate_scale and solve_result.pixel_scale > 0:
+                    # A successful plate solve measures the TRUE scale from the
+                    # star field, so trust it over a nominal equipment/header value
+                    # (which assumes an exact focal length and ignores reducers/
+                    # barlows). This is what makes "no equipment selected" — or even
+                    # the wrong telescope — still produce the right scale.
+                    if solve_result.pixel_scale > 0:
+                        if (plate_scale and
+                                abs(solve_result.pixel_scale - plate_scale) / plate_scale > 0.05):
+                            self._log_msg(
+                                f"Using plate-solve scale {solve_result.pixel_scale:.2f}\"/px "
+                                f"(equipment/header implied {plate_scale:.2f}\"/px)"
+                            )
                         plate_scale = solve_result.pixel_scale
             except Exception as exc:
                 self._log_msg(f"Plate solving failed: {exc}")
