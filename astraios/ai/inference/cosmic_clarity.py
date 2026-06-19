@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
-import platform
-import sys
-import tempfile
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,11 +14,10 @@ from astraios.core.device_manager import get_device_manager
 
 log = logging.getLogger(__name__)
 
+# Default folder Astraios looks in for Cosmic Clarity models. The user normally
+# overrides this in Preferences to point at their own Cosmic Clarity install.
+# Astraios never downloads these third-party (Seti Astro) models itself.
 MODEL_DIR = Path.home() / ".astraios" / "models" / "cosmic_clarity"
-_OS_TAG = {"Linux": "linux", "Darwin": "macos", "Windows": "Windows"}.get(platform.system(), "linux")
-RELEASE_BASE = f"https://github.com/setiastro/cosmicclarity/releases/download/{_OS_TAG}"
-
-MODEL_URLS: dict[str, str] = {}
 
 MIN_PIXELS_GPU = 256 * 256
 
@@ -46,8 +40,12 @@ def apply(
 
     model = _load_model(params.model)
     if model is None:
-        log.warning("CosmicClarity model '%s' not available, returning original", params.model)
-        return image.copy()
+        raise ValueError(
+            "No Cosmic Clarity model found. Cosmic Clarity is a separate tool by "
+            "Seti Astro; install it, then point Astraios at its model folder in "
+            "Preferences > AI Models. (The built-in Noise2Self denoise and "
+            "Richardson-Lucy sharpen work without any setup.)"
+        )
 
     dm = get_device_manager()
     device = dm.device if image.size >= MIN_PIXELS_GPU else "cpu"
@@ -95,57 +93,34 @@ KNOWN_MODELS = {
 
 
 def _load_model(model_name: str):
-    model_path = MODEL_DIR / f"{model_name}.pt"
-    if model_path.exists():
-        try:
-            state = torch.load(model_path, map_location="cpu", weights_only=True)
-            return _build_and_load(state)
-        except Exception as e:
-            log.warning("Failed to load cached model %s: %s", model_name, e)
-            return None
+    """Load a Cosmic Clarity model from the user's own model folder.
 
+    Astraios does NOT download or bundle Cosmic Clarity models: they are a
+    third-party project (Seti Astro). The user installs Cosmic Clarity and points
+    Astraios at its model folder in Preferences; we only read from there. Returns
+    None when no matching model file is present.
+    """
+    from astraios.core.user_paths import cosmic_clarity_dir
+
+    base = cosmic_clarity_dir() or MODEL_DIR
+
+    candidates = [base / f"{model_name}.pt"]
     actual_name = KNOWN_MODELS.get(model_name)
     if actual_name:
-        actual_path = MODEL_DIR / actual_name
-        if not actual_path.exists():
-            url = f"{RELEASE_BASE}/{actual_name}"
-            MODEL_DIR.mkdir(parents=True, exist_ok=True)
-            try:
-                log.info("Downloading CosmicClarity model %s from %s", actual_name, url)
-                tmp = tempfile.NamedTemporaryFile(dir=str(MODEL_DIR), prefix="tmp_", suffix=".pth", delete=False)
-                tmp_path = Path(tmp.name)
-                try:
-                    urllib.request.urlretrieve(url, tmp_path)
-                    os.chmod(tmp_path, 0o644)
-                    tmp_path.rename(actual_path)
-                except Exception:
-                    if tmp_path.exists():
-                        tmp_path.unlink()
-                    raise
-                log.info("Model saved: %s", actual_path)
-            except Exception as e:
-                log.warning(
-                    "Download failed: %s. "
-                    "Download manually from %s and place in %s",
-                    e, url, MODEL_DIR,
-                )
-                return None
-        try:
-            state = torch.load(actual_path, map_location="cpu", weights_only=True)
-            return _build_and_load(state)
-        except Exception as e:
-            log.warning("Failed to load model %s: %s", actual_name, e)
-            return None
+        candidates.append(base / actual_name)
 
-    log.warning(
-        "Unknown model '%s'. Known: %s. "
-        "Place a .pt file named '%s.pt' in %s, "
-        "or download the actual models from %s",
-        model_name,
-        ", ".join(KNOWN_MODELS),
-        model_name,
-        MODEL_DIR,
-        RELEASE_BASE,
+    for path in candidates:
+        if path.exists():
+            try:
+                state = torch.load(path, map_location="cpu", weights_only=True)
+                return _build_and_load(state)
+            except Exception as e:
+                log.warning("Failed to load Cosmic Clarity model %s: %s", path.name, e)
+                return None
+
+    log.info(
+        "No Cosmic Clarity model for '%s' in %s. Set the folder in "
+        "Preferences > AI Models.", model_name, base,
     )
     return None
 

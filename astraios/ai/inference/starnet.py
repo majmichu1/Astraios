@@ -40,6 +40,13 @@ def find_starnet_binary() -> Path | None:
     Path or None
         Path to StarNet binary, or None if not found.
     """
+    # A path the user set in Preferences wins over auto-detection.
+    from astraios.core.user_paths import starnet_binary as _configured_starnet
+
+    configured = _configured_starnet()
+    if configured is not None:
+        return configured
+
     # Check common names
     for name in ("starnet++", "starnet2", "StarNetv2CLI", "starnet"):
         path = shutil.which(name)

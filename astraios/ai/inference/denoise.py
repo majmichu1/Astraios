@@ -54,6 +54,12 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
     models_dir = Path(__file__).resolve().parent.parent / "models"
 
     candidates = []
+    # A denoise model the user set in Preferences takes priority.
+    from astraios.core.user_paths import model_override
+
+    user_model = model_override("denoise")
+    if user_model is not None:
+        candidates.append(user_model)
     if prefer_best:
         candidates.append(models_dir / "best_n2s_model.pt")
     # Try checkpoints newest first (up to epoch 30)

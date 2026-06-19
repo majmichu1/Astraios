@@ -35,6 +35,10 @@ DEFAULTS = {
     # AI models
     "ai/auto_download_models": True,
     "ai/model_quality": "balanced",  # fast, balanced, quality
+    # User-provided models / external tools (so they aren't re-downloaded)
+    "models/starnet_path": "",
+    "models/denoise_model": "",
+    "models/cosmic_clarity_dir": "",
     # Appearance
     "appearance/split_preview_max": 1024,
     "appearance/histogram_log_scale": True,
@@ -156,6 +160,43 @@ class PreferencesDialog(QDialog):
         ai_info.setWordWrap(True)
         ai_layout.addRow("", ai_info)
 
+        ai_layout.addRow(None, QLabel())
+        own_models = QLabel(
+            "<b>Use models you already have</b><br>"
+            "<span style='color: #888;'>Point Astraios at a StarNet binary, a denoise "
+            "model, or a Cosmic Clarity model folder you've installed, so they aren't "
+            "downloaded again. Leave blank to use the built-in defaults.</span>"
+        )
+        own_models.setWordWrap(True)
+        ai_layout.addRow("", own_models)
+
+        self._starnet_path = QLineEdit()
+        self._starnet_path.setPlaceholderText("e.g. ~/StarNet/StarNetv2CLI")
+        sn_browse = QPushButton("Browse...")
+        sn_browse.clicked.connect(lambda: self._browse_file(self._starnet_path))
+        sn_layout = QHBoxLayout()
+        sn_layout.addWidget(self._starnet_path)
+        sn_layout.addWidget(sn_browse)
+        ai_layout.addRow("StarNet binary:", sn_layout)
+
+        self._denoise_model = QLineEdit()
+        self._denoise_model.setPlaceholderText("a .pt denoise model (optional)")
+        dn_browse = QPushButton("Browse...")
+        dn_browse.clicked.connect(lambda: self._browse_file(self._denoise_model))
+        dn_layout = QHBoxLayout()
+        dn_layout.addWidget(self._denoise_model)
+        dn_layout.addWidget(dn_browse)
+        ai_layout.addRow("AI denoise model:", dn_layout)
+
+        self._cosmic_clarity_dir = QLineEdit()
+        self._cosmic_clarity_dir.setPlaceholderText("your Cosmic Clarity model folder")
+        cc_browse = QPushButton("Browse...")
+        cc_browse.clicked.connect(lambda: self._browse_dir(self._cosmic_clarity_dir))
+        cc_layout = QHBoxLayout()
+        cc_layout.addWidget(self._cosmic_clarity_dir)
+        cc_layout.addWidget(cc_browse)
+        ai_layout.addRow("Cosmic Clarity folder:", cc_layout)
+
         tabs.addTab(ai_tab, "🤖 AI Models")
 
         # --- Appearance tab ---
@@ -276,6 +317,10 @@ class PreferencesDialog(QDialog):
         quality_idx = {"fast": 0, "balanced": 1, "quality": 2}.get(quality, 1)
         self._model_quality.setCurrentIndex(quality_idx)
 
+        self._starnet_path.setText(self._get("models/starnet_path", ""))
+        self._denoise_model.setText(self._get("models/denoise_model", ""))
+        self._cosmic_clarity_dir.setText(self._get("models/cosmic_clarity_dir", ""))
+
         self._preview_max.setValue(self._get("appearance/split_preview_max", 1024))
         self._hist_log.setChecked(self._get("appearance/histogram_log_scale", True))
         pixel_fmt = self._get("appearance/pixel_readout_format", "float")
@@ -310,6 +355,7 @@ class PreferencesDialog(QDialog):
             "processing/tile_size", "processing/tile_overlap", "processing/max_threads",
             "paths/default_import_dir", "paths/default_export_dir", "paths/model_cache_dir",
             "ai/auto_download_models", "ai/model_quality",
+            "models/starnet_path", "models/denoise_model", "models/cosmic_clarity_dir",
             "appearance/split_preview_max", "appearance/histogram_log_scale",
             "appearance/pixel_readout_format",
             "platesolver/auto_solve", "platesolver/astrometry_net_path",
@@ -337,6 +383,12 @@ class PreferencesDialog(QDialog):
         quality_map = {0: "fast", 1: "balanced", 2: "quality"}
         self._settings.setValue(
             "ai/model_quality", quality_map.get(self._model_quality.currentIndex(), "balanced")
+        )
+
+        self._settings.setValue("models/starnet_path", self._starnet_path.text().strip())
+        self._settings.setValue("models/denoise_model", self._denoise_model.text().strip())
+        self._settings.setValue(
+            "models/cosmic_clarity_dir", self._cosmic_clarity_dir.text().strip()
         )
 
         self._settings.setValue("appearance/split_preview_max", self._preview_max.value())

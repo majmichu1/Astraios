@@ -61,10 +61,9 @@ Where Astraios actually stands apart: everything runs on the GPU, the GPU instal
 ### AI and Advanced Denoising
 Models download on first use; nothing runs in the cloud.
 
-- **AI Denoise** -- a Noise2Self U-Net trained on real astro images (downloads on first use)
+- **AI Denoise** -- a Noise2Self U-Net trained on real astro images (the model downloads on first use)
 - **Star Removal** -- a built-in morphological remover that works immediately with no extra download, plus optional StarNet integration when you point Astraios at a StarNet binary you've installed
-- **Super-Resolution** -- optional Real-ESRGAN upscaling (downloaded on first use), with bicubic / Lanczos fallback
-- **MureDenoise** -- multi-resolution (MURE) noise estimation for optimal dark subtraction (classical, no model)
+- **Bring your own models** -- in Preferences you can point Astraios at a StarNet binary, a denoise model, or a Cosmic Clarity model folder you already have, so it uses those instead of downloading anything
 
 For sharpening, see the deconvolution tools below (Richardson-Lucy and spatially-varying deconvolution).
 

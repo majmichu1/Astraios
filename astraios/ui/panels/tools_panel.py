@@ -1119,15 +1119,17 @@ class ToolsPanel(QWidget):
         sl.addLayout(hdr_row)
 
         _model_statuses = [
-            ("AI Denoise (CosmicClarity)",   "ready"),
-            ("AI Sharpen (CosmicClarity)",   "ready"),
-            ("Star Removal (built-in)",      "ready"),
-            ("StarNet v2 (external)",        "planned"),
+            ("AI Denoise (Noise2Self)",       "ready"),
+            ("AI Sharpen (Richardson-Lucy)",  "ready"),
+            ("Star Removal (built-in)",       "ready"),
+            ("StarNet (external binary)",     "optional"),
+            ("CosmicClarity (your models)",   "optional"),
         ]
         _status_style = {
             "ready":    (ACCENT_DARK, ACCENT, "Ready"),
             "training": ("#2d1f00", ORANGE,  "Training…"),
             "planned":  ("#1c1c2e", ACCENT_PURPLE, "Planned"),
+            "optional": ("#1c1c2e", ACCENT_PURPLE, "Optional"),
         }
         for name, status in _model_statuses:
             row = QHBoxLayout()
@@ -1146,13 +1148,14 @@ class ToolsPanel(QWidget):
         # AI Denoise
         den = CollapsibleSection("AI Denoise", accent=True)
         den.add_info(
-            "CosmicClarity Denoise — MIT-licensed astro AI by "
-            "Seti Astro (Franklin Marek). Self-supervised denoising."
+            "Noise2Self: a self-supervised denoiser trained on real astro images, "
+            "built in and ready. CosmicClarity uses your own Cosmic Clarity models "
+            "(set their folder in Preferences); it does nothing until you do."
         )
         self._ai_denoise_backend = den.add_combo(
             "Backend",
-            ["CosmicClarity (best)", "Noise2Self (built-in)"],
-            current="CosmicClarity (best)",
+            ["Noise2Self (built-in)", "CosmicClarity (your models)"],
+            current="Noise2Self (built-in)",
         )
         self._ai_denoise_strength = den.add_slider("Strength", 0.7, 0.0, 1.0, 0.05, 2)
         self._ai_tile_combo       = den.add_combo("Tile size", ["128", "256", "512", "Full"])
@@ -1164,13 +1167,14 @@ class ToolsPanel(QWidget):
         # AI Sharpen
         shr = CollapsibleSection("AI Sharpen")
         shr.add_info(
-            "CosmicClarity Sharpen — MIT-licensed astro AI by "
-            "Seti Astro (Franklin Marek). Learned deconvolution and sharpening."
+            "Richardson-Lucy deconvolution, built in and ready. CosmicClarity uses "
+            "your own Cosmic Clarity models (set their folder in Preferences); it "
+            "does nothing until you do."
         )
         self._ai_sharpen_backend = shr.add_combo(
             "Backend",
-            ["CosmicClarity (best)", "Richardson-Lucy (fallback)"],
-            current="CosmicClarity (best)",
+            ["Richardson-Lucy (built-in)", "CosmicClarity (your models)"],
+            current="Richardson-Lucy (built-in)",
         )
         self._ai_sharpen_strength = shr.add_slider("Strength", 0.5, 0.0, 1.0, 0.05, 2)
         shr.add_run("▶ Apply AI Sharpen", self.run_ai_sharpen.emit)
