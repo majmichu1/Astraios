@@ -1123,8 +1123,13 @@ class SmartProcessor:
             # Use spatially-varying PSF when the image is large enough
             # and we have sufficient stars across the field. This handles
             # field curvature/coma at edges much better than global deconv.
+            # BUT it runs a full deconvolution per zone (9x per channel) and
+            # holds a full-image blend-weight map per zone, so its RAM and time
+            # scale steeply with resolution — on a 65 MP mosaic it OOMs / takes
+            # many minutes. Above ~25 MP, fall back to a single global deconv.
             min_dim = min(analysis.width, analysis.height)
-            if min_dim >= 800 and analysis.psf.n_stars_used >= 8:
+            megapixels = (analysis.width * analysis.height) / 1e6
+            if min_dim >= 800 and analysis.psf.n_stars_used >= 8 and megapixels <= 25.0:
                 plan.use_spatial_deconv = True
                 self._log_msg(
                     f"Plan [{name}]: Spatial deconvolution (zone PSF) "
@@ -1132,9 +1137,11 @@ class SmartProcessor:
                     f"({'gentle' if gentle_deconv else 'adaptive'})"
                 )
             else:
+                too_big = (f", {megapixels:.0f} MP exceeds the 25 MP spatial limit"
+                           if megapixels > 25.0 else "")
                 self._log_msg(
                     f"Plan [{name}]: Global deconvolution FWHM={fwhm:.1f}px "
-                    f"({'gentle' if gentle_deconv else 'adaptive'})"
+                    f"({'gentle' if gentle_deconv else 'adaptive'}){too_big}"
                 )
 
         # --- Stretch ---

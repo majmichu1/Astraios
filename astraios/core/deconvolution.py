@@ -436,20 +436,20 @@ def _build_blend_weights(
             cy = (zy + 0.5) * zone_h
             cx = (zx + 0.5) * zone_w
 
-            # Distance from zone center, normalized
+            # The weight is separable (taper in y times taper in x), so build
+            # 1-D tapers and take the outer product. This avoids the two full
+            # H×W meshgrid arrays per zone — on a 65 MP image those alone were
+            # ~4.7 GB of transient allocations.
             yy = np.arange(h, dtype=np.float32)
             xx = np.arange(w, dtype=np.float32)
-            xx_grid, yy_grid = np.meshgrid(xx, yy)
-
-            # Use a smooth bell-shaped weight based on distance from center
-            dy = np.abs(yy_grid - cy) / (zone_h * (0.5 + blend_fraction))
-            dx = np.abs(xx_grid - cx) / (zone_w * (0.5 + blend_fraction))
+            dy = np.abs(yy - cy) / (zone_h * (0.5 + blend_fraction))  # (H,)
+            dx = np.abs(xx - cx) / (zone_w * (0.5 + blend_fraction))  # (W,)
 
             # Cosine taper — 1.0 at center, falls to 0 at edges
             wy = np.where(dy <= 1.0, 0.5 * (1.0 + np.cos(np.pi * np.clip(dy, 0, 1))), 0.0)
             wx = np.where(dx <= 1.0, 0.5 * (1.0 + np.cos(np.pi * np.clip(dx, 0, 1))), 0.0)
 
-            weight = (wy * wx).astype(np.float32)
+            weight = (wy[:, None] * wx[None, :]).astype(np.float32)
             row_weights.append(weight)
         weights.append(row_weights)
 
