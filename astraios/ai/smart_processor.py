@@ -320,7 +320,7 @@ class SmartProcessor:
         # Phase 1: Analyze
         progress(0.0, "Analyzing image...")
         self._log_msg("Starting Smart Processor analysis")
-        analysis = self._analyze(data, fits_header, input_type_hint)
+        analysis = self._analyze(data, fits_header, input_type_hint, progress)
 
         # Phase 2: Plan
         progress(0.10, "Building processing plan...")
@@ -353,8 +353,10 @@ class SmartProcessor:
         data: np.ndarray,
         fits_header: dict[str, Any] | None,
         input_type_hint: InputType | None,
+        progress: ProgressCallback = _noop_progress,
     ) -> ImageAnalysis:
         """Analyze the image to determine what we're working with."""
+        progress(0.01, "Analyzing image...")  # early cancel checkpoint
         if data.ndim == 2:
             h, w = data.shape
             n_ch = 1
@@ -506,6 +508,7 @@ class SmartProcessor:
                         pass
 
                 self._log_msg("Attempting plate solve...")
+                progress(0.05, "Plate solving...")  # cancel checkpoint before the slow solve
                 solve_result = self._safe_plate_solve(data, solve_params)
 
                 if solve_result and solve_result.success:

@@ -28,6 +28,15 @@ from astraios.core.equipment import EquipmentProfile
 from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
 
 
+class _ProcessCancelled(BaseException):
+    """Raised to abort Smart Processing when the user clicks Cancel.
+
+    Subclasses BaseException (not Exception) on purpose: the Smart Processor wraps
+    every stage in ``except Exception`` to stay graceful, which would otherwise
+    swallow the cancellation and let processing run to completion.
+    """
+
+
 class SmartProcessWorker(QThread):
     """Runs Smart Processor off the main thread."""
 
@@ -92,12 +101,14 @@ class SmartProcessWorker(QThread):
                 self.error.emit("Cancelled")
                 return
             self.finished.emit(result)
+        except _ProcessCancelled:
+            self.error.emit("Cancelled")
         except Exception as e:
             self.error.emit(f"{type(e).__name__}: {e}")
 
     def _emit_progress(self, fraction: float, message: str):
         if self._cancel_requested:
-            raise InterruptedError("Smart Process cancelled")
+            raise _ProcessCancelled
         self.progress.emit(fraction, message)
 
 
