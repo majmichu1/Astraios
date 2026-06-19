@@ -1,31 +1,40 @@
-# Astraios - Open Source AI Image Processing Suite for Astrophotography
+# Astraios — Free, GPU-Accelerated Astrophotography Image Processing
 
-**Professional astrophotography image processing. GPU-accelerated, free, and open source alternative to PixInsight.**
+**A modern, open-source alternative to PixInsight and Siril — everything runs on your GPU, and it's free.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Tests](https://github.com/majmichu1/astraios/actions/workflows/ci.yml/badge.svg)](https://github.com/majmichu1/astraios/actions)
+[![Installer validated](https://github.com/majmichu1/Astraios/actions/workflows/validate-installer.yml/badge.svg)](https://github.com/majmichu1/Astraios/actions/workflows/validate-installer.yml)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-donate-yellow)](https://buymeacoffee.com/majmichu)
 
-<img width="2559" height="1600" alt="obraz" src="https://github.com/user-attachments/assets/a688865b-476d-4139-9cfc-4efbe89435a7" />
+<img width="2559" height="1600" alt="Astraios screenshot" src="https://github.com/user-attachments/assets/a688865b-476d-4139-9cfc-4efbe89435a7" />
 
-## Download
+## Download & Install
 
-You don't need to install Python to use Astraios. Download the standalone, ready-to-use versions (the AppImage is a portable CPU-only version; for full NVIDIA GPU acceleration, install via Poetry):
+Astraios installs as a **smart installer** — no Python setup, no manual CUDA, no fiddling. It **detects your GPU and installs the matching PyTorch automatically** (NVIDIA → CUDA acceleration, otherwise CPU). The download itself is tiny; the heavy GPU libraries are fetched for *your* hardware on first install.
 
-- **Windows:** [Download .exe (v0.1.9)](https://github.com/majmichu1/Astraios/releases/latest)
-- **Linux:** [Download .AppImage (v0.1.9)](https://github.com/majmichu1/Astraios/releases/latest)
+### **[⬇ Download the latest release](https://github.com/majmichu1/Astraios/releases/latest)**
 
-Bug reports and feedback are welcome in the Issues tab.
+| Platform | What to do |
+|----------|-----------|
+| **Windows** | Download `Astraios-Setup-*.exe`, run it. That's it. |
+| **Linux** | Download `install-astraios.sh`, then run `bash install-astraios.sh`. Works on Fedora/Bazzite, Ubuntu, Arch, etc. — no `apt` or system Python required. |
+
+On first run the installer downloads PyTorch (a few minutes — it's the big piece). After that, launch Astraios from your Start Menu / application menu. Both installers are tested end-to-end on real Windows and Linux machines in CI on every change.
+
+> ⚠️ **Alpha software.** Astraios is in active development (v0.1.x-alpha). Expect rough edges and bugs — and please report them in the [Issues](https://github.com/majmichu1/Astraios/issues) tab. Real-world feedback is the fastest way to make it better.
+
+> 💡 **Have an NVIDIA card?** Make sure your GPU driver is reasonably up to date — the installer pulls CUDA 12.8 PyTorch, which supports everything from older GPUs up to the latest RTX 50-series (Blackwell).
 
 ## Why Astraios?
 
-Astraios is built as a modern workflow tool from calibration to export, featuring out-of-the-box AI integration.
+Astraios is built as a modern, end-to-end workflow tool — from calibration to export — with GPU acceleration and AI integration baked in rather than bolted on.
 
 | Feature | Astraios | Siril | PixInsight |
 |---|---|---|---|
-| Price | Free (GPL v3) | Free | EUR 230+ |
-| GPU Acceleration | Full PyTorch | Partial | Partial |
+| Price | **Free** (GPL v3) | Free | EUR 230+ |
+| GPU Acceleration | **Full (PyTorch)** | Partial | Partial |
+| One-click GPU install | **Yes** | n/a | n/a |
 | AI Denoise / Sharpen | Built-in | No | Extra cost |
 | Multi-Session Stacking | Yes | No | Yes |
 | Spatially-Varying Deconvolution | Yes | No | Yes |
@@ -35,8 +44,6 @@ Astraios is built as a modern workflow tool from calibration to export, featurin
 | Processing Graph (DAG) | Yes | No | Yes |
 | Batch Preprocessing | Yes (full pipeline) | Yes | Yes |
 | Live Stacking | Yes | Experimental | No |
-| EZ Processing Scripts | Yes | Yes (preprocessing) | No |
-| Plugin System | Yes | No | Yes |
 | Non-Destructive Workflow | Yes (undo/redo graph) | No | No |
 
 ## Features
@@ -60,6 +67,9 @@ Local AI models download automatically on first use. No cloud required.
 - **Super-Resolution** -- Upscale images with AI detail enhancement
 - **CosmicClarity** -- Suite of pre-trained models for denoise, sharpen, satellite removal, and dark star enhancement
 - **MureDenoise** -- Noise estimation using MURE (MUlti-Resolution Estimator) for optimal dark subtraction
+
+### Smart Processor — object-aware automation
+One click, and Astraios identifies the target (plate solve + catalog / SIMBAD), figures out *what* it is and *where* it is in the frame, and applies a tailored pipeline — stretch, background, deconvolution, contrast, and colour all steered by the subject rather than blind whole-image heuristics. Per-object-type recipes, GPU throughout, with quality checks at every stage.
 
 ### Detail Enhancement
 - **Deconvolution** -- Richardson-Lucy with optional total-variation regularization and deringing protection
@@ -102,7 +112,6 @@ Local AI models download automatically on first use. No cloud required.
 - **Morphology** -- Dilate, erode, open, close for star masks
 - **PSF Measurement** -- Interactive FWHM, ellipticity, and angle from detected stars
 - **Statistics** -- Per-channel min, max, mean, median, std, MAD, SNR, linearity detection, clipping detection
-- **Noise Generation** -- Synthetic noise injection for testing and augmentation
 
 ### Plate Solving and Annotation
 - **Plate Solve** -- ASTAP and astrometry.net with auto-fallback and API key management
@@ -112,118 +121,93 @@ Local AI models download automatically on first use. No cloud required.
 
 ### Workflow and UI
 - **Modern Dark Theme** -- Clean dark interface, designed for long nights
-- **Processing Graph** -- Non-destructive DAG (directed acyclic graph) that records every operation; auto-refreshing history dialog
+- **Processing Graph** -- Non-destructive DAG that records every operation; auto-refreshing history dialog
 - **EZ Script Suite** -- One-click processing presets (OSC Quick Processing, Narrowband, Deep Sky Minimal, Luminance, Full Processing with ABE, Starless Processing)
 - **4-Panel Layout** -- Project tree / Canvas + Histogram / Tools / Log
 - **Split Before/After Preview** -- Draggable divider with live preview on every tool
 - **Live Stacking** -- Real-time frame accumulation with adaptive normalization
 - **Blink Comparator** -- A/B frame comparison at variable FPS
-- **Interactive Histogram** -- Log scale, per-channel stats, clip indicators
-- **Curve Editor** -- Per-channel control points with histogram backdrop
 - **Macro Recorder** -- Record and playback processing steps
 - **Python Console** -- Embedded scripting dock with live image access
 - **Batch Processing** -- Unattended folder processing
-- **Smart Processor** -- One-click automated workflow with quality checks
 - **Equipment Profiles** -- Camera, telescope, and filter metadata for plate-scale calculations
 - **ICC Color Management** -- Display profile-aware color rendering
 - **Undo / Redo** -- Full history stack with display-reference matching
-- **Presets** -- Save and recall tool settings
-- **Plugin System** -- Extend Astraios with Python plugins loaded from astraios/plugins/
+- **Plugin System** -- Extend Astraios with Python plugins loaded from `astraios/plugins/`
 
 ### File Support
 - **Read:** FITS, XISF, TIFF, PNG, JPEG (auto-debayer for OSC)
 - **Write:** FITS, XISF, TIFF (8/16-bit), PNG (8/16-bit), JPEG
 
-## Getting Started (For Developers)
+## Run from Source (Developers)
 
 ### Prerequisites
-- Python 3.11-3.14
-- Poetry (dependency management)
-
-### Installation
+- Python 3.11–3.14
+- [Poetry](https://python-poetry.org/) (dependency management)
 
 ```bash
-# Clone the repository
-git clone https://github.com/majmichu1/astraios.git
-cd astraios
+git clone https://github.com/majmichu1/Astraios.git
+cd Astraios
 
-# Install with dev dependencies
-poetry install --with dev
-
-# Run the application
-poetry run astraios
+poetry install --with dev      # install with dev dependencies
+poetry run astraios            # run the application
 ```
 
-### Building Standalone Binary
+On Linux/Windows with an NVIDIA GPU and a CUDA build of PyTorch installed, Astraios uses the GPU automatically (verify with the device shown in the log).
+
+### Tests, Linting, Type Checks
 
 ```bash
-poetry install --with build
-poetry run pyinstaller build/astraios.spec
+poetry run pytest                              # 1000+ tests
+poetry run pytest --ignore=tests/test_ui/      # core + AI only (no display needed)
+poetry run ruff check astraios                 # lint
+poetry run mypy astraios                        # type check
 ```
 
-## Development
-
-### Run Tests
-
-```bash
-poetry run pytest          # 859+ tests
-poetry run pytest --ignore=tests/test_ui/   # core + AI tests only (no display needed)
-```
-
-### Run Linter
-
-```bash
-poetry run ruff check .
-```
-
-### Run Type Checker
-
-```bash
-poetry run mypy astraios
-```
+### How the installers are built
+The release installers are produced by GitHub Actions (`.github/workflows/build.yml`):
+the Windows installer (Inno Setup, `packaging/windows/`) and the Linux installer
+script (`packaging/linux/install-astraios.sh`) both bundle [uv](https://github.com/astral-sh/uv)
+and the app wheel, then install the GPU/CPU PyTorch at install time. They are
+validated end-to-end on real runners by `validate-installer.yml`.
 
 ## AI Model Training
 
-Astraios includes self-supervised AI training scripts. You can train your own denoise model on your astro images:
+Astraios includes self-supervised AI training scripts. Train your own denoise model on your own data:
 
 ```bash
-# Place your FITS files in astro_data/
 mkdir -p astro_data
 cp /path/to/your/*.fits astro_data/
-
-# Train the denoise model
 poetry run python scripts/train_denoise_model.py --input astro_data --epochs 30
 ```
 
-The model uses Noise2Self -- a self-supervised approach that learns to denoise from noisy images alone, without needing clean reference images.
+The model uses **Noise2Self** — a self-supervised approach that learns to denoise from noisy images alone, with no clean reference images required.
 
 ## Architecture
 
 ```
 astraios/
 ├── __main__.py          # Entry point
-├── core/                # 66 image processing modules (GPU-accelerated)
+├── core/                # 60+ image processing modules (GPU-accelerated)
 ├── ai/                  # AI inference, training, model management
 ├── ui/                  # PyQt6 interface (dialogs, panels, widgets)
 ├── updater/             # Auto-update via GitHub Releases
 ├── plugins/             # Plugin system (built-in + user)
-├── resources/           # Static SVG icons
-└── scripts/             # Training and utility scripts
+└── resources/           # Static assets (icons, catalog, recipes)
 ```
 
-Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/` and `tests/test_ui/`.
+Tests mirror the source layout under `tests/test_core/`, `tests/test_ai/`, and `tests/test_ui/`.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
-
-The GPL v3 is required because Astraios uses PyQt6, which is licensed under GPL v3 for open-source use.
+Licensed under the **GNU General Public License v3.0** (GPL-3.0), required because Astraios uses PyQt6 (GPL v3 for open-source use). All contributions must be GPL-3.0 compatible.
 
 ## Acknowledgments
 
-- PyQt6 -- User interface framework
-- PyTorch -- GPU-accelerated computation
-- Astropy -- FITS file I/O and astronomical calculations
-- Noise2Self -- Self-supervised denoising foundation
-- StarNet -- Star removal network architecture
+- **PyQt6** — user interface framework
+- **PyTorch** — GPU-accelerated computation
+- **Astropy** — FITS I/O and astronomical calculations
+- **Noise2Self** — self-supervised denoising foundation
+- **StarNet** — star removal network architecture
+- **uv** — the fast Python installer that powers the one-click installers
 - All the open-source astronomical software that inspired this project
