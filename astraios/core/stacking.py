@@ -1742,23 +1742,35 @@ def stack_images(
     )
 
     shape = data_stack.shape
+    result = None
 
     if use_gpu:
-        stack_t = dm.from_numpy(data_stack)
-        if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
-            result_t, total_rejected = _gpu_sigma_clip(
-                stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+        # Moving the whole (N,H,W) stack to the GPU can exceed an 8GB card.
+        # On OOM, fall back to the CPU rejection path instead of crashing.
+        try:
+            stack_t = dm.from_numpy(data_stack)
+            if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
+                result_t, total_rejected = _gpu_sigma_clip(
+                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+                )
+            elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
+                result_t, total_rejected = _gpu_percentile_clip(
+                    stack_t, params.percentile_low, params.percentile_high
+                )
+            elif params.rejection == RejectionMethod.MIN_MAX:
+                result_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
+            result = result_t.cpu().numpy().astype(np.float32)
+            del stack_t, result_t
+            dm.empty_cache()
+        except (RuntimeError, MemoryError) as exc:
+            log.warning(
+                "GPU OOM/error during stacking rejection (%s); falling back to CPU", exc
             )
-        elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-            result_t, total_rejected = _gpu_percentile_clip(
-                stack_t, params.percentile_low, params.percentile_high
-            )
-        elif params.rejection == RejectionMethod.MIN_MAX:
-            result_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
-        result = result_t.cpu().numpy().astype(np.float32)
-        del stack_t
+            dm.empty_cache()
+            total_rejected = 0
+            result = None
 
-    else:
+    if result is None:
         masked_data = None
         if params.rejection == RejectionMethod.SIGMA_CLIP:
             masked_data = _reject_sigma_clip(
