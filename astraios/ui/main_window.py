@@ -1572,6 +1572,7 @@ class MainWindow(QMainWindow):
         dialog = MaskDialog(self._current_image.data, self)
         dialog.mask_created.connect(self._on_mask_created)
         dialog.exec()
+        dialog.deleteLater()  # don't linger as a child holding image arrays
 
     def _on_mask_created(self, mask: Mask):
         self._masks.append(mask)
@@ -1616,6 +1617,7 @@ class MainWindow(QMainWindow):
             dialog.set_extracted_stars(self._extracted_stars)
         dialog.result_ready.connect(self._on_blend_result)
         dialog.exec()
+        dialog.deleteLater()  # don't linger as a child holding image arrays
 
     def _on_blend_result(self, data):
         self._update_current_image(data, "Image blend complete")
@@ -1628,6 +1630,7 @@ class MainWindow(QMainWindow):
         dialog = MosaicDialog(self)
         dialog.result_ready.connect(self._on_mosaic_result)
         dialog.exec()
+        dialog.deleteLater()  # don't linger as a child holding panel images
 
     def _on_mosaic_result(self, result):
         self._update_current_image(result.data, "Mosaic stitching complete")
@@ -1668,6 +1671,7 @@ class MainWindow(QMainWindow):
         )
         dialog.result_ready.connect(self._on_pixelmath_result)
         dialog.exec()
+        dialog.deleteLater()  # don't linger as a child holding image arrays
 
     def _on_pixelmath_result(self, data):
         self._update_current_image(data, "Pixel Math applied")
@@ -3928,6 +3932,7 @@ class MainWindow(QMainWindow):
         dialog = StarMaskDialog(self._current_image.data, self)
         dialog.mask_ready.connect(self._on_star_mask_ready)
         dialog.exec()
+        dialog.deleteLater()  # don't linger as a child holding image arrays
 
     @pyqtSlot(object)
     def _on_star_mask_ready(self, mask):
