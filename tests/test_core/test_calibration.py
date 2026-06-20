@@ -123,3 +123,48 @@ class TestCalibration:
         bias = ImageData(data=np.full((50, 60), 0.05, dtype=np.float32))
         result = calibrate_light(light, master_bias=bias)
         assert np.median(result.data) < 0
+
+
+class TestTiledMaster:
+    """The bounded-memory tiled-median path must match the standard np.median."""
+
+    def _frames(self, tmp_path, n, shape, prefix):
+        rng = np.random.default_rng(1)
+        base = rng.random(shape).astype(np.float32) * 0.1 + 0.2
+        paths = []
+        for i in range(n):
+            data = (base + rng.normal(0, 0.01, shape)).astype(np.float32)
+            idx = tuple(rng.integers(0, s) for s in shape)
+            data[idx] = 0.95  # cosmic-ray spike the median must reject
+            paths.append(_make_fits(tmp_path, f"{prefix}_{i}.fits",
+                                    np.clip(data, 0, 1), "Bias"))
+        return paths
+
+    def _ground_truth(self, paths):
+        from astraios.core.image_io import load_image
+        stack = np.stack([load_image(p).data for p in paths])
+        return np.median(stack, axis=0).astype(np.float32)
+
+    @pytest.mark.parametrize("n,shape", [(7, (40, 50)), (6, (40, 50)), (6, (3, 24, 28))])
+    def test_tiled_matches_npmedian(self, tmp_path, monkeypatch, n, shape):
+        import astraios.core.calibration as cal
+        paths = self._frames(tmp_path, n, shape, "bias")
+        # Force the tiled path with a tiny budget.
+        monkeypatch.setattr(cal, "_MASTER_MEM_BUDGET", 1)
+        got = cal.create_master_bias(paths).master.data
+        expected = self._ground_truth(paths)
+        assert got.shape == shape
+        assert np.max(np.abs(got - expected)) < 1e-5
+        assert got.max() < 0.6  # spike rejected
+
+    def test_tiled_subtraction_matches(self, tmp_path, monkeypatch):
+        import astraios.core.calibration as cal
+        from astraios.core.image_io import load_image
+        paths = self._frames(tmp_path, 6, (40, 50), "dark")
+        bias = ImageData(data=self._ground_truth(paths) * 0.5)
+        monkeypatch.setattr(cal, "_MASTER_MEM_BUDGET", 1)
+        got = cal.create_master_dark(paths, master_bias=bias).master.data
+        expected = np.median(
+            np.stack([load_image(p).data - bias.data for p in paths]), axis=0
+        ).astype(np.float32)
+        assert np.max(np.abs(got - expected)) < 1e-5

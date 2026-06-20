@@ -6,6 +6,8 @@ GPU-accelerated via the device manager.
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -19,6 +21,12 @@ from astraios.core.image_io import FrameType, ImageData, load_image, save_fits
 log = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]
+
+# Above this resident size for the whole frame stack, master creation switches
+# to a bounded-memory tiled median (on-disk memmap) instead of loading every
+# frame into RAM at once. 50 x 65MP frames would otherwise need ~39GB.
+_MASTER_MEM_BUDGET = 1_500_000_000  # ~1.5 GB
+_MASTER_TILE_BYTES = 512_000_000    # ~512 MB working set per median row-band
 
 
 def _noop_progress(fraction: float, message: str) -> None:
@@ -108,54 +116,70 @@ def _create_master(
     first = load_image(paths[0])
     shape = first.data.shape
 
-    # Process in batches to fit GPU memory
-    frame_bytes = np.prod(shape) * 4  # float32
-    batch_size = dm.optimal_batch_size(frame_bytes * n) if dm.is_gpu else n
-    batch_size = max(1, min(batch_size, n))
+    # Median needs every frame's pixels at once. Holding the whole stack in RAM
+    # (n * frame_bytes) is fastest, but OOMs for many large frames (50 x 65MP
+    # ~= 39GB). Above a budget, compute the median in row-bands from an on-disk
+    # memmap so RAM stays bounded to one frame (load) + one band (median).
+    frame_bytes = int(np.prod(shape)) * 4  # float32
+    use_tiled = method == "median" and n > 2 and n * frame_bytes > _MASTER_MEM_BUDGET
 
-    # For median, we need all frames in memory — use CPU if necessary
-    # Stack all frames
-    stack = np.zeros((n, *shape), dtype=np.float32)
-    stack[0] = first.data
-
-    for i in range(1, n):
-        progress(0.1 + 0.5 * (i / n), f"Loading {label} {i + 1}/{n}")
-        img = load_image(paths[i])
-        if img.data.shape != shape:
-            log.warning("Frame %s shape mismatch: %s vs %s, skipping", paths[i], img.data.shape, shape)
-            continue
-        stack[i] = img.data
-
-    # Subtract calibration frames if provided
-    if subtract is not None:
-        progress(0.65, f"Subtracting calibration from {label} frames...")
-        sub_data = subtract.data
-        if sub_data.shape != shape:
-            log.warning("Subtraction frame shape mismatch, skipping subtraction")
-        else:
-            stack -= sub_data[np.newaxis, ...]
-
-    if subtract2 is not None:
-        sub_data = subtract2.data
-        if sub_data.shape == shape:
-            stack -= sub_data[np.newaxis, ...]
-
-    progress(0.7, f"Computing {method} of {label} stack...")
-
-    if dm.is_gpu and method == "median":
-        # GPU median: process in chunks along the stack axis
-        try:
-            t_stack = torch.from_numpy(stack).to(dm.device)
-            master_data = torch.median(t_stack, dim=0).values
-            master_data = dm.to_cpu(master_data).numpy()
-        except RuntimeError:
-            # Fall back to CPU if GPU OOM
-            log.warning("GPU OOM during %s stacking, falling back to CPU", label)
-            master_data = np.median(stack, axis=0)
+    if use_tiled:
+        log.info(
+            "Master %s: %d frames x %.0f MB exceeds RAM budget; using tiled "
+            "low-memory median", label, n, frame_bytes / 1e6,
+        )
+        master_data, n = _master_data_tiled(
+            paths, shape, first, subtract, subtract2, label, progress
+        )
+        master_data = master_data.astype(np.float32)
     else:
-        master_data = np.median(stack, axis=0)
+        # In-memory path — the whole stack fits the budget (fast).
+        stack = np.zeros((n, *shape), dtype=np.float32)
+        stack[0] = first.data
 
-    master_data = master_data.astype(np.float32)
+        for i in range(1, n):
+            progress(0.1 + 0.5 * (i / n), f"Loading {label} {i + 1}/{n}")
+            img = load_image(paths[i])
+            if img.data.shape != shape:
+                log.warning(
+                    "Frame %s shape mismatch: %s vs %s, skipping",
+                    paths[i], img.data.shape, shape,
+                )
+                continue
+            stack[i] = img.data
+
+        # Subtract calibration frames if provided
+        if subtract is not None:
+            progress(0.65, f"Subtracting calibration from {label} frames...")
+            sub_data = subtract.data
+            if sub_data.shape != shape:
+                log.warning("Subtraction frame shape mismatch, skipping subtraction")
+            else:
+                stack -= sub_data[np.newaxis, ...]
+
+        if subtract2 is not None:
+            sub_data = subtract2.data
+            if sub_data.shape == shape:
+                stack -= sub_data[np.newaxis, ...]
+
+        progress(0.7, f"Computing {method} of {label} stack...")
+
+        if dm.is_gpu and method == "median":
+            # GPU median over the stack axis.
+            try:
+                t_stack = torch.from_numpy(stack).to(dm.device)
+                master_data = torch.median(t_stack, dim=0).values
+                master_data = dm.to_cpu(master_data).numpy()
+                del t_stack
+            except RuntimeError:
+                # Fall back to CPU if GPU OOM
+                log.warning("GPU OOM during %s stacking, falling back to CPU", label)
+                master_data = np.median(stack, axis=0)
+        else:
+            master_data = np.median(stack, axis=0)
+
+        master_data = master_data.astype(np.float32)
+        del stack
 
     progress(1.0, f"Master {label} complete")
     log.info("Master %s created: %s", label, master_data.shape)
@@ -169,6 +193,87 @@ def _create_master(
     master.header["NCOMBINE"] = n
 
     return CalibrationResult(master=master, n_frames=n, method=method)
+
+
+def _master_data_tiled(
+    paths: list[Path],
+    shape: tuple[int, ...],
+    first: ImageData,
+    subtract: ImageData | None,
+    subtract2: ImageData | None,
+    label: str,
+    progress: ProgressCallback,
+) -> tuple[np.ndarray, int]:
+    """Median-combine frames with bounded memory via an on-disk memmap.
+
+    Each frame is loaded once and written to a temporary memmapped array (RAM
+    holds only one frame during the load), then the median is taken in row-bands
+    along the height axis (RAM holds only ``n_valid * band`` pixels at a time).
+    Subtracting a constant master before the median is equivalent to after, so
+    we subtract per-frame on load. Returns ``(master_data, n_valid)``.
+    """
+    n = len(paths)
+    sub = subtract.data if (subtract is not None and subtract.data.shape == shape) else None
+    if subtract is not None and sub is None:
+        log.warning("Subtraction frame shape mismatch, skipping subtraction")
+    sub2 = subtract2.data if (subtract2 is not None and subtract2.data.shape == shape) else None
+
+    # Co-locate the temp file with the source frames: /tmp is often tmpfs
+    # (RAM-backed), which would defeat the point of spilling to disk.
+    try:
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="astraios_master_", suffix=".dat", dir=str(Path(paths[0]).parent)
+        )
+    except OSError:
+        fd, tmp_path = tempfile.mkstemp(prefix="astraios_master_", suffix=".dat")
+    os.close(fd)
+
+    mm = None
+    try:
+        mm = np.memmap(tmp_path, dtype=np.float32, mode="w+", shape=(n, *shape))
+
+        def _prep(arr: np.ndarray) -> np.ndarray:
+            d = arr.astype(np.float32, copy=False)
+            if sub is not None:
+                d = d - sub
+            if sub2 is not None:
+                d = d - sub2
+            return d
+
+        mm[0] = _prep(first.data)
+        valid = 1
+        for i in range(1, n):
+            progress(0.1 + 0.5 * (i / n), f"Loading {label} {i + 1}/{n}")
+            img = load_image(paths[i])
+            if img.data.shape != shape:
+                log.warning(
+                    "Frame %s shape mismatch: %s vs %s, skipping",
+                    paths[i], img.data.shape, shape,
+                )
+                continue
+            mm[valid] = _prep(img.data)
+            valid += 1
+            del img
+        mm.flush()
+
+        progress(0.7, f"Computing median of {label} stack (tiled)...")
+        out = np.empty(shape, dtype=np.float32)
+        h = shape[-2]
+        elems_per_row = int(np.prod(shape)) // h  # per frame, per height row
+        band = max(1, min(h, _MASTER_TILE_BYTES // max(valid * elems_per_row * 4, 1)))
+        for r0 in range(0, h, band):
+            r1 = min(h, r0 + band)
+            # Ellipsis indexes any leading channel axis: (n,H,W) or (n,C,H,W).
+            out[..., r0:r1, :] = np.median(mm[:valid, ..., r0:r1, :], axis=0)
+        return out, valid
+
+    finally:
+        if mm is not None:
+            del mm  # close the memmap before unlinking
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
 
 
 def _read_exptime(header: dict) -> float | None:
