@@ -1567,6 +1567,31 @@ class SmartProcessor:
                 f"Colour noise reduction (chroma, strength={self._chroma_strength:.1f})"
             )
 
+        # Background luminance grain: a strong stretch leaves mid-tone speckle in
+        # the dark sky that the black point can't reach (it only crushes the
+        # shadows). Smooth it gently, confined to the background, so the sky reads
+        # clean while the subject and stars stay sharp. Self-gating: a
+        # frame-filling object leaves almost no background, so this is a no-op.
+        if "denoise" in self._enabled_stages:
+            from astraios.core.luma_denoise import (
+                LumaDenoiseParams,
+                denoise_background_luma,
+            )
+
+            nr_strength = {
+                "minimal": 0.15, "light": 0.3, "moderate": 0.5, "heavy": 0.8,
+            }.get(self._auto_nr_level(analysis.median_snr), 0.5)
+            progress(0.99, "Background grain reduction...")
+            luma_strength = min(0.85, 0.3 + 0.6 * nr_strength)
+            working = denoise_background_luma(
+                working,
+                LumaDenoiseParams(strength=luma_strength, detail_preservation=0.6),
+                object_mask=plan.object_mask,
+            )
+            self._log_msg(
+                f"Background grain reduction (luminance, strength={luma_strength:.2f})"
+            )
+
         # Post-stretch gradient / vignette cleanup — only engages when a residual
         # gradient actually survived into the stretched image (corner spread),
         # since that's exactly when light pollution / imperfect flats show.
