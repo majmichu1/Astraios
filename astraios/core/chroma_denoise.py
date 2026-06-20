@@ -38,9 +38,25 @@ def _gaussian_blur_gpu(t: torch.Tensor, sigma: float) -> torch.Tensor:
     return t4.squeeze(0).squeeze(0)
 
 
+def _median_gpu(t: torch.Tensor, ksize: int) -> torch.Tensor:
+    """ksize x ksize median filter via shifted copies (kills isolated spots)."""
+    r = ksize // 2
+    h, w = t.shape
+    p = F.pad(t.unsqueeze(0).unsqueeze(0), (r, r, r, r), mode="reflect")[0, 0]
+    shifts = [p[dy:dy + h, dx:dx + w]
+              for dy in range(ksize) for dx in range(ksize)]
+    return torch.stack(shifts, dim=0).median(dim=0).values
+
+
 @torch.no_grad()
 def chroma_denoise(image: np.ndarray, strength: float = 1.0) -> np.ndarray:
     """Reduce colour noise while preserving luminance detail.
+
+    Works on the chroma (channel minus luminance): a **median** filter first to
+    remove isolated colour speckle/spots, then a light Gaussian to smooth what
+    remains. The median is the important part — a pure Gaussian (the old
+    behaviour) only *spreads* colour noise into soft low-amplitude blobs that
+    show up on pixel-peeping, whereas the median actually removes the outliers.
 
     Parameters
     ----------
@@ -48,8 +64,8 @@ def chroma_denoise(image: np.ndarray, strength: float = 1.0) -> np.ndarray:
         ``(C, H, W)`` float32 in ``[0, 1]``. Needs ``C >= 3``; mono is returned
         unchanged.
     strength : float
-        0 = no-op, 1 = moderate, higher = stronger colour smoothing. Controls
-        the chroma blur radius.
+        0 = no-op, 1 = moderate, higher = stronger colour cleaning (larger median
+        window + Gaussian radius).
 
     Returns
     -------
@@ -64,15 +80,20 @@ def chroma_denoise(image: np.ndarray, strength: float = 1.0) -> np.ndarray:
     r, g, b = t[0], t[1], t[2]
     lum = 0.299 * r + 0.587 * g + 0.114 * b
 
-    # Median-style speckle knock-down then a smooth blur. Radius scales with
-    # strength; colour structure in astro images is broad, so this is safe.
-    sigma = max(1.5, 2.0 + 5.0 * float(strength))
+    ksize = 5 if strength >= 1.5 else 3
+    # Median removes the spots, so the Gaussian only needs to gently smooth.
+    sigma = max(1.0, 1.5 + 2.5 * float(strength))
 
     out = t.clone()
     for c in range(3):
         chroma = t[c] - lum
-        chroma_s = _gaussian_blur_gpu(chroma, sigma)
-        out[c] = (lum + chroma_s).clamp(0.0, 1.0)
+        try:
+            chroma = _median_gpu(chroma, ksize)  # remove colour spots/outliers
+        except (RuntimeError, MemoryError):
+            if dm.is_gpu:  # huge image OOM — skip median, Gaussian still helps
+                torch.cuda.empty_cache()
+        chroma = _gaussian_blur_gpu(chroma, sigma)
+        out[c] = (lum + chroma).clamp(0.0, 1.0)
     # Extra channels (e.g. an L plane in LRGB) are left untouched.
 
     return out.detach().cpu().numpy().astype(np.float32)
