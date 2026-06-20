@@ -29,11 +29,12 @@ FORMAT_FILTERS = {
 class ExportDialog(QDialog):
     """Dialog for exporting images to various formats with options."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, source_name: str = ""):
         super().__init__(parent)
         self.setWindowTitle("Export Image")
         self.setMinimumWidth(420)
         self._output_path = ""
+        self._source_name = source_name  # suggested base filename (from the image)
         self._setup_ui()
 
     @property
@@ -96,10 +97,17 @@ class ExportDialog(QDialog):
         filters = ";;".join(FORMAT_FILTERS.values())
         default_filter = FORMAT_FILTERS[".tif"]
 
+        # Start in the last-used export folder, with a name seeded from the image.
+        from PyQt6.QtCore import QSettings
+        settings = QSettings("Astraios", "Astraios")
+        last_dir = settings.value("paths/last_export_dir", "", type=str)
+        suggested = (self._source_name or "astraios_export")
+        start = str(Path(last_dir) / f"{suggested}.tif") if last_dir else f"{suggested}.tif"
+
         path, selected_filter = QFileDialog.getSaveFileName(
             self,
             "Export Image As",
-            "",
+            start,
             filters,
             default_filter,
         )
@@ -134,6 +142,7 @@ class ExportDialog(QDialog):
 
             self._path_edit.setText(path)
             self._output_path = path
+            settings.setValue("paths/last_export_dir", str(Path(path).parent))
 
     def _accept(self):
         if not self._output_path:

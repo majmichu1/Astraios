@@ -1489,7 +1489,8 @@ class MainWindow(QMainWindow):
             return
         from astraios.ui.dialogs.export_dialog import ExportDialog
 
-        dialog = ExportDialog(self)
+        src = getattr(self._current_image, "file_path", None)
+        dialog = ExportDialog(self, source_name=Path(src).stem if src else "")
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         params = dialog.get_export_params()
