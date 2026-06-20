@@ -202,6 +202,15 @@ class ChannelCombineDialog(QDialog):
         self._rebuild_channels(DEFAULT_PALETTE)
         QTimer.singleShot(500, self._schedule_preview)
 
+    def cleanup(self) -> None:
+        """Release cached full-resolution channel arrays.
+
+        The dialog lives as a child of the main window after exec() returns, so
+        without this its per-channel cache (one full-res frame each) would linger
+        and accumulate across repeated opens.
+        """
+        self._cached_channels.clear()
+
     def _rebuild_channels(self, palette_name: str):
         for row in self._channel_rows:
             row.setParent(None)

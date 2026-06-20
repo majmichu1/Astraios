@@ -4802,6 +4802,11 @@ class MainWindow(QMainWindow):
                 f"Combined channels: palette={dlg._palette_combo.currentText()}, "
                 f"shape={rgb.shape}", "info"
             )
+        # The dialog stays alive as a child of this window after exec(); free its
+        # full-res channel cache and schedule its deletion so repeated opens don't
+        # accumulate hundreds of MB each.
+        dlg.cleanup()
+        dlg.deleteLater()
 
     @pyqtSlot()
     def _on_run_debayer(self):
