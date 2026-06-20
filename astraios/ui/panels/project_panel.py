@@ -477,6 +477,10 @@ class ProjectPanel(QWidget):
                 item.widget().deleteLater()
 
         if self._project is None:
+            self._insert_empty_hint(
+                "No project yet.\n\nFile > New Project to stack multiple frames,\n"
+                "or just Open Image to process a single stacked file."
+            )
             return
 
         search = self._search_text.lower()
@@ -495,6 +499,23 @@ class ProjectPanel(QWidget):
             self._frame_list_layout.insertWidget(
                 self._frame_list_layout.count() - 1, row
             )
+
+        if not self._frame_rows:
+            self._insert_empty_hint(
+                "No frames here yet.\nClick '+ Lights' below, or drag FITS files in."
+            )
+
+    def _insert_empty_hint(self, text: str):
+        """Show a centered dim hint in the frame-list area when it's empty."""
+        hint = QLabel(text)
+        hint.setWordWrap(True)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 10px; padding: 20px 8px;"
+        )
+        self._frame_list_layout.insertWidget(
+            self._frame_list_layout.count() - 1, hint
+        )
 
     def _on_row_clicked(self, path: str):
         self._selected_path = path

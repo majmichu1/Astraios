@@ -372,6 +372,10 @@ class MainWindow(QMainWindow):
         self._image_ref: list[ImageData | None] = [None]
         self._undo_stack.set_target(self._image_ref)
 
+        # Show the getting-started guide once, after the window is up.
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(500, self._maybe_first_run_welcome)
+
         # Cached downscaled image for live preview (recomputed in _display_image)
         self._preview_small_cache: tuple | None = None  # (small_array, scale)
         # Stretch reference used for the current display — None means use image itself
@@ -793,11 +797,11 @@ class MainWindow(QMainWindow):
         docs_act.triggered.connect(self._on_open_docs)
         help_menu.addAction(docs_act)
 
-        getting_started = QAction("&Getting Started Guide", self)
-        getting_started.triggered.connect(self._on_open_docs)
+        getting_started = QAction("&Getting Started", self)
+        getting_started.triggered.connect(lambda: self._show_welcome(first_run=False))
         help_menu.addAction(getting_started)
 
-        workflow_act = QAction("Processing &Workflow", self)
+        workflow_act = QAction("Processing &Workflow (online)", self)
         workflow_act.triggered.connect(self._on_open_docs)
         help_menu.addAction(workflow_act)
 
@@ -834,6 +838,21 @@ class MainWindow(QMainWindow):
             if shortcut:
                 btn.setShortcut(shortcut)
             return btn
+
+        # Primary action: a clearly-visible Open button so a new user knows
+        # where to start (the menu's Ctrl+Shift+I was un-discoverable).
+        open_btn = QToolButton()
+        open_btn.setText("Open Image")
+        open_btn.setToolTip("Open an image to start  (Ctrl+O)")
+        open_btn.setShortcut("Ctrl+O")
+        open_btn.clicked.connect(self._open_image)
+        open_btn.setStyleSheet(
+            "QToolButton { background: #2ea043; color: #ffffff; font-weight: 700; "
+            "border-radius: 4px; padding: 3px 12px; } "
+            "QToolButton:hover { background: #3fb950; }"
+        )
+        tb.addWidget(open_btn)
+        tb.addSeparator()
 
         undo_btn = _tbtn("⎌", "Undo  Ctrl+Z")
         undo_btn.clicked.connect(self._undo)
@@ -1933,6 +1952,40 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+
+    # ---------- Onboarding ----------
+
+    def _maybe_first_run_welcome(self):
+        """Show the welcome guide once, on the first ever launch."""
+        from PyQt6.QtCore import QSettings
+        s = QSettings("Astraios", "Astraios")
+        if not s.value("ui/welcome_shown", False, type=bool):
+            self._show_welcome(first_run=True)
+            s.setValue("ui/welcome_shown", True)
+
+    def _show_welcome(self, first_run: bool = False):
+        """A short 'how to start' guide (first launch + Help > Getting Started)."""
+        from PyQt6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Welcome to Astraios" if first_run else "Getting Started")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText("<b>Three steps to your first processed image</b>")
+        box.setInformativeText(
+            "<ol>"
+            "<li><b>Open Image</b> — the green button at the top left, or drag a "
+            "FITS/TIFF/XISF onto the window. Use a <i>linear</i> stacked file (not "
+            "an already-stretched picture) for the best result.</li>"
+            "<li><b>Process</b> — work left-to-right along the pipeline bar at the "
+            "top (Background → Stretch → Colour → Detail); each step opens the "
+            "matching tools on the right. Or click <b>Smart Processor</b> to do it "
+            "all automatically.</li>"
+            "<li><b>Export</b> — the last step on the pipeline bar saves your "
+            "result.</li>"
+            "</ol>"
+            "You can reopen this any time from <b>Help &gt; Getting Started</b>."
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.exec()
 
     # ---------- Image display ----------
 

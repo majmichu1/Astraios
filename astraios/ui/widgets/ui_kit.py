@@ -337,11 +337,19 @@ class CollapsibleSection(QWidget):
     def __init__(
         self, title: str,
         accent: bool = False,
-        default_open: bool = True,
+        default_open: bool | None = None,
         parent=None,
     ):
         super().__init__(parent)
+        # Default: primary (accent) sections start open, the rest collapsed, so a
+        # tab reads as a scannable menu instead of a wall of expanded tools. An
+        # explicit default_open=True/False overrides this.
+        if default_open is None:
+            default_open = accent
         self._open = default_open
+        self._default_open = default_open  # restored when the tool search clears
+        # Text searched by the Tools Panel search box (title + any info text).
+        self._search_text = title.lower()
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum
         )
@@ -414,10 +422,21 @@ class CollapsibleSection(QWidget):
         """)
 
     def _toggle(self):
-        self._open = not self._open
-        self._content.setVisible(self._open)
-        self._chevron.setText("▲" if self._open else "▼")
+        self.set_open(not self._open)
+
+    def set_open(self, open_: bool):
+        """Expand or collapse programmatically."""
+        self._open = open_
+        self._content.setVisible(open_)
+        self._chevron.setText("▲" if open_ else "▼")
         self._apply_header_style()
+
+    def title(self) -> str:
+        return self._title_lbl.text()
+
+    def matches(self, query: str) -> bool:
+        """True if the (lowercased) query appears in the title or info text."""
+        return query in self._search_text
 
     # ── convenience adders ────────────────────────────────
     def add_widget(self, w: QWidget) -> QWidget:
@@ -429,6 +448,7 @@ class CollapsibleSection(QWidget):
         return lay
 
     def add_info(self, text: str) -> InfoLabel:
+        self._search_text += " " + text.lower()
         return self.add_widget(InfoLabel(text))
 
     def add_slider(

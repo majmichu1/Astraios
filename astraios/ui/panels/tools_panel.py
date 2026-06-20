@@ -219,6 +219,19 @@ class ToolsPanel(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
+        # Tool search — filters/expands matching sections across all tabs, so a
+        # user can find a tool by name or keyword instead of hunting 9 tabs.
+        from PyQt6.QtWidgets import QLineEdit
+        self._tool_search = QLineEdit()
+        self._tool_search.setPlaceholderText("Search tools…")
+        self._tool_search.setClearButtonEnabled(True)
+        self._tool_search.textChanged.connect(self._filter_tools)
+        self._tool_search.setStyleSheet(
+            "QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid "
+            "#30363d; border-radius: 4px; padding: 5px 8px; margin: 4px; }"
+        )
+        outer.addWidget(self._tool_search)
+
         self._tabs = QTabWidget()
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
         self._tabs.setUsesScrollButtons(True)
@@ -270,6 +283,24 @@ class ToolsPanel(QWidget):
         self._build_utility_tab()
 
         QTimer.singleShot(0, self._fix_tab_scroll_buttons)
+
+    def _filter_tools(self, text: str):
+        """Filter tool sections by the search box: show + expand matches across
+        all tabs; an empty query restores the default collapsed/expanded state."""
+        from astraios.ui.widgets.ui_kit import CollapsibleSection
+
+        q = text.strip().lower()
+        sections = self._tabs.findChildren(CollapsibleSection)
+        if not q:
+            for sec in sections:
+                sec.setVisible(True)
+                sec.set_open(getattr(sec, "_default_open", False))
+            return
+        for sec in sections:
+            hit = sec.matches(q)
+            sec.setVisible(hit)
+            if hit:
+                sec.set_open(True)
 
     def _fix_tab_scroll_buttons(self):
         from PyQt6.QtCore import Qt
