@@ -4,7 +4,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 from astraios.ai.inference.starnet import StarNetResult, find_starnet_binary, run_starnet
 
@@ -88,12 +87,12 @@ class TestRunStarnet:
         assert result.success is False
 
     @patch("astraios.ai.inference.starnet.find_starnet_binary")
-    @patch("astraios.ai.inference.starnet.save_fits")
-    @patch("astraios.ai.inference.starnet.load_image")
+    @patch("astraios.ai.inference.starnet._write_starnet_tiff")
+    @patch("astraios.ai.inference.starnet._read_starnet_tiff")
     @patch("subprocess.run")
-    def test_successful_run(self, mock_subprocess, mock_load, mock_save, mock_find, tmp_path):
-        """Simulate a successful StarNet run with mocked subprocess."""
-        binary = tmp_path / "starnet++"
+    def test_successful_run(self, mock_subprocess, mock_read, mock_write, mock_find, tmp_path):
+        """Simulate a successful StarNet run with mocked subprocess + TIFF I/O."""
+        binary = tmp_path / "StarNetv2CLI"
         binary.touch()
         binary.chmod(0o755)
         mock_find.return_value = binary
@@ -102,14 +101,10 @@ class TestRunStarnet:
         starless = _mono_image(value=0.4)
 
         mock_subprocess.return_value = MagicMock(returncode=0, stderr="", stdout="")
+        # _read_starnet_tiff returns the starless array directly.
+        mock_read.return_value = starless
 
-        # Mock load_image to return the starless image
-        mock_img = MagicMock()
-        mock_img.data = starless
-        mock_load.return_value = mock_img
-
-        # We need the output file to "exist" in the temp dir
-        # Patch Path.exists to return True for the output path
+        # The output file must "exist" for the temp dir.
         original_exists = Path.exists
         def patched_exists(self):
             if "starless" in str(self):
@@ -123,11 +118,11 @@ class TestRunStarnet:
         np.testing.assert_array_equal(result.starless, starless)
 
     @patch("astraios.ai.inference.starnet.find_starnet_binary")
-    @patch("astraios.ai.inference.starnet.save_fits")
+    @patch("astraios.ai.inference.starnet._write_starnet_tiff")
     @patch("subprocess.run")
-    def test_subprocess_failure(self, mock_subprocess, mock_save, mock_find, tmp_path):
+    def test_subprocess_failure(self, mock_subprocess, mock_write, mock_find, tmp_path):
         """StarNet returning non-zero exit code should be reported as failure."""
-        binary = tmp_path / "starnet++"
+        binary = tmp_path / "StarNetv2CLI"
         binary.touch()
         binary.chmod(0o755)
         mock_find.return_value = binary
@@ -137,7 +132,7 @@ class TestRunStarnet:
 
         result = run_starnet(data, starnet_path=binary)
         assert result.success is False
-        assert "failed" in result.message.lower() or "Segfault" in result.message
+        assert "code 1" in result.message or "Segfault" in result.message
 
     def test_input_image_preserved_on_failure(self):
         """On failure, starless should be a copy of the input."""

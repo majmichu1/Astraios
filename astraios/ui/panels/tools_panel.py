@@ -1222,8 +1222,9 @@ class ToolsPanel(QWidget):
         self._star_threshold = star.add_slider("Threshold", 0.5, 0.1, 0.9, 0.05, 2)
         self._star_protect_bg = star.add_check("Protect background detail", True)
         star.add_info(
-            "StarNet v2 requires manual download from starnetastro.com. "
-            "Built-in (starrem2k13) works out of the box — run download script first.",
+            "Built-in works out of the box (no download). For best results on "
+            "dense fields, install StarNet v2 (StarNetv2CLI) from starnetastro.com "
+            "and set its path in Preferences > AI Models.",
         )
         star.add_run("▶ Remove Stars", self.run_starnet.emit)
         lay.addWidget(star)

@@ -5130,6 +5130,7 @@ class MainWindow(QMainWindow):
                     "StarNet binary not found. Download from starnetastro.com "
                     "or switch to Built-in backend.", "warning"
                 )
+                self._prompt_starnet_missing()
                 return
 
             self._start_worker(
@@ -5139,6 +5140,26 @@ class MainWindow(QMainWindow):
             )
         else:
             self._run_starrem_builtin(threshold)
+
+    def _prompt_starnet_missing(self):
+        """Tell the user StarNet isn't installed and offer to set its path."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("StarNet not found")
+        box.setText("StarNet v2 was not found on this system.")
+        box.setInformativeText(
+            "Download the command-line version (StarNetv2CLI) from "
+            "starnetastro.com, then point Astraios at the executable under "
+            "Preferences > AI Models. You can also switch the Star Removal "
+            "backend to Built-in to remove stars without StarNet."
+        )
+        open_prefs = box.addButton("Open Preferences…", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        if box.clickedButton() is open_prefs:
+            self._show_preferences()
 
     def _run_starrem_builtin(self, threshold=0.5):
         self._log_panel.log("Running built-in star removal...", "info")
