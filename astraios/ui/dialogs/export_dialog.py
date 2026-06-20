@@ -116,6 +116,22 @@ class ExportDialog(QDialog):
             elif "XISF" in selected_filter and not path.lower().endswith(".xisf"):
                 path += ".xisf"
 
+            # Qt's own overwrite confirmation runs against the name the user typed,
+            # before we append the extension — so confirm against the FINAL name.
+            from pathlib import Path as _Path
+
+            from PyQt6.QtWidgets import QMessageBox
+            if _Path(path).exists():
+                resp = QMessageBox.question(
+                    self,
+                    "Overwrite file?",
+                    f"{_Path(path).name} already exists.\nOverwrite it?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                    QMessageBox.StandardButton.No,
+                )
+                if resp != QMessageBox.StandardButton.Yes:
+                    return  # leave the path unset; the user can pick another name
+
             self._path_edit.setText(path)
             self._output_path = path
 

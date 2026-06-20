@@ -134,6 +134,10 @@ class ImageCanvas(QWidget):
         if self._pixmap is not None:
             self._pixmap_before = QPixmap(self._pixmap)
 
+    def has_before(self) -> bool:
+        """True if a 'before' state has been captured (an edit has been applied)."""
+        return self._pixmap_before is not None
+
     def set_view_mode(self, mode: str):
         """Set display mode: 'after' | 'before' | 'split'."""
         self._view_mode = mode

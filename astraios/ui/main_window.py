@@ -349,9 +349,12 @@ class MainWindow(QMainWindow):
         self._master_dark: ImageData | None = None
         self._master_flat: ImageData | None = None
         self._calibrated_lights: list[ImageData] = []
+        # True when the current image has unsaved edits since the last export.
+        self._dirty: bool = False
 
-        # Mask registry
+        # Mask registry + the mask currently applied to processing (None = whole image)
         self._masks: list[Mask] = []
+        self._active_mask: Mask | None = None
 
         # Macro recording
         self._macro_recorder = MacroRecorder()
@@ -726,6 +729,10 @@ class MainWindow(QMainWindow):
         create_mask = QAction("Create &Mask...", self)
         create_mask.triggered.connect(self._show_mask_dialog)
         tools_menu.addAction(create_mask)
+
+        clear_mask = QAction("Clear Active Mask", self)
+        clear_mask.triggered.connect(self._clear_active_mask)
+        tools_menu.addAction(clear_mask)
 
         mosaic_act = QAction("&Mosaic Stitching...", self)
         mosaic_act.triggered.connect(self._show_mosaic_dialog)
@@ -1447,6 +1454,8 @@ class MainWindow(QMainWindow):
                 log.debug("Autosave failed: %s", e)
 
     def _open_image(self):
+        if not self._maybe_discard_changes():
+            return
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Image",
@@ -1473,6 +1482,8 @@ class MainWindow(QMainWindow):
                 jpeg_quality=params["jpeg_quality"],
             )
             self._log_panel.log(f"Image exported: {params['path']}", "success")
+            self._dirty = False  # exported state is now the saved state
+            self._workflow_bar.mark_complete(7)
         except Exception as e:
             log.exception("Export failed")
             self._log_panel.log(f"Export failed: {e}", "error")
@@ -1544,7 +1555,23 @@ class MainWindow(QMainWindow):
 
     def _on_mask_created(self, mask: Mask):
         self._masks.append(mask)
-        self._log_panel.log(f"Created mask: {mask.name}", "success")
+        self._active_mask = mask
+        self._log_panel.log(
+            f"Mask '{mask.name}' is now active — tools will affect only the masked "
+            "area. Use Tools > Clear Active Mask to process the whole image again.",
+            "success",
+        )
+        self._update_image_status()
+
+    def _clear_active_mask(self):
+        if self._active_mask is None:
+            self._log_panel.log("No active mask", "info")
+            return
+        name = self._active_mask.name
+        self._active_mask = None
+        self._log_panel.log(f"Cleared active mask '{name}' — tools affect the whole image",
+                            "info")
+        self._update_image_status()
 
     def _show_narrowband_dialog(self):
         from astraios.ui.dialogs.narrowband_dialog import NarrowbandDialog
@@ -1822,6 +1849,13 @@ class MainWindow(QMainWindow):
 
     def _on_split_view_toggled(self, checked: bool):
         """Toggle before/after split view on the canvas."""
+        if checked and self._current_image is not None and not self._canvas.has_before():
+            # No edit has been applied yet, so there's nothing to compare. Capture
+            # the current view so the divider isn't empty, and say so.
+            self._canvas.capture_before()
+            self._log_panel.log(
+                "Before/After: apply an edit first to see a difference.", "info"
+            )
         self._canvas.set_split_mode(checked)
 
     def _on_toggle_tweaks(self):
@@ -1867,6 +1901,39 @@ class MainWindow(QMainWindow):
         if next_step <= 6:
             self._workflow_bar.set_current(next_step)
 
+    # ---------- Unsaved-work protection ----------
+
+    def _maybe_discard_changes(self) -> bool:
+        """Ask before discarding unsaved edits. Returns True if it's OK to proceed
+        (exported, discarded, or nothing to lose), False to abort the action."""
+        if not self._dirty or self._current_image is None:
+            return True
+        from PyQt6.QtWidgets import QMessageBox
+        box = QMessageBox(self)
+        box.setWindowTitle("Unsaved changes")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText("This image has edits that haven't been exported yet.")
+        box.setInformativeText("Export them before continuing?")
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.Save)
+        choice = box.exec()
+        if choice == QMessageBox.StandardButton.Save:
+            self._save_image()
+            return not self._dirty  # only proceed if the export actually completed
+        if choice == QMessageBox.StandardButton.Discard:
+            return True
+        return False  # Cancel
+
+    def closeEvent(self, event):
+        if self._maybe_discard_changes():
+            event.accept()
+        else:
+            event.ignore()
+
     # ---------- Image display ----------
 
     @pyqtSlot(str)
@@ -1888,6 +1955,10 @@ class MainWindow(QMainWindow):
             self._update_undo_actions()
             self._display_image(image)
             self._log_panel.log(f"Loaded: {Path(path).name} ({image.shape_str})", "info")
+            # A freshly loaded image is clean; reset edit/workflow/mask state.
+            self._dirty = False
+            self._active_mask = None
+            self._workflow_bar.set_current(0)
             # Reset processing graph for the new image
             from astraios.core.processing_graph import ProcessingGraph
             self._processing_graph = ProcessingGraph()
@@ -2019,6 +2090,24 @@ class MainWindow(QMainWindow):
 
         self._canvas.capture_before()   # save current render for Before/After compare
         before = self._current_image
+
+        # Apply the active user mask centrally: only the masked region keeps the
+        # new result; outside it reverts to the pre-op image. Doing it here means
+        # every tool respects the mask without each handler needing to. Skipped
+        # for geometric ops (the shape changes), and guarded on a shape match.
+        if (self._active_mask is not None and not geometric and before is not None
+                and before.data.shape == data.shape
+                and self._active_mask.data.shape == data.shape[-2:]):
+            from astraios.core.masks import apply_mask
+            data = apply_mask(before.data, data, self._active_mask)
+        # If the image size changed (a geometric op), the mask no longer fits.
+        if (self._active_mask is not None
+                and self._active_mask.data.shape != data.shape[-2:]):
+            self._log_panel.log(
+                f"Active mask '{self._active_mask.name}' cleared (image size changed)",
+                "info",
+            )
+            self._active_mask = None
         # For pixel-value operations, anchor the display stretch to the pre-op image so
         # the executed result matches the live-preview brightness exactly.
         # For geometric operations the pixel distribution of the result may differ
@@ -2047,6 +2136,16 @@ class MainWindow(QMainWindow):
             desc = undo_desc if undo_desc else message
             self._processing_graph.add_node(desc, params={})
 
+        # The image now differs from the last saved/exported state.
+        self._dirty = True
+        # Reflect real progress on the workflow bar: the Tools Panel tab a tool
+        # was run from is that operation's workflow step (the map is identity).
+        tp = self._tools_panel
+        if hasattr(tp, "_tabs"):
+            step = tp._tabs.currentIndex()
+            if 0 <= step <= 6:
+                self._workflow_bar.mark_complete(step)
+
         if pending_preview is not None:
             # Re-run preview on the newly applied image (updates right side of split)
             self._preview_timer.start()
@@ -2071,7 +2170,8 @@ class MainWindow(QMainWindow):
         ch = "RGB" if img.data.ndim == 3 and img.data.shape[0] == 3 else "Mono"
         self._status_channels.setText(ch)
         idx = self._undo_stack.count
-        self._status_history.setText(f"{idx} steps")
+        mask_note = f" · mask: {self._active_mask.name}" if self._active_mask else ""
+        self._status_history.setText(f"{idx} steps{mask_note}")
 
     @pyqtSlot(int, int, list)
     def _update_pixel_readout(self, x: int, y: int, values: list):
@@ -2133,13 +2233,20 @@ class MainWindow(QMainWindow):
             if p.suffix.lower() in (".fit", ".fits", ".fts", ".xisf", ".tif", ".tiff", ".png")
         ]
         if not supported:
+            if paths:
+                self._log_panel.log(
+                    f"Can't open {paths[0].name} — supported types: FITS, XISF, "
+                    "TIFF, PNG", "warning",
+                )
             return
 
         if self._project:
             # Add to project as lights by default
             self._on_frames_imported(supported, FrameType.LIGHT)
         else:
-            # Just display the first one
+            # Just display the first one (would replace any unsaved edits)
+            if not self._maybe_discard_changes():
+                return
             self._load_frame(str(supported[0]))
 
     def _on_frames_imported(self, paths: list[Path], frame_type: FrameType):

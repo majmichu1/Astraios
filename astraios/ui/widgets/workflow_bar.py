@@ -1,8 +1,9 @@
 """workflow_bar.py — Astraios processing pipeline progress bar.
 
-A horizontal bar that shows the 7-step workflow and lets the user
-jump to any step. Drop into astraios/ui/widgets/workflow_bar.py
-and add to the main window layout between the quick toolbar and panels.
+A horizontal bar that shows the 8-step workflow and lets the user jump to any
+step. Steps map to Tools Panel tabs (Export emits -1, handled by the main window
+as Save/Export). The main window also calls set_current()/mark_complete() as real
+operations succeed, so the bar reflects actual progress, not just clicks.
 """
 from __future__ import annotations
 
@@ -37,8 +38,9 @@ _STEPS = [
     ("Export",      "FITS · TIFF · PNG"),
 ]
 
-# Map step index → Tools Panel tab index (0-based)
-_STEP_TO_TAB = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: None}
+# Map step index → Tools Panel tab index (0-based). Export (step 7) emits -1,
+# which the main window interprets as Save/Export rather than a tab switch.
+_STEP_TO_TAB = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: -1}
 
 
 class WorkflowBar(QWidget):
@@ -122,9 +124,7 @@ class WorkflowBar(QWidget):
     def _on_click(self, idx: int) -> None:
         tab = _STEP_TO_TAB.get(idx)
         if tab is not None:
-            self.step_clicked.emit(tab)
-        elif idx == 6:
-            self.step_clicked.emit(-1)  # Export sentinel — no matching tab
+            self.step_clicked.emit(tab)  # tab index, or -1 for Export
         self.set_current(idx)
 
     def _refresh(self) -> None:
