@@ -2017,6 +2017,8 @@ class MainWindow(QMainWindow):
             self._processing_graph = ProcessingGraph()
             self._processing_graph.set_base(image.data)
 
+        # Loading reports no fraction, so show a busy bar instead of a stuck 0%.
+        self._log_panel.set_busy(True, f"Loading {Path(path).name}...")
         self._start_worker(_load_work, path, on_done=_on_loaded)
 
     def _display_image(self, image: ImageData, display_ref: "np.ndarray | None" = None):
@@ -2331,6 +2333,30 @@ class MainWindow(QMainWindow):
         else:
             self._update_undo_actions()
 
+    def _on_worker_error(self, msg: str):
+        """Surface a tool failure: log it AND show a modal so it isn't missed."""
+        self._log_panel.log(f"Error: {msg}", "error")
+        low = msg.lower()
+        if "cancel" in low:
+            return  # cancellation is not a failure
+        if any(k in low for k in ("out of memory", "outofmemory", "cuda error",
+                                  "cublas", "cudnn")):
+            QMessageBox.warning(
+                self,
+                "Out of memory",
+                "Your GPU ran out of memory processing this image.\n\n"
+                "Try one of these:\n"
+                "  • Enable 'Tiled inference' in the tool (smaller chunks)\n"
+                "  • Work on a crop or a smaller image\n"
+                "  • Close other GPU-heavy apps\n\n"
+                "Some operations fall back to the CPU automatically.",
+            )
+        else:
+            QMessageBox.critical(
+                self, "Processing failed",
+                f"The operation could not complete:\n\n{msg}",
+            )
+
     def _start_worker(self, func, *args, on_done=None, **kwargs):
         if self._worker is not None:
             if self._worker.isRunning():
@@ -2358,8 +2384,7 @@ class MainWindow(QMainWindow):
             self._update_tb_progress, _Qt.ConnectionType.QueuedConnection
         )
         self._worker.error.connect(
-            lambda msg: self._log_panel.log(f"Error: {msg}", "error"),
-            _Qt.ConnectionType.QueuedConnection,
+            self._on_worker_error, _Qt.ConnectionType.QueuedConnection,
         )
         self._worker.error.connect(
             lambda: self._log_panel.set_cancel_visible(False), _Qt.ConnectionType.QueuedConnection

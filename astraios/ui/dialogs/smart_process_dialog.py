@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -306,6 +306,12 @@ class SmartProcessDialog(QDialog):
         self._results_group = QGroupBox("Results")
         results_layout = QVBoxLayout(self._results_group)
 
+        # Preview of the processed result, so the user can judge it before Apply.
+        self._result_preview = QLabel("")
+        self._result_preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._result_preview.setMinimumHeight(180)
+        results_layout.addWidget(self._result_preview)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         self._results_content = QLabel("")
@@ -446,6 +452,24 @@ class SmartProcessDialog(QDialog):
         self._result = result
         self._run_btn.setEnabled(True)
         self._apply_btn.setEnabled(True)
+
+        # Render a preview so the user can judge the result before Apply.
+        try:
+            import numpy as np
+            from PyQt6.QtGui import QImage, QPixmap
+
+            from astraios.core.image_io import ImageData
+            disp = np.ascontiguousarray(ImageData(data=result.image).to_display(stretch=True))
+            h, w = disp.shape[:2]
+            qimg = QImage(disp.tobytes(), w, h, w * 3, QImage.Format.Format_RGB888)
+            self._result_preview.setPixmap(
+                QPixmap.fromImage(qimg).scaled(
+                    380, 280, Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+        except Exception as exc:
+            self._result_preview.setText(f"(preview unavailable: {exc})")
         self._progress_bar.setValue(100)
         self._cancel_btn.setEnabled(False)
         self._status_label.setText("Done")

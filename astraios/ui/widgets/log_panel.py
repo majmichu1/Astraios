@@ -85,8 +85,21 @@ class LogPanel(QWidget):
 
     @pyqtSlot(float, str)
     def update_progress(self, fraction: float, message: str):
+        if self._progress_bar.maximum() == 0:
+            self._progress_bar.setRange(0, 1000)  # leave busy/indeterminate mode
         self._progress_bar.setValue(int(fraction * 1000))
         self._progress_label.setText(message)
+
+    def set_busy(self, busy: bool, message: str = ""):
+        """Indeterminate (marquee) progress for operations that report no fraction
+        (e.g. loading a large file) so the app doesn't look frozen."""
+        if busy:
+            self._progress_bar.setRange(0, 0)
+            if message:
+                self._progress_label.setText(message)
+        else:
+            self._progress_bar.setRange(0, 1000)
+            self._progress_bar.setValue(0)
 
     @pyqtSlot(str, str)
     def log(self, message: str, level: str = "info"):
@@ -121,6 +134,7 @@ class LogPanel(QWidget):
         self._log_header_gpu.setText(text)
 
     def reset_progress(self):
+        self._progress_bar.setRange(0, 1000)  # leave busy mode if it was set
         self._progress_bar.setValue(0)
         self._progress_label.setText("Ready")
         self._cancel_btn.setVisible(False)
