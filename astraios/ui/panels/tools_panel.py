@@ -129,6 +129,7 @@ class ToolsPanel(QWidget):
     run_color_calibration    = pyqtSignal()
     run_pcc                  = pyqtSignal()
     run_denoise              = pyqtSignal()
+    run_background_grain     = pyqtSignal()
     request_auto_denoise     = pyqtSignal()
     run_frequency_separation = pyqtSignal()
     run_star_reduction       = pyqtSignal()
@@ -1006,6 +1007,17 @@ class ToolsPanel(QWidget):
         )
         dnz.add_run("▶ Apply Denoise", self.run_denoise.emit)
         lay.addWidget(dnz)
+
+        # Background Grain — post-stretch luminance grain in the dark sky only
+        bgg = CollapsibleSection("Background Grain")
+        bgg.add_info(
+            "Smooths the mid-tone luminance grain in the dark sky that the black "
+            "point can't reach (it only crushes the shadows). Confined to the "
+            "background, so the subject and stars stay sharp. Apply after stretching."
+        )
+        self._bg_grain_strength = bgg.add_slider("Strength", 0.5, 0.0, 1.0, 0.05, 2)
+        bgg.add_run("▶ Reduce Background Grain", self.run_background_grain.emit)
+        lay.addWidget(bgg)
 
         # Star Reduction
         sr = CollapsibleSection("Star Reduction")

@@ -1209,6 +1209,7 @@ class MainWindow(QMainWindow):
         tp.run_color_calibration.connect(self._on_run_color_calibration)
         tp.run_pcc.connect(self._on_run_pcc)
         tp.run_denoise.connect(self._on_run_denoise)
+        tp.run_background_grain.connect(self._on_background_grain)
         tp.request_auto_denoise.connect(self._on_auto_denoise)
         tp.run_frequency_separation.connect(self._on_run_frequency_separation)
         tp.run_statistical_stretch.connect(self._on_run_statistical_stretch)
@@ -4562,6 +4563,27 @@ class MainWindow(QMainWindow):
                 self._project.add_history(
                     "Denoise", {"method": _p.method.name, "strength": _p.strength}
                 )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    def _on_background_grain(self):
+        if self._current_image is None:
+            self._log_panel.log("No image loaded", "warning")
+            return
+        from astraios.core.luma_denoise import LumaDenoiseParams, denoise_background_luma
+
+        strength = self._tools_panel._bg_grain_strength.value()
+        self._log_panel.log(
+            f"Reducing background grain (strength={strength:.2f})...", "info"
+        )
+
+        def _work(data, progress=None):
+            return denoise_background_luma(data, LumaDenoiseParams(strength=strength))
+
+        def _done(result):
+            self._update_current_image(result, "Background grain reduced")
+            if self._project:
+                self._project.add_history("Background Grain", {"strength": strength})
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
