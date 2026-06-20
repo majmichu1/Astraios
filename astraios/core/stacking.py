@@ -553,6 +553,9 @@ def _fft_align_frames(
             shifted_data = dm.to_cpu(warped_tensor).numpy().astype(np.float32)
             if shifted_data.ndim == 3 and shifted_data.shape[0] == 1:
                 shifted_data = shifted_data[0]
+            # Drop this frame's GPU tensors so the caching allocator reuses the
+            # (same-size) blocks for the next frame instead of fragmenting.
+            del tgt_tensor, full_tensor, warped_tensor
         else:
             shift, _, _ = _skimage_pcc(ref_gray, tgt_gray, upsample_factor=upsample_factor)
             row_shift, col_shift = float(shift[0]), float(shift[1])
@@ -564,6 +567,10 @@ def _fft_align_frames(
             header=tgt.header.copy(),
             frame_type=tgt.frame_type,
         )
+
+    if gpu_available:
+        del ref_tensor
+        dm.empty_cache()  # hand VRAM back before the integration stage
 
     progress(1.0, "FFT alignment complete")
     return [img for img in aligned if img is not None]
