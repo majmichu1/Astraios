@@ -165,10 +165,14 @@ def _create_master(
         progress(0.7, f"Computing {method} of {label} stack...")
 
         if dm.is_gpu and method == "median":
-            # GPU median over the stack axis.
+            # GPU median over the stack axis. Use quantile(0.5), not
+            # torch.median: torch.median returns the lower of the two middle
+            # values for an even frame count, while numpy (the CPU and tiled
+            # paths) averages them. quantile(0.5) matches numpy, so the master
+            # is identical regardless of which path computed it.
             try:
                 t_stack = torch.from_numpy(stack).to(dm.device)
-                master_data = torch.median(t_stack, dim=0).values
+                master_data = torch.quantile(t_stack, 0.5, dim=0)
                 master_data = dm.to_cpu(master_data).numpy()
                 del t_stack
             except RuntimeError:
