@@ -85,22 +85,27 @@ def _fft_convolve_2d(image: torch.Tensor, kernel: torch.Tensor) -> torch.Tensor:
         Convolution result, same size as image.
     """
     h, w = image.shape
+    return _fft_convolve_with_kernel_fft(image, _padded_kernel_fft(kernel, h, w), h, w)
+
+
+def _padded_kernel_fft(kernel: torch.Tensor, h: int, w: int) -> torch.Tensor:
+    """rfft2 of ``kernel`` zero-padded to ``(h, w)`` and centred at the origin.
+
+    Precompute this once for a constant kernel (e.g. the PSF across all
+    Richardson-Lucy iterations) instead of rebuilding it every convolution.
+    """
     kh, kw = kernel.shape
-
-    # Zero-pad kernel to image size
     padded_kernel = torch.zeros(h, w, device=kernel.device, dtype=kernel.dtype)
-    # Place kernel centered at origin (for proper FFT convolution)
-    kch, kcw = kh // 2, kw // 2
     padded_kernel[:kh, :kw] = kernel
-    # Roll to center the kernel
-    padded_kernel = torch.roll(padded_kernel, (-kch, -kcw), dims=(0, 1))
+    padded_kernel = torch.roll(padded_kernel, (-(kh // 2), -(kw // 2)), dims=(0, 1))
+    return torch.fft.rfft2(padded_kernel)
 
-    # FFT convolution
-    img_fft = torch.fft.rfft2(image)
-    kern_fft = torch.fft.rfft2(padded_kernel)
-    result = torch.fft.irfft2(img_fft * kern_fft, s=(h, w))
 
-    return result
+def _fft_convolve_with_kernel_fft(
+    image: torch.Tensor, kern_fft: torch.Tensor, h: int, w: int
+) -> torch.Tensor:
+    """FFT-convolve ``image`` with a kernel whose rfft2 is already computed."""
+    return torch.fft.irfft2(torch.fft.rfft2(image) * kern_fft, s=(h, w))
 
 
 def _tv_regularization(image: torch.Tensor, weight: float) -> torch.Tensor:
@@ -196,20 +201,26 @@ def _rl_channel(
 
     # RL iterations — no_grad prevents 2-4 GB autograd graph accumulation on 4K images
     estimate = t_img.detach().clone()
+    # The PSF is constant across iterations, so transform it once instead of
+    # rebuilding + FFTing the padded kernel on every convolution (halves the
+    # per-iteration FFT work).
+    h, w = t_img.shape
+    psf_fft = _padded_kernel_fft(t_psf, h, w)
+    psf_flip_fft = _padded_kernel_fft(t_psf_flip, h, w)
     with torch.no_grad():
         for i in range(params.iterations):
             frac = ch_offset + ch_scale * (i / params.iterations)
             progress(frac, f"Deconvolution ch{ch_idx + 1} iter {i + 1}/{params.iterations}")
 
             # Convolution of estimate with PSF
-            blurred = _fft_convolve_2d(estimate, t_psf)
+            blurred = _fft_convolve_with_kernel_fft(estimate, psf_fft, h, w)
             blurred = torch.clamp(blurred, min=1e-10)
 
             # Ratio
             ratio = t_img / blurred
 
             # Correlation with flipped PSF
-            correction = _fft_convolve_2d(ratio, t_psf_flip)
+            correction = _fft_convolve_with_kernel_fft(ratio, psf_flip_fft, h, w)
 
             # TV regularization
             if params.regularization > 0:
