@@ -2013,10 +2013,21 @@ class MainWindow(QMainWindow):
             self._dirty = False
             self._active_mask = None
             self._workflow_bar.set_current(0)
-            # Reset processing graph for the new image
-            from astraios.core.processing_graph import ProcessingGraph
-            self._processing_graph = ProcessingGraph()
-            self._processing_graph.set_base(image.data)
+            # The processing graph is created lazily (on the first edit, or when
+            # the graph dialog is opened) so we don't hold an always-on full-res
+            # copy of the base image (~780MB at 65MP) for sessions that never
+            # touch it.
+            self._processing_graph = None
+
+        # Release the previous image's heavy auxiliary buffers before loading the
+        # new frame so they don't coexist with it — at 65MP each is ~780MB. The
+        # working image itself stays until the new one is ready, so a failed load
+        # doesn't lose it.
+        self._extracted_stars = None
+        self._blink_images = [None, None]
+        self._processing_graph = None
+        import gc
+        gc.collect()
 
         # Loading reports no fraction, so show a busy bar instead of a stuck 0%.
         self._log_panel.set_busy(True, f"Loading {Path(path).name}...")

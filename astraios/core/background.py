@@ -16,6 +16,11 @@ import torch
 
 log = logging.getLogger(__name__)
 
+# The background model is built at most this many pixels on its longest side,
+# then bilinearly upsampled. A low-frequency surface needs no more, and this
+# keeps the meshgrid/smoothing off the full-resolution image.
+_MODEL_MAX_SIDE = 1024
+
 
 @dataclass
 class BackgroundParams:
@@ -48,9 +53,22 @@ def extract_background(
         bg_model = np.empty_like(data)
         for ch in range(n_ch):
             corrected[ch], bg_model[ch] = _extract_single_channel(data[ch], params)
+        _release_gpu_cache()
         return corrected, bg_model
     else:
-        return _extract_single_channel(data, params)
+        result = _extract_single_channel(data, params)
+        _release_gpu_cache()
+        return result
+
+
+def _release_gpu_cache() -> None:
+    """Best-effort release of cached GPU memory after a heavy op (8GB cards)."""
+    try:
+        from astraios.core.device_manager import get_device_manager
+
+        get_device_manager().empty_cache()
+    except Exception:
+        pass
 
 
 def _extract_single_channel(
@@ -130,15 +148,25 @@ def _extract_single_channel(
     # Fit polynomial surface (CPU, tiny matrix — fast)
     coeffs = _fit_polynomial_surface(x_norm, y_norm, samples_val, poly_degree)
 
-    # Evaluate model over full image — GPU if available, else CPU
-    bg_model = _evaluate_polynomial_gpu(h, w, coeffs, poly_degree)
+    # Evaluate the model at REDUCED resolution, then bilinearly upsample.
+    # The background is a smooth, low-frequency surface (a low-order polynomial,
+    # optionally Gaussian-smoothed), so a model built on a <=1024px grid and
+    # upsampled is visually identical to a full-res one. On a 65MP frame this
+    # avoids (a) the full-res meshgrid + power-tensor blowup that OOMs the 8GB
+    # GPU, and (b) a minutes-long full-res Gaussian (sigma grows with image
+    # size, reaching ~hundreds of px → a ~2000px kernel over 65M pixels).
+    model_scale = min(1.0, _MODEL_MAX_SIDE / max(h, w))
+    mh = max(8, int(round(h * model_scale)))
+    mw = max(8, int(round(w * model_scale)))
 
-    # Optional smoothing (GPU Gaussian)
+    bg_small = _evaluate_polynomial_gpu(mh, mw, coeffs, poly_degree)
+
+    # Optional smoothing (GPU Gaussian) — sigma scales with the model grid.
     if params.smoothing > 0:
-        smooth_sigma = params.smoothing * min(h, w) / 10
-        bg_model = _gaussian_smooth_gpu(bg_model, smooth_sigma)
+        smooth_sigma = params.smoothing * min(mh, mw) / 10
+        bg_small = _gaussian_smooth_gpu(bg_small, smooth_sigma)
 
-    bg_model = bg_model.astype(np.float32)
+    bg_model = _resize_to(bg_small, h, w)
 
     # Clamp the model to the observed SKY-sample range. The background is sky —
     # it cannot physically be brighter than the brightest measured sky sample.
@@ -360,6 +388,36 @@ def _subtract_and_floor_gpu(channel: np.ndarray, bg_model: np.ndarray) -> np.nda
 
     except Exception:
         return (channel - bg_model).astype(np.float32)
+
+
+@torch.no_grad()
+def _resize_to(model: np.ndarray, h: int, w: int) -> np.ndarray:
+    """Bilinearly resize a 2D model to (h, w), GPU when available.
+
+    The background surface is smooth, so this faithfully reconstructs a model
+    that was evaluated at reduced resolution. ``align_corners=True`` keeps the
+    corner values exact so the fitted edges stay anchored.
+    """
+    if model.shape == (h, w):
+        return model.astype(np.float32)
+    try:
+        import torch
+        import torch.nn.functional as F
+
+        from astraios.core.device_manager import get_device_manager
+        device = get_device_manager().device
+
+        t = torch.from_numpy(model).to(device=device, dtype=torch.float32)
+        t = t.unsqueeze(0).unsqueeze(0)
+        t = F.interpolate(t, size=(h, w), mode="bilinear", align_corners=True)
+        return t.squeeze().cpu().numpy().astype(np.float32)
+
+    except Exception:
+        import cv2
+
+        return cv2.resize(
+            model.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR
+        )
 
 
 @torch.no_grad()
