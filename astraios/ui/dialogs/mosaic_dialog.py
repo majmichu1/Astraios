@@ -144,6 +144,10 @@ class MosaicDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
         self._run_btn = QPushButton("Stitch Mosaic")
         self._run_btn.clicked.connect(self._run)
         btn_row.addWidget(self._run_btn)

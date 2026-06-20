@@ -494,7 +494,7 @@ class ToolsPanel(QWidget):
         lay.setSpacing(6)
 
         # Background Extraction
-        bg = CollapsibleSection("Background Extraction", accent=True)
+        bg = CollapsibleSection("Remove Gradient (Background Extraction)", accent=True)
         bg.add_info("Remove light pollution gradients.")
         self._bg_grid_spin  = bg.add_spin("Grid size", 4, 32, 8)
         self._bg_order_spin = bg.add_spin("Poly order", 1, 6, 3)
@@ -535,7 +535,7 @@ class ToolsPanel(QWidget):
         lay.addWidget(bg)
 
         # ABE
-        abe = CollapsibleSection("ABE (Advanced)")
+        abe = CollapsibleSection("Light Pollution Removal (ABE)")
         abe.add_info("Background extraction using polynomial or RBF surface fitting.")
         self._abe_grid_spin   = abe.add_spin("Grid size", 5, 30, 10)
         self._abe_model_combo = abe.add_combo("Model", ["Polynomial (recommended)", "RBF"])
@@ -671,7 +671,7 @@ class ToolsPanel(QWidget):
         lay.addWidget(sst)
 
         # GHS
-        ghs = CollapsibleSection("Generalized Hyperbolic Stretch")
+        ghs = CollapsibleSection("Hyperbolic Stretch (GHS)")
         ghs.add_info("Advanced non-linear stretch.")
         self._ghs_d_spin  = ghs.add_spin("Stretch (D)",   0.0, 20.0, 5.0, 0.5, 1)
         self._ghs_b_spin  = ghs.add_spin("Asymmetry (b)", -5.0, 5.0, 0.0, 0.1, 1)
@@ -814,7 +814,7 @@ class ToolsPanel(QWidget):
         lay.setSpacing(6)
 
         # SCNR
-        scnr = CollapsibleSection("SCNR (Green Noise Removal)", accent=True)
+        scnr = CollapsibleSection("Remove Green Cast (SCNR)", accent=True)
         scnr.add_info("Remove color noise, typically excess green channel.")
         self._scnr_target_combo  = scnr.add_combo("Target",  ["Green", "Red", "Blue"])
         self._scnr_method_combo  = scnr.add_combo(

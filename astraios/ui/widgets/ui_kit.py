@@ -449,6 +449,10 @@ class CollapsibleSection(QWidget):
 
     def add_info(self, text: str) -> InfoLabel:
         self._search_text += " " + text.lower()
+        # Surface the description as a header tooltip so it's readable on hover
+        # even while the section is collapsed (most are, by default).
+        if not self._hdr.toolTip():
+            self._hdr.setToolTip(text)
         return self.add_widget(InfoLabel(text))
 
     def add_slider(

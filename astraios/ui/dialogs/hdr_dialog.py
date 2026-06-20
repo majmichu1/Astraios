@@ -69,10 +69,16 @@ class HDRDialog(QDialog):
         cw_row.addWidget(self._contrast_spin)
         layout.addLayout(cw_row)
 
-        # Run button
+        # Run / Cancel buttons
+        btn_row = QHBoxLayout()
         self._run_btn = QPushButton("Compose HDR")
         self._run_btn.clicked.connect(self._run)
-        layout.addWidget(self._run_btn)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addStretch()
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(self._run_btn)
+        layout.addLayout(btn_row)
 
         self._status = QLabel("")
         layout.addWidget(self._status)
