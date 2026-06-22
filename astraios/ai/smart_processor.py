@@ -1564,7 +1564,13 @@ class SmartProcessor:
         # then screen the stars back. Done last (on the stretched image) because
         # the star-removal models expect non-linear data.
         if plan.star_aware:
-            working = self._apply_star_aware(working, analysis, plan, progress)
+            # Hand ownership of `working` (a throwaway copy) to star-aware via a
+            # 1-element box and drop our own binding, so it can free the ~840MB
+            # input as soon as the star layer is extracted instead of holding it
+            # alongside starless/stars/enhanced.
+            _box = [working]
+            working = None
+            working = self._apply_star_aware(_box, analysis, plan, progress)
 
         # Colour noise reduction: OSC / one-shot-colour stacks carry most of
         # their visible noise in the CHROMA (blotchy colour speckle), so denoise
@@ -1722,13 +1728,20 @@ class SmartProcessor:
 
     def _apply_star_aware(
         self,
-        working: np.ndarray,
+        working_box: list,
         analysis: ImageAnalysis,
         plan: ProcessingPlan,
         progress: ProgressCallback,
     ) -> np.ndarray:
         """Separate stars, enhance the starless nebula, optionally shrink the
-        isolated stars, then screen them back."""
+        isolated stars, then screen them back.
+
+        ``working_box`` is a 1-element list holding the working image; this
+        method pops it (taking sole ownership) so the input can be freed as soon
+        as the star layer is extracted, keeping the peak copy count down on huge
+        frames.
+        """
+        working = working_box.pop()
         progress(0.95, "Star-aware: separating stars...")
         starless = self._separate_stars(working)
         if starless is None:
@@ -1741,8 +1754,11 @@ class SmartProcessor:
         # around every star on recombine (an earlier soft-knee dropped the skirt
         # and exposed the depression — the "dark moats" around stars).
         stars = np.clip(working - starless, 0.0, 1.0).astype(np.float32)
-
         is_color = working.ndim == 3 and working.shape[0] >= 3
+        # The input is no longer needed (stars extracted; the recombine uses
+        # enhanced + stars) — free its ~840MB now, before building `enhanced`.
+        del working
+
         has_stars = float(np.mean(stars > 0.05)) > 1e-4
 
         # Independent star reduction — only possible because the stars are
