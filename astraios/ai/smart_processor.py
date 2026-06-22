@@ -1363,7 +1363,9 @@ class SmartProcessor:
         progress: ProgressCallback,
     ) -> np.ndarray:
         """Execute the processing plan with quality checks."""
+        self._log_rss("execute start (pre-copy)")
         working = data.copy()
+        self._log_rss("after working = data.copy()")
 
         # ---- Per-channel processing ----
         if working.ndim == 2:
@@ -1446,6 +1448,7 @@ class SmartProcessor:
 
         # ---- Post-merge steps ----
         progress(0.82, "Post-processing...")
+        self._log_rss("finalize start (pre-SCNR)")
 
         # SCNR — pixel-wise green neutralisation, so tile it in place on huge
         # frames (same result, bounded peak memory).
@@ -1537,6 +1540,7 @@ class SmartProcessor:
         # huge frame apply it tile-by-tile in place — same result, but the peak
         # is one tile instead of a second full-size image (this is the stage that
         # OOMed on a 70MP frame).
+        self._log_rss("before color_adjust")
         if plan.do_color_adjust and working.ndim == 3 and working.shape[0] >= 3:
             self._log_msg("Applying color adjustment")
             cp = plan.color_adjust_params
@@ -1563,6 +1567,7 @@ class SmartProcessor:
         # Star-aware enhancement: separate stars, enhance the starless nebula,
         # then screen the stars back. Done last (on the stretched image) because
         # the star-removal models expect non-linear data.
+        self._log_rss("before star_aware")
         if plan.star_aware:
             # Hand ownership of `working` (a throwaway copy) to star-aware via a
             # 1-element box and drop our own binding, so it can free the ~840MB
@@ -1593,6 +1598,7 @@ class SmartProcessor:
         # shadows). Smooth it gently, confined to the background, so the sky reads
         # clean while the subject and stars stay sharp. Self-gating: a
         # frame-filling object leaves almost no background, so this is a no-op.
+        self._log_rss("before background grain")
         if "denoise" in self._enabled_stages:
             from astraios.core.luma_denoise import (
                 LumaDenoiseParams,
@@ -2894,3 +2900,15 @@ class SmartProcessor:
         """Log a message both to Python logger and internal log."""
         log.info(msg)
         self._log.append(msg)
+
+    def _log_rss(self, label: str) -> None:
+        """Log this process's resident memory (Linux), to trace RAM peaks."""
+        try:
+            with open("/proc/self/status") as f:
+                for line in f:
+                    if line.startswith("VmRSS:"):
+                        mb = int(line.split()[1]) / 1024.0
+                        log.info("[mem] %-22s RSS %.0f MB", label, mb)
+                        return
+        except Exception:
+            pass
