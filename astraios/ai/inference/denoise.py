@@ -47,8 +47,14 @@ class AIDenoiseParams:
     overlap: int = 32
 
 
+# Cache the loaded model by source path so a multi-channel run (and repeated
+# tool invocations) reuse one instance instead of re-reading + rebuilding the
+# UNet on every call.
+_MODEL_CACHE: dict[str, UNet] = {}
+
+
 def _load_trained_model(prefer_best: bool = True) -> UNet | None:
-    """Load the best available trained N2S model from disk."""
+    """Load the best available trained N2S model from disk (cached by path)."""
     from pathlib import Path
 
     models_dir = Path(__file__).resolve().parent.parent / "models"
@@ -70,6 +76,9 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
     for path in candidates:
         if not path.exists():
             continue
+        cache_key = str(path)
+        if cache_key in _MODEL_CACHE:
+            return _MODEL_CACHE[cache_key]
         try:
             raw = torch.load(path, map_location="cpu", weights_only=True)
             if isinstance(raw, dict) and "model_state_dict" in raw:
@@ -89,6 +98,7 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
                 model.load_state_dict(raw)
                 log.info("Loaded AI denoise model (plain state dict): %s", path.name)
             model.eval()
+            _MODEL_CACHE[cache_key] = model
             return model
         except Exception as e:
             log.debug("Could not load %s: %s", path.name, e)
@@ -253,7 +263,6 @@ def ai_denoise(
     dm = get_device_manager()
     device = dm.device
     model = model.to(device)
-    original = data.copy()
 
     if data.ndim == 2:
         denoised = _jinvariant_channel(data, model, params, device, progress)
@@ -268,7 +277,9 @@ def ai_denoise(
             result[ch] = _signal_blend(data[ch], denoised_ch, params)
 
     result = np.clip(result, 0, 1).astype(np.float32)
-    return apply_mask(original, result, mask)
+    # apply_mask only reads `data` (never mutates it) and nothing above touches
+    # it, so blend against it directly — no defensive copy.
+    return apply_mask(data, result, mask)
 
 
 def _traditional_denoise(

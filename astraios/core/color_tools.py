@@ -284,7 +284,6 @@ def _color_adjust_gpu(
     dm,
 ) -> np.ndarray:
     """GPU-accelerated color adjustment."""
-    original = image.copy()
     hsv = _rgb_to_hsv_gpu(image[:3], dm)
 
     # Hue shift
@@ -306,7 +305,9 @@ def _color_adjust_gpu(
     if image.shape[0] > 3:
         result_np = np.concatenate([result_np, image[3:]], axis=0)
 
-    return apply_mask(original, result_np, mask)
+    # apply_mask only reads `image` (never mutates it) and nothing above touches
+    # it, so no defensive copy is needed — saving a full-image allocation.
+    return apply_mask(image, result_np, mask)
 
 
 def _color_adjust_cpu(
@@ -315,7 +316,6 @@ def _color_adjust_cpu(
     mask: Mask | None,
 ) -> np.ndarray:
     """CPU fallback for color adjustment."""
-    original = image.copy()
     hsv = _rgb_to_hsv(image[:3])
 
     if abs(params.hue_shift) > 0.01:
@@ -333,4 +333,4 @@ def _color_adjust_cpu(
     if image.shape[0] > 3:
         result = np.concatenate([result, image[3:]], axis=0)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
