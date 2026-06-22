@@ -40,6 +40,7 @@ from astraios.core.local_contrast import LocalContrastParams, local_contrast_enh
 from astraios.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve
 from astraios.core.psf import PSFMeasurement, measure_psf
 from astraios.core.stretch import StretchParams, auto_stretch, compute_channel_stats
+from astraios.core.tiling import apply_pixelwise_tiled, should_tile
 
 log = logging.getLogger(__name__)
 
@@ -1446,10 +1447,16 @@ class SmartProcessor:
         # ---- Post-merge steps ----
         progress(0.82, "Post-processing...")
 
-        # SCNR
+        # SCNR — pixel-wise green neutralisation, so tile it in place on huge
+        # frames (same result, bounded peak memory).
         if plan.do_scnr and working.ndim == 3 and working.shape[0] >= 3:
             self._log_msg("Applying SCNR")
-            working = scnr(working, plan.scnr_params)
+            sp = plan.scnr_params
+            if should_tile(working):
+                working = np.ascontiguousarray(working)
+                apply_pixelwise_tiled(working, lambda t: scnr(t, sp))
+            else:
+                working = scnr(working, sp)
             self._check_color_balance(working, ProcessingStage.SCNR)
 
         # Adaptive color balance: equalize channel backgrounds if imbalanced
@@ -1526,10 +1533,18 @@ class SmartProcessor:
                 if applied_gains:
                     self._log_msg(f"Color gain correction: {', '.join(applied_gains)}")
 
-        # Color adjustment
+        # Color adjustment. Pixel-wise (HSV saturation/hue per pixel), so on a
+        # huge frame apply it tile-by-tile in place — same result, but the peak
+        # is one tile instead of a second full-size image (this is the stage that
+        # OOMed on a 70MP frame).
         if plan.do_color_adjust and working.ndim == 3 and working.shape[0] >= 3:
             self._log_msg("Applying color adjustment")
-            working = color_adjust(working, plan.color_adjust_params)
+            cp = plan.color_adjust_params
+            if should_tile(working):
+                working = np.ascontiguousarray(working)
+                apply_pixelwise_tiled(working, lambda t: color_adjust(t, cp))
+            else:
+                working = color_adjust(working, cp)
 
         # HDR local contrast: single very gentle CLAHE pass for extreme-DR
         # objects.  Reveals faint outer structure without amplifying noise.

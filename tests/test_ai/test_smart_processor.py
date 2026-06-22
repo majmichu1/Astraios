@@ -753,3 +753,30 @@ class TestHDRCoreNotDarkened:
         mid = (r2 > (0.14 * img.shape[0]) ** 2) & (r2 < (0.26 * img.shape[0]) ** 2)
         # The bright core must stay brighter than the surrounding nebula.
         assert float(out[core].mean()) > float(out[mid].mean())
+
+
+class TestTiledFinalize:
+    """The memory-bounded tiled finalize (color_adjust / SCNR applied tile-by-
+    tile on huge frames) must run cleanly inside the real pipeline and produce a
+    valid result. Per-tile correctness vs the full frame is covered in
+    test_tiling.py; here we just exercise the integration end-to-end."""
+
+    def test_forced_tiling_produces_valid_result(self, monkeypatch, processor_no_equipment):
+        import astraios.ai.smart_processor as sp_mod
+        from astraios.core.tiling import apply_pixelwise_tiled as _real_tiled
+
+        # Force the tiled path and a tiny tile so the small test frame is
+        # processed in many tiles through the actual pipeline.
+        monkeypatch.setattr(sp_mod, "should_tile", lambda *a, **k: True)
+        monkeypatch.setattr(
+            sp_mod, "apply_pixelwise_tiled",
+            lambda img, fn, **k: _real_tiled(img, fn, tile=16),
+        )
+        data = _make_color_image(h=80, w=96)
+        result = processor_no_equipment.process(
+            data, input_type_hint=InputType.OSC_RGB, use_ai_denoise=False
+        )
+        assert result.image.shape == data.shape
+        assert np.isfinite(result.image).all()
+        assert result.image.min() >= 0.0
+        assert result.image.max() <= 1.0
