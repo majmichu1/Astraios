@@ -25,7 +25,6 @@ from astraios.core.masks import (
     Mask,
     MaskType,
     _get_luminance,
-    apply_mask,
     create_luminance_mask,
 )
 
@@ -144,6 +143,14 @@ def denoise_background_luma(
     processed = _bilateral_smooth(image, params.strength, params.detail_preservation)
 
     progress(0.9, "Blending into background...")
-    result = apply_mask(image, processed, bg_mask)
+    # Blend in place — result = image + mask * (processed - image) — reusing the
+    # `processed` buffer instead of allocating another full-size array (matters
+    # on huge frames where each copy is hundreds of MB). Equivalent to
+    # apply_mask(image, processed, bg_mask).
+    m = bg_mask.data[np.newaxis, :, :] if image.ndim == 3 else bg_mask.data
+    processed -= image
+    processed *= m
+    processed += image
+    np.clip(processed, 0.0, 1.0, out=processed)
     progress(1.0, "Background grain reduction complete")
-    return result.astype(np.float32)
+    return processed.astype(np.float32, copy=False)

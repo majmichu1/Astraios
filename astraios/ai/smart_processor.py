@@ -1792,6 +1792,11 @@ class SmartProcessor:
         if is_color and not self._is_narrowband(analysis):
             enhanced = color_adjust(enhanced, ColorAdjustParams(saturation=1.15))
 
+        # starless is no longer needed (enhanced is derived; recombine uses
+        # enhanced + stars). Free it before the recombine so a 70MP frame holds
+        # one fewer ~840MB copy at the peak.
+        del starless
+
         # Recombine ADDITIVELY: starless-nebula enhancement + the star layer.
         #   result = starless + (enhanced - starless) + stars = enhanced + stars
         # With no reduction this is exactly ``working + (enhanced - starless)`` —
@@ -1800,8 +1805,15 @@ class SmartProcessor:
         # left soft halos (and, with the dropped skirt, dark rings); additive
         # reconstruction has neither.
         progress(0.99, "Star-aware: recombining stars...")
-        result = np.clip(enhanced + stars, 0.0, 1.0).astype(np.float32)
+        # In place: reuse enhanced's buffer instead of allocating a new full-size
+        # result. Guard the buffer is a writable float32 (no-op in the common
+        # case, since the stages above already return float32).
         star_frac = float(np.mean(stars > 0.05))
+        if enhanced.dtype != np.float32 or not enhanced.flags.writeable:
+            enhanced = enhanced.astype(np.float32)
+        np.add(enhanced, stars, out=enhanced)
+        np.clip(enhanced, 0.0, 1.0, out=enhanced)
+        result = enhanced
         self._log_msg(
             f"Star-aware complete: nebula enhanced, stars "
             f"{'reduced & ' if reduced else ''}recombined "
