@@ -122,10 +122,24 @@ def _remove_stars_morph(
             log.debug("Star removal: dropped %d/%d non-star blobs (noise or nebula)",
                       int(drop.size), n_blob)
 
-    # ── 3. Dilate mask to cover halos ───────────────────────────────
-    radius = max(3, min(orig_h, orig_w) // 200)
+    # ── 3. Dilate mask to cover halos — radius from the ACTUAL star size ──
+    # Keying the halo to the image size (the old min(H,W)//200, x2 iterations)
+    # over-dilates a dense field of small stars: a ~40px halo on a 3-5px star
+    # merges neighbours, over-removes, and reads as bloated/smeared after
+    # inpainting. Scale the halo to the median detected star instead, so small
+    # stars get a small halo and large stars still get theirs covered.
+    kept_labels, n_kept = ndimage.label(binary > 0)
+    if n_kept > 0:
+        kept_areas = ndimage.sum(
+            np.ones_like(kept_labels, dtype=np.float64), kept_labels,
+            index=np.arange(1, n_kept + 1),
+        )
+        median_diam = 2.0 * np.sqrt(max(float(np.median(kept_areas)), 1.0) / np.pi)
+        radius = int(np.clip(round(median_diam * 0.7), 2, max(4, min(orig_h, orig_w) // 100)))
+    else:
+        radius = 3
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (radius * 2 + 1, radius * 2 + 1))
-    binary = cv2.dilate(binary, kernel, iterations=2)
+    binary = cv2.dilate(binary, kernel, iterations=1)
 
     # Final runaway backstop AFTER dilation: the min-area filter above already
     # removes the noise specks that used to dilate into a frame-covering mask, so
@@ -160,8 +174,11 @@ def _remove_stars_morph(
 
     # ── 5. Feather edges so star boundaries blend smoothly ──────────────
     if np.any(mask):
-        blend = cv2.GaussianBlur(binary.astype(np.float32), (0, 0), sigmaX=radius * 0.8) / 255.0
-        blend = np.clip(blend, 0, 1)
+        feather = cv2.GaussianBlur(binary.astype(np.float32), (0, 0), sigmaX=radius * 0.8) / 255.0
+        # Keep the mask INTERIOR fully inpainted (blend=1): the Gaussian feather
+        # alone dips below 1 at the centre of a small star, leaving a residual
+        # bright core. Use it only to add a soft ring OUTSIDE the mask edge.
+        blend = np.clip(np.maximum(mask.astype(np.float32), feather), 0, 1)
         if is_color:
             for c in range(img.shape[0]):
                 result[c] = img[c] * (1.0 - blend) + result[c] * blend

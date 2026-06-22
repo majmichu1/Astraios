@@ -131,3 +131,28 @@ class TestNoiseSpecksDoNotFloodBackground:
         # The starless background median must stay near the input, not balloon
         # toward the bright object's value.
         assert abs(float(np.median(out)) - float(np.median(img))) < 0.04
+
+
+class TestDenseSmallStarField:
+    """Star-size-adaptive dilation: a dense field of small stars must be removed
+    without the halo dilation ballooning the mask (which over-removes and smears
+    stars into a bloated mess), and without inflating the background."""
+
+    def test_dense_small_stars_removed_cleanly(self):
+        rng = np.random.default_rng(7)
+        h, w = 800, 800
+        img = np.clip(rng.normal(0.08, 0.015, (h, w)).astype(np.float32), 0, 1)
+        for _ in range(400):  # dense field of small (1-3px) stars
+            sy, sx = int(rng.integers(5, h - 5)), int(rng.integers(5, w - 5))
+            img[sy - 1:sy + 2, sx - 1:sx + 2] += 0.2
+            img[sy, sx] += 0.7
+        img = np.clip(img, 0, 1).astype(np.float32)
+
+        bright_before = float(np.mean(img > 0.5))
+        med_before = float(np.median(img))
+        out = remove_stars_builtin(img, threshold=0.5)
+
+        # Most star pixels removed.
+        assert float(np.mean(out > 0.5)) < 0.5 * bright_before
+        # Background not inflated by an over-grown mask.
+        assert abs(float(np.median(out)) - med_before) < 0.03
