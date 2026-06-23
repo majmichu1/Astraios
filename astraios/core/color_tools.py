@@ -97,7 +97,8 @@ def _scnr_cpu(
     mask: Mask | None,
 ) -> np.ndarray:
     """CPU fallback for SCNR."""
-    original = image.copy()
+    # `image` is never mutated below (result is the working copy), so read the
+    # pre-SCNR channels straight from it instead of a second full copy.
     result = image.copy()
     r, g, b = result[0], result[1], result[2]
 
@@ -113,13 +114,13 @@ def _scnr_cpu(
         result[1] = corrected_g
 
     if params.preserve_luminance:
-        lum_before = 0.2126 * original[0] + 0.7152 * original[1] + 0.0722 * original[2]
+        lum_before = 0.2126 * image[0] + 0.7152 * image[1] + 0.0722 * image[2]
         lum_after = 0.2126 * result[0] + 0.7152 * result[1] + 0.0722 * result[2]
         ratio = np.where(lum_after > 1e-10, lum_before / lum_after, 1.0)
         for ch in range(3):
             result[ch] = np.clip(result[ch] * ratio, 0, 1)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 # ---------- Color Saturation / Hue Tools ----------
