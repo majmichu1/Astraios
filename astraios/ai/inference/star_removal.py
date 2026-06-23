@@ -161,6 +161,13 @@ def _remove_stars_morph(
 
     mask = binary > 0
 
+    # The mask is final — free the large intermediate arrays (each ~one image
+    # channel) before the heavy per-channel inpaint, so reconstruction doesn't
+    # run on top of ~1.5GB of dead working memory on a big frame.
+    del bg, resid, diff, labels, kept_labels, lum_u8, bg_u8
+    if is_color:
+        del lum  # colour inpaint works from img[c]; lum is only needed for mono
+
     # ── 4. Reconstruct the sky under the stars by diffusion inpainting ──
     # Replacing star pixels with the median background leaves residual halos
     # and dark holes (the median kernel partly contains the star itself).
