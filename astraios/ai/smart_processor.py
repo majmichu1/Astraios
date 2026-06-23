@@ -2439,6 +2439,7 @@ class SmartProcessor:
                     break
 
                 # Adjust midtone: lower = brighter result
+                prev_midtone = midtone
                 if metric < effective_target * 0.8:
                     midtone *= 0.6  # too dark, make more aggressive
                 elif metric > effective_target * 1.3:
@@ -2451,6 +2452,13 @@ class SmartProcessor:
                 # For HDR cap midtone so the core doesn't blow out completely.
                 min_midtone = 0.020 if full_plan.needs_hdr_merge else 0.001
                 midtone = max(min_midtone, min(0.5, midtone))
+
+                # Plateaued against a clamp: the midtone can't move, so every
+                # further attempt repeats the same full-frame stretch (and same
+                # result). Stop — best_result already holds it. Saved ~3 wasted
+                # 73MP stretches per channel on the faint NGC1499 frame.
+                if abs(midtone - prev_midtone) < 1e-9:
+                    break
 
             if best_result is not None:
                 working = best_result
