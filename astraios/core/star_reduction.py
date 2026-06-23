@@ -75,14 +75,24 @@ def create_star_mask(
         h, w = image.shape
 
     mask_data = np.zeros((h, w), dtype=np.float32)
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
 
     for star in sf.stars:
         radius = max(star.fwhm * scale, 2.0)
         sigma = radius / 2.0
+        # The Gaussian blob is negligible beyond ~6 sigma (exp(-18) ~ 1e-8, below
+        # the mask's float32 precision and softened/clipped anyway), so build it
+        # only over the star's bounding box instead of the whole frame — turns an
+        # O(N_stars * H * W) loop into O(N_stars * radius^2).
+        rad = int(np.ceil(radius * 3.0))
+        y0, y1 = max(0, int(star.y) - rad), min(h, int(star.y) + rad + 1)
+        x0, x1 = max(0, int(star.x) - rad), min(w, int(star.x) + rad + 1)
+        if y0 >= y1 or x0 >= x1:
+            continue
+        yy, xx = np.mgrid[y0:y1, x0:x1]
         dist_sq = (xx - star.x) ** 2 + (yy - star.y) ** 2
-        blob = np.exp(-dist_sq / (2 * sigma**2))
-        mask_data = np.maximum(mask_data, blob)
+        blob = np.exp(-dist_sq / (2 * sigma**2)).astype(np.float32)
+        region = mask_data[y0:y1, x0:x1]
+        np.maximum(region, blob, out=region)
 
     # Soften edges
     if softness > 0:
