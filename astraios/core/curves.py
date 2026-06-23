@@ -158,7 +158,8 @@ def _curves_gpu(
     dm,
 ) -> np.ndarray:
     """GPU-accelerated curves transform."""
-    original = image.copy()
+    # from_numpy().to(gpu) copies to the device, so in-place LUT writes on ``t``
+    # never touch ``image`` — no defensive host copy needed.
     t = dm.from_numpy(image)
     master_lut = dm.from_numpy(params.master.build_lut())
 
@@ -176,7 +177,7 @@ def _curves_gpu(
             t[ch] = _apply_curve_lut_gpu(t[ch], master_lut)
 
     result = torch.clamp(t, 0.0, 1.0).cpu().numpy().astype(np.float32)
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _curves_cpu(

@@ -74,7 +74,8 @@ def ai_sharpen(
 
     dm = get_device_manager()
     model = model.to(dm.device)
-    original = data.copy()
+    # tiled_inference writes to fresh buffers and apply_mask only reads the
+    # original, so ``data`` is never mutated — skip the defensive copy.
 
     if data.ndim == 2:
         result = tiled_inference(
@@ -102,7 +103,7 @@ def ai_sharpen(
         result = data * (1 - params.strength) + result * params.strength
 
     result = np.clip(result, 0, 1).astype(np.float32)
-    return apply_mask(original, result, mask)
+    return apply_mask(data, result, mask)
 
 
 def _traditional_sharpen(

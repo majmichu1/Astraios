@@ -164,8 +164,9 @@ def unsharp_mask(
         params.threshold,
     )
 
-    original = image.copy()
-
+    # apply_mask only reads the original, and ``image`` is never mutated here
+    # (results go to fresh buffers), so we can pass ``image`` directly and skip
+    # an ~880MB defensive copy on large frames.
     if image.ndim == 2:
         log.debug("Processing mono image %s", image.shape)
         result = _unsharp_mask_channel(image, params)
@@ -176,7 +177,7 @@ def unsharp_mask(
         for ch in range(n_ch):
             result[ch] = _unsharp_mask_channel(image[ch], params)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 # ---------------------------------------------------------------------------
@@ -250,8 +251,8 @@ def median_filter(
 
     log.debug("Median filter: kernel_size=%d", ksize)
 
-    original = image.copy()
-
+    # ``image`` is read-only here (results go to fresh buffers and apply_mask
+    # only reads the original), so skip the defensive copy.
     if image.ndim == 2:
         log.debug("Processing mono image %s", image.shape)
         result = scipy.ndimage.median_filter(image, size=ksize).astype(np.float32)
@@ -264,7 +265,7 @@ def median_filter(
                 image[ch], size=ksize,
             ).astype(np.float32)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ def convolve(
     if params is None:
         params = ConvolutionParams()
 
-    original = image.copy()
+    # ``image`` is never mutated below, so use it directly instead of copying.
     if image.ndim == 2:
         blurred = _blur_channel(image, params)
     else:
@@ -332,6 +333,6 @@ def convolve(
             blurred[ch] = _blur_channel(image[ch], params)
 
     amount = float(np.clip(params.amount, 0.0, 1.0))
-    result = original * (1.0 - amount) + blurred * amount
+    result = image * (1.0 - amount) + blurred * amount
     result = np.clip(result, 0.0, 1.0).astype(np.float32)
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
