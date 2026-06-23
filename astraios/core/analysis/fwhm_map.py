@@ -185,8 +185,13 @@ def compute_fwhm_map(
     # Estimate tilt direction from gradient of FWHM map
     if tilt_detected and rows > 1 and cols > 1:
         grad_y, grad_x = np.gradient(fwhm_map)
-        gx = float(np.mean(grad_x[valid.reshape(rows, cols)]))
-        gy = float(np.mean(grad_y[valid.reshape(rows, cols)]))
+        # Mean gradient over the sampled zones. `valid` is the 1-D list of
+        # nonzero FWHM *values*, so valid.reshape(rows, cols) crashed whenever
+        # any zone was empty (the common case) and used values as an index.
+        # The correct selector is the boolean grid of sampled zones.
+        sampled = fwhm_map > 0
+        gx = float(np.mean(grad_x[sampled]))
+        gy = float(np.mean(grad_y[sampled]))
         tilt_angle = float(np.degrees(np.arctan2(gy, gx)))
     else:
         tilt_angle = 0.0

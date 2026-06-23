@@ -196,7 +196,11 @@ def resize(image: np.ndarray, params: ResizeParams | None = None) -> np.ndarray:
         new_h = max(1, int(h * params.scale))
 
     dm = get_device_manager()
-    if dm.is_gpu and image.shape[0] <= 64:
+    # Only colour (C, H, W) takes the GPU path: shape[0] is the channel count
+    # there, but for mono (H, W) it is the HEIGHT, so a short mono image used to
+    # slip in and crash F.interpolate with a 3-D tensor. Mono falls through to
+    # the cv2 path below.
+    if dm.is_gpu and image.ndim == 3 and image.shape[0] <= 64:
         mode_map = {
             InterpolationMethod.NEAREST: "nearest",
             InterpolationMethod.BILINEAR: "bilinear",
