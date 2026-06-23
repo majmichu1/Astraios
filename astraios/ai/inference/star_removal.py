@@ -36,7 +36,11 @@ def _remove_stars_morph(
     threshold: float,
 ) -> NDArray:
     """Morphological star removal via median background + mask."""
-    img = image.astype(np.float64)
+    # float32, not float64: morphology + inpainting of a [0,1] image needs no
+    # extra precision, and float64 doubles memory (1.75GB for a 73MP colour
+    # frame in one allocation — enough to OOM a RAM-tight machine here). asarray
+    # is a no-op when the input is already float32 (it is, in the pipeline).
+    img = np.asarray(image, dtype=np.float32)
     is_color = img.ndim == 3
 
     if is_color:
@@ -62,7 +66,7 @@ def _remove_stars_morph(
     # OpenCV medianBlur only supports 8-bit or float32
     lum_u8 = (np.clip(lum, 0, 1) * 255).astype(np.uint8)
     bg_u8 = cv2.medianBlur(lum_u8, ksize)
-    bg = bg_u8.astype(np.float64) / 255.0
+    bg = bg_u8.astype(np.float32) / 255.0
 
     # ── 2. Residuals (star signal) ──────────────────────────────────
     resid = lum - bg
@@ -201,15 +205,17 @@ def _diffuse_inpaint(
     surrounding sky/nebula. Float precision, no 8-bit quantisation.
     """
     if not np.any(mask):
-        return channel.astype(np.float64, copy=True)
+        return channel.astype(np.float32, copy=True)
 
     known = ~mask
-    result = channel.astype(np.float64, copy=True)
+    # float32 (not float64): halves this buffer and lets cv2.GaussianBlur run on
+    # it directly instead of re-casting every iteration.
+    result = channel.astype(np.float32, copy=True)
     # Seed holes with the local mean so diffusion starts from a sane value.
     if np.any(known):
-        result[mask] = float(np.median(channel[known]))
+        result[mask] = np.float32(np.median(channel[known]))
     for _ in range(iterations):
-        blurred = cv2.GaussianBlur(result.astype(np.float32), (0, 0), sigmaX=sigma)
+        blurred = cv2.GaussianBlur(result, (0, 0), sigmaX=sigma)
         result[mask] = blurred[mask]
         result[known] = channel[known]
     return result
