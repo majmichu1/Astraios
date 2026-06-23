@@ -263,7 +263,10 @@ def spcc_calibrate(
     # ── Step 4: apply correction ──────────────────────────────────────────────
     progress(0.80, "Applying color correction…")
 
-    result = data.copy().astype(np.float64)
+    # float32 (not float64): per-channel scale + background subtraction of [0,1]
+    # data needs no 64-bit precision, and the result is cast to float32 at the
+    # end — this halves a full-image RGB buffer (~440MB vs 880MB at 70MP).
+    result = data.astype(np.float32, copy=True)
     # Reference channel is G (index 1); rescale R and B to match expected
     # The correction divides out the instrumental response difference:
     #   corrected[c] = data[c] / scale[c] * scale[G]

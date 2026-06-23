@@ -80,9 +80,10 @@ def tiled_inference(
     n_tiles = len(tiles)
     log.debug("Tiled inference: %d tiles of %dx%d with %dpx overlap", n_tiles, tile_size, tile_size, overlap)
 
-    # Output and weight buffers
-    output = np.zeros((h, w), dtype=np.float64)
-    weight = np.zeros((h, w), dtype=np.float64)
+    # Output and weight buffers — float32 is plenty for [0,1] tile accumulation
+    # (the result is cast to float32 anyway) and halves these full-image buffers.
+    output = np.zeros((h, w), dtype=np.float32)
+    weight = np.zeros((h, w), dtype=np.float32)
 
     # Blending weight: cosine ramp at edges
     blend = _create_blend_weight(tile_size, overlap)
