@@ -1722,6 +1722,11 @@ def stack_images(
     # 2. Build numpy stack (N, H, W)
     progress(0.30, "Loading frames into memory...")
     data_stack = np.array([img.data for img in aligned_images], dtype=np.float32)
+    # data_stack is now a contiguous copy of every frame; keep only the reference
+    # header and release the N aligned frames so they don't sit in RAM alongside
+    # the stack (a transient 2x of the whole frame set on real workloads).
+    ref_header = aligned_images[0].header.copy()
+    del aligned_images
 
     # 3. Normalization
     progress(0.35, "Normalizing background levels...")
@@ -1806,10 +1811,9 @@ def stack_images(
     # 6. Finalize
     result = np.clip(result, 0, 1).astype(np.float32)
 
-    ref_img = aligned_images[0]
     result_image = ImageData(
         data=result,
-        header=ref_img.header.copy(),
+        header=ref_header,
         frame_type=FrameType.RESULT,
     )
 
