@@ -107,11 +107,14 @@ def tonemap_drago(
         l_max = float(np.max(d))
         l_max = max(l_max, 1e-10)
         l_scaled = d / l_max
-        denom = np.log10(2.0 + 8.0 * (l_scaled / l_max) ** (1.0 / max(bias, 1e-6))
-                         ) if l_max > 0 else 1.0
+        # Drago normalisation = the curve evaluated at the max luminance
+        # (l_scaled = 1) → log10(2 + 8) = 1.0. The old code recomputed this
+        # per-pixel (it divided l_scaled by l_max a second time), which both
+        # mis-scaled the curve and made the next line's max(denom, 1e-10) crash
+        # with "truth value of an array is ambiguous".
+        denom = max(float(np.log10(10.0)), 1e-10)
         log_base = np.log10(2.0 + 8.0 * l_scaled ** (1.0 / max(bias, 1e-6)))
-        tone = log_base / max(denom, 1e-10)
-        tone = np.clip(tone, 0.0, 1.0)
+        tone = np.clip(log_base / denom, 0.0, 1.0)
         if gamma != 1.0:
             tone = tone ** gamma
         if is_color:
