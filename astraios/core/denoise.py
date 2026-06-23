@@ -157,6 +157,11 @@ def _wavelet_threshold_scale(
         denoised = torch.where(d.abs() > thresh, d.sign() * (d.abs() - thresh), torch.zeros_like(d))
         denoised_scales.append(dm.to_cpu(denoised))
 
+    # Add the low-frequency residual (index n_scales) back UNthresholded — it
+    # holds the bulk of the image's energy. Omitting it dropped the base signal
+    # and collapsed the denoised image toward black (mean 0.40 -> 0.045).
+    denoised_scales.append(scales[n_scales])
+
     result = np.sum(denoised_scales, axis=0)
     return np.clip(result, 0, 1).astype(np.float32)
 

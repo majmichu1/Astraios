@@ -35,6 +35,10 @@ class TestDenoise:
         result = denoise(noisy, params)
         assert result.shape == noisy.shape
         assert result.std() < noisy.std()
+        # Brightness must be preserved: a regression that dropped the wavelet
+        # residual collapsed the image toward black (mean 0.40 -> 0.045) yet
+        # still passed the std check, so assert the mean explicitly.
+        assert abs(float(result.mean()) - float(noisy.mean())) < 0.05
 
     def test_output_in_range(self):
         noisy = _noisy_image()

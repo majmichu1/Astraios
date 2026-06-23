@@ -50,9 +50,14 @@ def _atrous_kernel_2d(scale: int) -> np.ndarray:
 def _smooth_gpu(data_t: torch.Tensor, kernel_t: torch.Tensor) -> torch.Tensor:
     """Apply 2D smoothing convolution on GPU using torch conv2d."""
     # data_t: (1, 1, H, W), kernel_t: (1, 1, kH, kW)
+    # Replicate (edge-clamp) padding, NOT conv2d's default zero-padding: zeros
+    # pull the smoothed value toward 0 at the borders, darkening the residual
+    # edge and leaving compensating artifacts in the detail scales (visible once
+    # thresholded). Replicate keeps the telescoping reconstruction exact.
     pad_h = kernel_t.shape[2] // 2
     pad_w = kernel_t.shape[3] // 2
-    return F.conv2d(data_t, kernel_t, padding=(pad_h, pad_w))
+    padded = F.pad(data_t, (pad_w, pad_w, pad_h, pad_h), mode="replicate")
+    return F.conv2d(padded, kernel_t)
 
 
 @dataclass
