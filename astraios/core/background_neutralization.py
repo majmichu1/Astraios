@@ -61,7 +61,7 @@ def background_neutralization(
     if params is None:
         params = BackgroundNeutralizationParams()
 
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     progress(0.1, "Measuring background levels…")
 
     def _sky_level(channel: np.ndarray) -> float:
@@ -93,6 +93,6 @@ def background_neutralization(
             result[ch] = np.clip(image[ch] - bg * params.amount, 0, 1)
 
     progress(0.95, "Applying mask…")
-    result = apply_mask(original, result, mask)
+    result = apply_mask(image, result, mask)
     progress(1.0, "Background neutralization complete")
     return result

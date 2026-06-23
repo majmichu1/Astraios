@@ -61,7 +61,7 @@ def local_contrast_enhance(
     if params is None:
         params = LocalContrastParams()
 
-    original = data.copy()
+    # no copy: op never mutates the input; apply_mask reads data directly
     progress(0.1, "Building CLAHE…")
 
     clahe = cv2.createCLAHE(
@@ -76,7 +76,7 @@ def local_contrast_enhance(
         result = _apply_clahe_color(data, clahe, params.amount)
 
     progress(0.9, "Blending…")
-    result = apply_mask(original, result, mask)
+    result = apply_mask(data, result, mask)
     progress(1.0, "Local contrast complete")
     return result
 

@@ -158,7 +158,7 @@ def richardson_lucy(
         params = DeconvolutionParams()
 
     dm = get_device_manager()
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     psf_np = _create_gaussian_psf(params.psf_fwhm)
 
     if image.ndim == 2:
@@ -172,7 +172,7 @@ def richardson_lucy(
             )
 
     result = np.clip(result, 0, 1)
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _rl_channel(
@@ -514,7 +514,7 @@ def richardson_lucy_spatial(
         params = SpatialDeconvParams()
 
     dm = get_device_manager()
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
 
     # Get grayscale for PSF measurement
     if image.ndim == 3:
@@ -646,4 +646,4 @@ def richardson_lucy_spatial(
         result = np.stack(result_channels, axis=0)
 
     progress(1.0, "Spatial deconvolution complete")
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)

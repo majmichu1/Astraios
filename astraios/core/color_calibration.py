@@ -78,7 +78,7 @@ def color_calibrate(
         log.warning("Color calibration requires a color image with >= 3 channels")
         return ColorCalibrationResult(data=image, correction_factors=(1.0, 1.0, 1.0))
 
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     result = image.copy()
 
     bg_offset = None
@@ -95,7 +95,7 @@ def color_calibrate(
     for ch in range(3):
         result[ch] = np.clip(result[ch] * correction[ch], 0, 1)
 
-    result = apply_mask(original, result, mask)
+    result = apply_mask(image, result, mask)
     progress(1.0, "Color calibration complete")
 
     return ColorCalibrationResult(

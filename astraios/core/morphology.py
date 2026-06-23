@@ -104,7 +104,7 @@ def morphology_transform(
     if params is None:
         params = MorphologyParams()
 
-    original = data.copy()
+    # no copy: op never mutates the input; apply_mask reads data directly
     dm = get_device_manager()
 
     use_gpu = dm.is_gpu and params.element != StructuringElement.DIAMOND
@@ -121,7 +121,7 @@ def morphology_transform(
         }
         result = _morphology_cpu(data, kernel, op_map[params.operation], params.iterations)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(data, result, mask)
 
 
 def morphology_mask(

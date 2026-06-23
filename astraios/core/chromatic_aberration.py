@@ -272,7 +272,7 @@ def correct_chromatic_aberration(
             f"shape (C, H, W) and C >= 3, got shape {image.shape}"
         )
 
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     progress(0.0, "Detecting chromatic aberration…" if params.auto_detect else "Preparing CA correction…")
 
     red = image[0]
@@ -339,6 +339,6 @@ def correct_chromatic_aberration(
     result[2] = _shift_channel(blue, blue_dx, blue_dy)
 
     result = np.clip(result, 0.0, 1.0).astype(np.float32)
-    result = apply_mask(original, result, mask)
+    result = apply_mask(image, result, mask)
     progress(1.0, "CA correction complete")
     return result

@@ -136,7 +136,7 @@ def reduce_stars(
         star_mask = create_star_mask(image)
 
     progress(0.4, "Applying morphological reduction…")
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     _MORPH_MAP = {
         StructuringElement.CIRCLE: cv2.MORPH_ELLIPSE,
         StructuringElement.SQUARE: cv2.MORPH_RECT,
@@ -161,7 +161,7 @@ def reduce_stars(
 
     result = np.clip(result, 0, 1)
     progress(1.0, "Star reduction complete")
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _erode_channel(channel: np.ndarray, kernel: np.ndarray, iterations: int) -> np.ndarray:

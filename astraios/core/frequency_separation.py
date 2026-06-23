@@ -160,7 +160,7 @@ def frequency_separation(
     if params is None:
         params = FrequencySeparationParams()
 
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     progress(0.1, "Separating frequencies…")
     low, high = separate(image, params.sigma, params.method)
 
@@ -184,4 +184,4 @@ def frequency_separation(
     progress(0.9, "Recombining…")
     result = recombine(low, high, params.method)
     progress(1.0, "Frequency separation complete")
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)

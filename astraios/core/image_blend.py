@@ -131,7 +131,7 @@ def blend_images(
     if params is None:
         params = BlendParams()
 
-    original = base.copy()
+    # no copy: op never mutates the input; apply_mask reads base directly
     base_was_2d = base.ndim == 2
     base3 = base[None] if base_was_2d else base
     blend3 = blend[None] if blend.ndim == 2 else blend
@@ -151,4 +151,4 @@ def blend_images(
     if base_was_2d:
         out = out[0]
     progress(1.0, "Blend complete")
-    return apply_mask(original, out, mask)
+    return apply_mask(base, out, mask)

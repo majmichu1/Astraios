@@ -53,7 +53,7 @@ def _ht_gpu(
     dm,
 ) -> np.ndarray:
     """GPU-accelerated histogram transform — stays on GPU throughout."""
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     t = dm.from_numpy(image)  # CPU → GPU (once)
     bp = params.black_point
     wp = params.white_point
@@ -74,7 +74,7 @@ def _ht_gpu(
         result_t = rescaled
 
     result = result_t.cpu().numpy().astype(np.float32)  # GPU → CPU (once, at end)
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _ht_cpu(
@@ -83,7 +83,7 @@ def _ht_cpu(
     mask: Mask | None,
 ) -> np.ndarray:
     """CPU fallback for histogram transform."""
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     bp = params.black_point
     wp = params.white_point
     mt = params.midtone
@@ -95,7 +95,7 @@ def _ht_cpu(
         for ch in range(image.shape[0]):
             result[ch] = _transform_channel(image[ch], bp, wp, mt)
 
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _transform_channel(

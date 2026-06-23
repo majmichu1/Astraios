@@ -86,7 +86,7 @@ def star_stretch(
     if params is None:
         params = StarStretchParams()
 
-    original = image.copy()
+    # no copy: op never mutates the input; apply_mask reads image directly
     beta = 1.0 + float(np.clip(params.amount, 0.0, 1.0)) * 49.0
 
     progress(0.2, "Stretching stars (colour-preserving)…")
@@ -99,4 +99,4 @@ def star_stretch(
         result = _boost_saturation(result, params.color_boost)
 
     progress(1.0, "Star stretch complete")
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)

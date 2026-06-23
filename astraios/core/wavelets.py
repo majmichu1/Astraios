@@ -164,7 +164,7 @@ def wavelet_sharpen(
     if params is None:
         params = WaveletParams()
 
-    original = data.copy()
+    # no copy: op never mutates the input; apply_mask reads data directly
 
     # Ensure scale_weights length matches n_scales
     weights = list(params.scale_weights)
@@ -202,4 +202,4 @@ def wavelet_sharpen(
             result[ch] = _process_channel(data[ch])
         progress(1.0, "Wavelet complete")
 
-    return apply_mask(original, result, mask)
+    return apply_mask(data, result, mask)
