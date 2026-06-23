@@ -2365,7 +2365,10 @@ class SmartProcessor:
                 params = StretchParams(
                     midtone=midtone, shadow_clip=shadow_clip, linked=False,
                 )
-                stretched = auto_stretch(pre_stretch.copy(), params)
+                # auto_stretch reads pre_stretch and returns a new array (no
+                # mutation — the fallback call below relies on the same), so the
+                # per-attempt defensive copy was a wasted full-channel allocation.
+                stretched = auto_stretch(pre_stretch, params)
 
                 result_median = float(np.median(stretched))
                 sat_frac = float(np.mean(stretched > 0.99))
