@@ -385,11 +385,15 @@ def plate_solve_astrometry_net(
         _write(image_path.read_bytes())
         _write(f"\r\n--{boundary}--\r\n".encode())
 
+        # Few/short attempts: on a flaky network this is pure dead time before
+        # the local-solver fallback, and a large upload that can't push in 45s
+        # rarely succeeds on a retry within the same session.
         upload_resp = _request_with_retry(
             f"{BASE}/upload",
             data=body.getvalue(),
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-            timeout=60,
+            timeout=45,
+            max_retries=2,
         )
 
         subid = upload_resp.get("subid")
