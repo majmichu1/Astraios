@@ -79,7 +79,10 @@ def _get_torch_functions():
         "clip": torch.clamp,
         "normalize": lambda x: (x - torch.min(x)) / max(torch.max(x) - torch.min(x), 1e-10),
         "mean": torch.mean,
-        "median": lambda x: torch.median(x).values if x.numel() > 0 else torch.tensor(0.0),
+        # torch.median(x) with no dim returns the scalar median directly; the
+        # `.values` accessor only exists on the (values, indices) tuple from the
+        # dim form, so `.values` here returned a bound method, not the median.
+        "median": lambda x: torch.median(x) if x.numel() > 0 else torch.tensor(0.0),
         "sin": torch.sin,
         "cos": torch.cos,
         "pow": torch.pow,
