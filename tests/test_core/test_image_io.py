@@ -151,3 +151,26 @@ class TestAutoStretch:
         img = np.random.random((50, 60, 3)).astype(np.float32)
         stretched = auto_stretch_for_display(img)
         assert stretched.shape == img.shape
+
+
+class TestFitsAbsoluteScale:
+    """A narrow-range integer FITS (calibration frames, short subs) must keep
+    its ABSOLUTE scale on load (÷ dtype max), not be contrast-stretched. A prior
+    bug re-applied BZERO and pre-cast to float, forcing a min-max stretch."""
+
+    def test_narrow_range_uint16_not_stretched(self, tmp_path):
+        from astraios.core.image_io import load_fits
+        u16 = np.array([[10000, 20000, 30000], [12000, 18000, 25000]], dtype=np.uint16)
+        p = tmp_path / "narrow.fits"
+        fits.PrimaryHDU(u16).writeto(str(p))  # astropy writes BITPIX=16 + BZERO=32768
+        got = load_fits(p).data
+        expected = u16.astype(np.float32) / 65535.0  # absolute scale
+        assert np.max(np.abs(got - expected)) < 1e-4
+
+    def test_full_range_uint16(self, tmp_path):
+        from astraios.core.image_io import load_fits
+        u16 = np.array([[0, 30000, 65535]], dtype=np.uint16)
+        p = tmp_path / "full.fits"
+        fits.PrimaryHDU(u16).writeto(str(p))
+        got = load_fits(p).data
+        assert np.max(np.abs(got - u16.astype(np.float32) / 65535.0)) < 1e-4

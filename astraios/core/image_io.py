@@ -186,14 +186,18 @@ def auto_stretch_for_display_ref(img: np.ndarray, ref: np.ndarray) -> np.ndarray
 
 
 def _normalize_fits_tile(tile: np.ndarray, header: dict | None = None) -> np.ndarray:
-    """Normalize a FITS tile slice to float32 (optionally apply BZERO/BSCALE)."""
-    data = np.asarray(tile)
-    if header is not None and np.issubdtype(data.dtype, np.integer):
-        if "BZERO" in header or "BSCALE" in header:
-            bzero = float(header.get("BZERO", 0.0))
-            bscale = float(header.get("BSCALE", 1.0))
-            data = data.astype(np.float64) * bscale + bzero
-    return _normalize_fits_data(data.astype(np.float32, copy=False))
+    """Normalize a FITS tile slice to float32 [0, 1].
+
+    astropy already applies BZERO/BSCALE when ``hdu.data`` is accessed (every
+    caller reads ``hdu.data``), so the array is already in physical units. We
+    must NOT re-apply it, and must NOT pre-cast integer data to float here:
+    either one forced ``_normalize_fits_data`` down its float branch, which
+    contrast-*stretches* via min-max instead of dividing by the dtype max. That
+    distorted the absolute scale of any narrow-range frame — calibration
+    darks/flats, short subs — (e.g. uint16 10000-30000 became 0..1 instead of
+    0.15..0.46). Dispatch on the real (integer/float) dtype instead.
+    """
+    return _normalize_fits_data(np.asarray(tile))
 
 
 def _normalize_fits_data(data: np.ndarray) -> np.ndarray:
