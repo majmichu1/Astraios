@@ -48,7 +48,11 @@ def apply(
         )
 
     dm = get_device_manager()
-    device = dm.device if image.size >= MIN_PIXELS_GPU else "cpu"
+    # Keep this a torch.device (not a bare "cpu"/"cuda" string): the cleanup at
+    # the end compares device.type, and dm.device is typically "cuda:0", so a
+    # string compare against "cuda" would never match and empty_cache() would
+    # never run, leaking VRAM after every GPU inference.
+    device = dm.device if image.size >= MIN_PIXELS_GPU else torch.device("cpu")
     img = image.astype(np.float32)
 
     if img.ndim == 3:
@@ -78,7 +82,7 @@ def apply(
         result = img * (1.0 - params.strength) + result * params.strength
 
     del tensor, output
-    if device == "cuda":
+    if device.type == "cuda":
         torch.cuda.empty_cache()
 
     return np.clip(result, 0, 1).astype(image.dtype)

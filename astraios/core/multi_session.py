@@ -291,7 +291,11 @@ def stack_multi_session(
     if params.align_sub_stacks and len(padded) > 1:
         progress(0.60, "Aligning sub-stacks across sessions…")
         sub_images_for_align = [
-            ImageData(data=d, header=sub_results[i].image.header.copy(), frame_type=FrameType.RESULT)
+            ImageData(
+                data=d,
+                header=sub_results[i].image.header.copy(),
+                frame_type=FrameType.RESULT,
+            )
             for i, d in enumerate(padded)
         ]
         try:
@@ -323,7 +327,10 @@ def stack_multi_session(
         raw_weights = [1.0] * len(sub_results)
 
     total = sum(raw_weights)
-    weights = [w / total for w in raw_weights] if total > 0 else [1.0 / len(sub_results)] * len(sub_results)
+    if total > 0:
+        weights = [w / total for w in raw_weights]
+    else:
+        weights = [1.0 / len(sub_results)] * len(sub_results)
 
     for i, (sess, w) in enumerate(zip(valid_sessions, weights)):
         log.info("Session '%s': weight=%.3f", sess.name, w)
@@ -397,7 +404,7 @@ def auto_group_sessions(images: list[ImageData]) -> list[SessionGroup]:
         dateobs = str(h.get("DATE-OBS", "")).split("T")[0]
         # Pixel scale proxy: round to 1 decimal to allow slight WCS variation
         xpix = round(float(h.get("XPIXSZ", h.get("PIXELSIZE", 0.0))), 1)
-        focal = round(float(h.get("FOCALLEN", h.get("FOCALLEN", 0.0))), -1)  # round to 10mm
+        focal = round(float(h.get("FOCALLEN", h.get("FOCAL", 0.0))), -1)  # round to 10mm
 
         key = (instrument, filt, dateobs, xpix, focal)
         groups[key].append(img)
