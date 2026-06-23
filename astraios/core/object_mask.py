@@ -54,7 +54,6 @@ def build_object_mask(
         return None
 
     h, w = shape
-    yy, xx = np.ogrid[0:h, 0:w]
     mask = np.zeros((h, w), dtype=np.float32)
     used = False
 
@@ -72,6 +71,19 @@ def build_object_mask(
         a = max(major * 60.0 / plate_scale / 2.0, min_radius_px)  # semi-major (px)
         b = max(minor * 60.0 / plate_scale / 2.0, min_radius_px)  # semi-minor (px)
 
+        # Evaluate the ellipse only within its bounding box. The gaussian feather
+        # is negligible beyond ~4*feather past the boundary (exp(-16) ~ 1e-7,
+        # below float32 precision), so a max(a,b)*(1+4*feather) reach covers it at
+        # any rotation. A frame-filling object just spans the whole frame (no
+        # worse); many small catalog objects (mosaics) avoid an O(N*H*W) loop.
+        reach = max(a, b) * (1.0 + 4.0 * max(feather, 1e-3))
+        r = int(np.ceil(reach))
+        y0, y1 = max(0, int(cy) - r), min(h, int(cy) + r + 1)
+        x0, x1 = max(0, int(cx) - r), min(w, int(cx) + r + 1)
+        if y0 >= y1 or x0 >= x1:
+            continue
+
+        yy, xx = np.mgrid[y0:y1, x0:x1]
         dx = xx - cx
         dy = yy - cy
         rot = float(obj.get("rotation_deg", 0.0))
@@ -85,8 +97,11 @@ def build_object_mask(
         # Normalised elliptical radius: 1.0 exactly on the ellipse boundary.
         t = np.sqrt((dx / a) ** 2 + (dy / b) ** 2)
         # 1.0 inside; gaussian fade to 0 over `feather` of the radius outside.
-        m = np.where(t <= 1.0, 1.0, np.exp(-(((t - 1.0) / max(feather, 1e-3)) ** 2)))
-        mask = np.maximum(mask, m.astype(np.float32))
+        m = np.where(
+            t <= 1.0, 1.0, np.exp(-(((t - 1.0) / max(feather, 1e-3)) ** 2))
+        ).astype(np.float32)
+        region = mask[y0:y1, x0:x1]
+        np.maximum(region, m, out=region)
         used = True
 
     if not used:
