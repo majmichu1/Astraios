@@ -213,7 +213,10 @@ def denoise(
     if params is None:
         params = DenoiseParams()
 
-    original = image.copy()
+    # No defensive copy: every path below builds a new `result` and the denoise
+    # backends never mutate `image` (verified across methods), so apply_mask can
+    # read `image` directly — saving a full copy per call (per channel in the
+    # smart processor).
     dm = get_device_manager()
     use_gpu = dm.is_gpu and params.method == DenoiseMethod.WAVELET
 
@@ -221,7 +224,7 @@ def denoise(
         progress(0.1, "Denoising on GPU...")
         result = _denoise_wavelet_gpu(image, params, dm.device)
         progress(1.0, "Noise reduction complete")
-        return apply_mask(original, result, mask)
+        return apply_mask(image, result, mask)
 
     if params.method == DenoiseMethod.TGV:
         progress(0.1, "Running TGV denoise...")
@@ -237,7 +240,7 @@ def denoise(
             )
             return denoise(image, fallback, mask=mask, progress=progress)
         progress(1.0, "Noise reduction complete")
-        return apply_mask(original, result, mask)
+        return apply_mask(image, result, mask)
 
     if params.method == DenoiseMethod.MEDIAN:
         denoise_fn = _denoise_median_channel
@@ -260,7 +263,7 @@ def denoise(
             result[ch] = denoise_fn(image[ch], params)
 
     progress(1.0, "Noise reduction complete")
-    return apply_mask(original, result, mask)
+    return apply_mask(image, result, mask)
 
 
 def _denoise_wavelet_gpu_cpu(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
