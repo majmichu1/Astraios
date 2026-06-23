@@ -110,7 +110,7 @@ def _upscale_ai(
             for ch in range(c):
                 tensor = torch.from_numpy(img[ch][None, None, :, :]).float().to(device)
                 if use_tiles and max(h, w) > params.tile_size:
-                    up = _tiled_inference(model, tensor, params.tile_size, device)
+                    up = _tiled_inference(model, tensor, params.tile_size, device, params.scale)
                 else:
                     with torch.no_grad():
                         up = model(tensor)
@@ -119,7 +119,7 @@ def _upscale_ai(
             h, w = img.shape
             tensor = torch.from_numpy(img[None, None, :, :]).float().to(device)
             if use_tiles and max(h, w) > params.tile_size:
-                up = _tiled_inference(model, tensor, params.tile_size, device)
+                up = _tiled_inference(model, tensor, params.tile_size, device, params.scale)
             else:
                 with torch.no_grad():
                     up = model(tensor)
@@ -197,12 +197,16 @@ def _load_model(scale: int) -> Any | None:
         return None
 
 
-def _tiled_inference(model, tensor, tile_size: int, device):
-    """Run inference in tiles to reduce VRAM usage."""
+def _tiled_inference(model, tensor, tile_size: int, device, scale: int):
+    """Run inference in tiles to reduce VRAM usage.
+
+    ``scale`` is the model's upscale factor; it was hardcoded to 2, which
+    corrupted x4 super-resolution (each tile was cropped/placed at 2x into a
+    half-size buffer).
+    """
     import torch
 
     _, _, h, w = tensor.shape
-    scale = 2
     out_h, out_w = h * scale, w * scale
     output = torch.zeros((1, 1, out_h, out_w), device=device)
     count = torch.zeros((1, 1, out_h, out_w), device=device)
