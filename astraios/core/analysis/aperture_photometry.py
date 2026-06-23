@@ -58,26 +58,29 @@ def _detect_sources(
 
     binary = image > threshold
     labelled, n_labels = label(binary)
+    if n_labels == 0:
+        return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
 
-    sources_x: list[float] = []
-    sources_y: list[float] = []
-    fluxes: list[float] = []
+    # Vectorised: all centroids and per-label fluxes in one pass, instead of a
+    # full-image boolean mask + reduction per source (which was O(N*H*W) and
+    # unusable on a large frame with many stars).
+    indices = list(range(1, n_labels + 1))
+    centroids = np.asarray(
+        center_of_mass(image, labelled, indices), dtype=np.float64
+    ).reshape(-1, 2)
+    fluxes = np.bincount(
+        labelled.ravel(), weights=image.ravel(), minlength=n_labels + 1
+    )[1:]
 
-    for label_id in range(1, n_labels + 1):
-        mask = labelled == label_id
-        cy, cx = center_of_mass(image, labelled, label_id)
-        flux = float(np.sum(image[mask]))
-        if np.isfinite(cy) and np.isfinite(cx):
-            sources_y.append(float(cy))
-            sources_x.append(float(cx))
-            fluxes.append(flux)
+    cy, cx = centroids[:, 0], centroids[:, 1]
+    finite = np.isfinite(cy) & np.isfinite(cx)
+    cx, cy, fluxes = cx[finite], cy[finite], fluxes[finite]
 
-    if len(sources_x) > max_sources:
+    if cx.size > max_sources:
         order = np.argsort(fluxes)[::-1][:max_sources]
-        sources_x = [sources_x[i] for i in order]
-        sources_y = [sources_y[i] for i in order]
+        cx, cy = cx[order], cy[order]
 
-    return np.array(sources_x, dtype=np.float64), np.array(sources_y, dtype=np.float64)
+    return cx.astype(np.float64), cy.astype(np.float64)
 
 
 def _aperture_sum(
@@ -102,10 +105,18 @@ def _aperture_sum(
     float
         Sum of pixel values inside the aperture.
     """
+    # Only build the meshgrid over the aperture's bounding box, not the whole
+    # image — identical result (pixels outside the box are outside the radius),
+    # but O(radius^2) instead of O(H*W) per source.
     h, w = image.shape
-    yy, xx = np.mgrid[0:h, 0:w]
+    r = int(np.ceil(radius))
+    y0, y1 = max(0, int(np.floor(y)) - r), min(h, int(np.ceil(y)) + r + 1)
+    x0, x1 = max(0, int(np.floor(x)) - r), min(w, int(np.ceil(x)) + r + 1)
+    if y0 >= y1 or x0 >= x1:
+        return 0.0
+    yy, xx = np.mgrid[y0:y1, x0:x1]
     mask = ((xx - x) ** 2 + (yy - y) ** 2) <= radius ** 2
-    return float(np.sum(image[mask]))
+    return float(np.sum(image[y0:y1, x0:x1][mask]))
 
 
 def _annulus_stats(
@@ -135,12 +146,20 @@ def _annulus_stats(
     std : float
         Standard deviation of annulus pixels.
     """
+    # Bounding box of the outer annulus only — same pixels, O(r_out^2) per
+    # source instead of a full-image meshgrid.
     h, w = image.shape
-    yy, xx = np.mgrid[0:h, 0:w]
+    r = int(np.ceil(r_out))
+    y0, y1 = max(0, int(np.floor(y)) - r), min(h, int(np.ceil(y)) + r + 1)
+    x0, x1 = max(0, int(np.floor(x)) - r), min(w, int(np.ceil(x)) + r + 1)
+    if y0 >= y1 or x0 >= x1:
+        return 0.0, 0.0
+    sub = image[y0:y1, x0:x1]
+    yy, xx = np.mgrid[y0:y1, x0:x1]
     r2 = (xx - x) ** 2 + (yy - y) ** 2
     mask = (r2 >= r_in ** 2) & (r2 <= r_out ** 2)
-    pixels = image[mask]
-    if len(pixels) == 0:
+    pixels = sub[mask]
+    if pixels.size == 0:
         return 0.0, 0.0
     return float(np.median(pixels)), float(np.std(pixels))
 
