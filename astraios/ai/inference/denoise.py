@@ -182,6 +182,10 @@ def _jinvariant_channel(
     total_tiles = len(ys) * len(xs)
     tile_idx = 0
 
+    # Cosine blending window to avoid seam artefacts — loop-invariant (depends
+    # only on tile_size), so build it once rather than per tile.
+    win = (np.outer(np.hanning(tile_size), np.hanning(tile_size)) + 1e-6).astype(np.float32)
+
     for y0 in ys:
         for x0 in xs:
             y1, x1 = y0 + tile_size, x0 + tile_size
@@ -189,11 +193,6 @@ def _jinvariant_channel(
             t = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).to(device)
             result_t = _jinvariant_tile(t, model, params.n_passes, params.mask_ratio)
             result_np = result_t.squeeze().cpu().numpy()
-
-            # Cosine blending window to avoid seam artefacts
-            win_y = np.hanning(tile_size).astype(np.float32)
-            win_x = np.hanning(tile_size).astype(np.float32)
-            win = np.outer(win_y, win_x) + 1e-6
 
             output[y0:y1, x0:x1] += result_np * win
             weight[y0:y1, x0:x1] += win
