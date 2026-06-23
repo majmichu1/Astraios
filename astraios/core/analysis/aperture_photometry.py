@@ -301,9 +301,9 @@ def run_photometry(
         params = PhotometryParams()
 
     if image.ndim == 3:
-        gray = np.mean(image, axis=0).astype(np.float64)
+        gray = np.mean(image, axis=0).astype(np.float32)
     else:
-        gray = image.astype(np.float64)
+        gray = image.astype(np.float32)
 
     # Try photutils first (most feature-complete)
     try:

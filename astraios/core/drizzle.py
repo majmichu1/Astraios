@@ -72,16 +72,18 @@ def _drizzle_frame_numpy(
     else:
         h, w = image.shape
 
-    # Build grid of all input pixel centres: shape (H*W, 2)
+    # Build grid of all input pixel centres: shape (H*W, 2). float32 is plenty
+    # for pixel coordinates (< 1e4, resolved to ~1e-3 px) and halves these
+    # full-image-sized coordinate buffers (~1.75GB of transients at 73MP).
     iy, ix = np.mgrid[0:h, 0:w]
-    ones = np.ones((h, w), dtype=np.float64)
+    ones = np.ones((h, w), dtype=np.float32)
     # Homogeneous coordinates: (3, H*W)
-    pts = np.stack([ix.ravel().astype(np.float64),
-                    iy.ravel().astype(np.float64),
+    pts = np.stack([ix.ravel().astype(np.float32),
+                    iy.ravel().astype(np.float32),
                     ones.ravel()], axis=0)  # (3, N)
 
     # Apply affine transform (or identity)
-    mat = transform.astype(np.float64) if transform is not None else np.eye(2, 3, dtype=np.float64)
+    mat = transform.astype(np.float32) if transform is not None else np.eye(2, 3, dtype=np.float32)
 
     ref_pts = mat @ pts  # (2, N)
     sx = ref_pts[0]    # x in reference frame
@@ -173,7 +175,6 @@ def _drizzle_frame_gpu(
     oy_ceil  = (oy + half_drop).ceil().long()
 
     # Expand each pixel into its footprint (bins in [ox_floor, ox_ceil] × [oy_floor, oy_ceil])
-    n = ox.shape[0]
     # Build index tensor for all 4 corners per pixel, then clamp/filter
     corners_y = torch.stack([oy_floor, oy_floor, oy_ceil, oy_ceil], dim=1)  # (N, 4)
     corners_x = torch.stack([ox_floor, ox_ceil, ox_floor, ox_ceil], dim=1)  # (N, 4)
@@ -297,11 +298,14 @@ def drizzle_integrate(
         weight_map = weight_t.cpu().numpy().astype(np.float32)
 
     else:
+        # float32 accumulators: drizzle sums dozens of [0,1] frames, so the
+        # float32 round-off is ~1e-6 — negligible — and we halve the scaled
+        # output buffer (~1.75GB at 73MP, 2x scale).
         if is_color:
-            output = np.zeros((n_ch, out_h, out_w), dtype=np.float64)
+            output = np.zeros((n_ch, out_h, out_w), dtype=np.float32)
         else:
-            output = np.zeros((out_h, out_w), dtype=np.float64)
-        weight_map_f = np.zeros((out_h, out_w), dtype=np.float64)
+            output = np.zeros((out_h, out_w), dtype=np.float32)
+        weight_map_f = np.zeros((out_h, out_w), dtype=np.float32)
 
         for i, (img, transform) in enumerate(zip(images, transforms, strict=True)):
             frac = 0.3 + 0.7 * i / max(len(images) - 1, 1)

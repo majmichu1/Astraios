@@ -169,9 +169,9 @@ def analyze_tilt(
         params = TiltAnalysisParams()
 
     if image.ndim == 3:
-        gray = np.mean(image, axis=0).astype(np.float64)
+        gray = np.mean(image, axis=0).astype(np.float32)
     else:
-        gray = image.astype(np.float64)
+        gray = image.astype(np.float32)
 
     h, w = gray.shape
     rows, cols = params.grid_rows, params.grid_cols

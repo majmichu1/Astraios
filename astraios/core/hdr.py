@@ -111,8 +111,11 @@ def _mertens_fusion(images: list[np.ndarray], params: HDRParams) -> np.ndarray:
 
 def _weighted_average(images: list[np.ndarray], params: HDRParams) -> np.ndarray:
     """Merge using Gaussian-weighted average based on well-exposedness."""
-    result = np.zeros_like(images[0], dtype=np.float64)
-    weight_sum = np.zeros(images[0].shape[-2:], dtype=np.float64)
+    # float32 accumulators: HDR fusion blends only a handful of exposures, so
+    # the float32 round-off (~1e-7) is far below the signal level and we halve
+    # the full-image buffer sizes.
+    result = np.zeros_like(images[0], dtype=np.float32)
+    weight_sum = np.zeros(images[0].shape[-2:], dtype=np.float32)
 
     for img in images:
         if img.ndim == 3:
@@ -126,9 +129,9 @@ def _weighted_average(images: list[np.ndarray], params: HDRParams) -> np.ndarray
 
         if img.ndim == 3:
             for ch in range(img.shape[0]):
-                result[ch] += img[ch].astype(np.float64) * w
+                result[ch] += img[ch].astype(np.float32) * w
         else:
-            result += img.astype(np.float64) * w
+            result += img.astype(np.float32) * w
 
     # Normalize
     weight_sum = np.maximum(weight_sum, 1e-10)

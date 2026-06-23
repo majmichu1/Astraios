@@ -32,7 +32,8 @@ class BackgroundParams:
     smoothing: float = 0.5  # Gaussian smoothing of the model (fraction of image size)
     manual_points: list[tuple[int, int]] = field(default_factory=list)  # user-placed sample points
     object_aware: bool = False  # if True, use exclusion_mask to protect target signal
-    exclusion_mask: np.ndarray | None = field(default=None, repr=False)  # (H,W) float32 mask, 1=exclude from sampling
+    # (H,W) float32 mask, 1 = exclude from sampling
+    exclusion_mask: np.ndarray | None = field(default=None, repr=False)
 
 
 def extract_background(
@@ -459,4 +460,4 @@ def _gaussian_smooth_gpu(model: np.ndarray, sigma: float) -> np.ndarray:
 
     except Exception:
         from scipy import ndimage
-        return ndimage.gaussian_filter(model.astype(np.float64), sigma=sigma).astype(np.float32)
+        return ndimage.gaussian_filter(model.astype(np.float32), sigma=sigma).astype(np.float32)
