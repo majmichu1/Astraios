@@ -12,7 +12,6 @@ from enum import Enum, auto
 
 import cv2
 import numpy as np
-import torch
 import torch.nn.functional as F
 
 from astraios.core.device_manager import get_device_manager
