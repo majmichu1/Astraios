@@ -38,14 +38,40 @@ def _gaussian_blur_gpu(t: torch.Tensor, sigma: float) -> torch.Tensor:
     return t4.squeeze(0).squeeze(0)
 
 
+# Cap the transient (ksize*ksize, band, W) median stack at ~64M elements
+# (~256MB float32). A whole-image stack on a 73MP frame would be ksize*ksize
+# times the channel (~7GB at ksize=5) and OOM, which previously made the median
+# silently fall back to Gaussian-only on exactly the large images that need it.
+_MEDIAN_STACK_ELEM_BUDGET = 64_000_000
+
+
 def _median_gpu(t: torch.Tensor, ksize: int) -> torch.Tensor:
-    """ksize x ksize median filter via shifted copies (kills isolated spots)."""
+    """ksize x ksize median filter via shifted copies (kills isolated spots).
+
+    Computed in horizontal row bands so the transient stack stays bounded; the
+    result is identical to stacking the whole image at once (the window for each
+    output row is the same), it just never allocates the full ksize*ksize x H x W
+    tensor.
+    """
     r = ksize // 2
     h, w = t.shape
     p = F.pad(t.unsqueeze(0).unsqueeze(0), (r, r, r, r), mode="reflect")[0, 0]
-    shifts = [p[dy:dy + h, dx:dx + w]
-              for dy in range(ksize) for dx in range(ksize)]
-    return torch.stack(shifts, dim=0).median(dim=0).values
+
+    band = max(1, _MEDIAN_STACK_ELEM_BUDGET // (ksize * ksize * w))
+    if band >= h:
+        # Small enough to do in one shot — identical to the original path.
+        shifts = [p[dy:dy + h, dx:dx + w]
+                  for dy in range(ksize) for dx in range(ksize)]
+        return torch.stack(shifts, dim=0).median(dim=0).values
+
+    out = torch.empty_like(t)
+    for y0 in range(0, h, band):
+        y1 = min(y0 + band, h)
+        bh = y1 - y0
+        shifts = [p[dy + y0:dy + y0 + bh, dx:dx + w]
+                  for dy in range(ksize) for dx in range(ksize)]
+        out[y0:y1] = torch.stack(shifts, dim=0).median(dim=0).values
+    return out
 
 
 @torch.no_grad()

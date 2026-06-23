@@ -1,8 +1,20 @@
 """Tests for chroma (colour) noise reduction."""
 
 import numpy as np
+import torch
+import torch.nn.functional as F
 
+import astraios.core.chroma_denoise as cd
 from astraios.core.chroma_denoise import chroma_denoise
+
+
+def _median_single_shot(t, ksize):
+    """The original whole-image median stack, for equivalence checking."""
+    r = ksize // 2
+    h, w = t.shape
+    p = F.pad(t.unsqueeze(0).unsqueeze(0), (r, r, r, r), mode="reflect")[0, 0]
+    shifts = [p[dy:dy + h, dx:dx + w] for dy in range(ksize) for dx in range(ksize)]
+    return torch.stack(shifts, dim=0).median(dim=0).values
 
 
 def _noisy_color(h=120, w=160, seed=0):
@@ -59,3 +71,20 @@ def test_preserves_real_color_regions():
     out = chroma_denoise(img, strength=1.0)
     # Channel 0 (red-boosted) still > channel 2 (blue-reduced) on average.
     assert float(np.mean(out[0])) > float(np.mean(out[2]))
+
+
+def test_banded_median_matches_single_shot():
+    # The row-banded median must be bit-identical to stacking the whole image;
+    # banding only bounds the transient memory, not the result.
+    rng = np.random.default_rng(7)
+    old_budget = cd._MEDIAN_STACK_ELEM_BUDGET
+    try:
+        for h, w, ksize in [(200, 320, 5), (137, 91, 3), (64, 64, 5), (5, 7, 5)]:
+            t = torch.as_tensor(rng.random((h, w)).astype(np.float32))
+            ref = _median_single_shot(t, ksize)
+            # Shrink the budget so the function is forced to split into bands.
+            cd._MEDIAN_STACK_ELEM_BUDGET = ksize * ksize * w * 8
+            banded = cd._median_gpu(t, ksize)
+            assert torch.equal(banded, ref), f"banded median diverged at {h}x{w} k{ksize}"
+    finally:
+        cd._MEDIAN_STACK_ELEM_BUDGET = old_budget
