@@ -1,0 +1,33 @@
+# Siril stacking script for an Astraios-vs-Siril comparison.
+#
+# Goal: register + stack the SAME light frames Astraios uses, with sigma-clip
+# rejection, so the two register+stack timings are comparable. Time the whole
+# call, for example:
+#
+#   /usr/bin/time -v siril-cli -d /path/to/lights -s scripts/siril_stack.ssf
+#
+# Notes:
+#   * This times registration + integration only (no calibration, no drizzle),
+#     to match the Astraios "stack (align+reject+integrate)" row. If you drizzle
+#     in Astraios, also drizzle here, or compare like for like another way.
+#   * Match the rejection thresholds to your Astraios StackingParams (kappa_low,
+#     kappa_high). The defaults below are 3.0 / 3.0.
+#   * Command syntax is stable across recent Siril, but if your version differs,
+#     adjust to its `register` / `stack` help. Do not change the data or settings
+#     between the two tools, only the tool.
+
+requires 1.2.0
+
+# Build a sequence named "light" from the frames in the working directory.
+# Use "link" (no pixel conversion) when the frames are already FITS.
+link light -out=process
+cd process
+
+# Global star registration (this is the GPU-accelerated part in Astraios).
+register light
+
+# Integrate with sigma-clip rejection, 3.0 low / 3.0 high. Keep these equal to
+# the Astraios run's kappa_low / kappa_high.
+stack r_light rej 3 3 -nonorm -out=siril_compare_stack
+
+close

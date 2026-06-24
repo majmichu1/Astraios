@@ -1,7 +1,7 @@
 """Astraios performance benchmark harness.
 
 Times the heavy image-processing operations on the active device (GPU or CPU)
-so you can produce *real*, reproducible numbers — for tuning, for regression
+so you can produce *real*, reproducible numbers: for tuning, for regression
 tracking, and as the Astraios side of an honest Astraios-vs-Siril comparison.
 
 It does NOT fabricate or compare against Siril automatically; it measures
