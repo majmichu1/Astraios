@@ -13,6 +13,7 @@ from astraios.core.stacking import (
     StackResult,
     _gpu_min_max,
     _gpu_percentile_clip,
+    _integrate,
     align_from_paths,
     normalize_stack,
     normalize_stack_linear_fit,
@@ -408,3 +409,37 @@ class TestGpuRejectionHelpers:
         stack = torch.linspace(0, 1, 6).view(6, 1, 1).expand(6, 2, 2)
         _, n_rej = _gpu_min_max(stack, 1)
         assert n_rej == 8
+
+
+def test_weighted_integrate_normal_weights():
+    """Weighted average with sane weights = the expected per-pixel weighted mean."""
+    # Three constant frames with values 0.2, 0.4, 0.9 and weights 1:2:1.
+    stack = np.stack([
+        np.full((3, 3), 0.2, dtype=np.float32),
+        np.full((3, 3), 0.4, dtype=np.float32),
+        np.full((3, 3), 0.9, dtype=np.float32),
+    ])
+    masked = np.ma.array(stack, mask=False)
+    out = _integrate(masked, IntegrationMethod.WEIGHTED_AVERAGE,
+                     weights=np.array([1.0, 2.0, 1.0]))
+    expected = (0.2 * 1 + 0.4 * 2 + 0.9 * 1) / 4.0
+    assert np.allclose(out, expected, atol=1e-6)
+
+
+def test_weighted_integrate_zero_weights_no_nan():
+    """All-zero (or cancelling) frame weights must not produce NaN.
+
+    Previously w / w.sum() divided by zero and corrupted the whole stack;
+    the guard falls back to equal weighting (i.e. a plain mean).
+    """
+    stack = np.stack([
+        np.full((4, 4), 0.1, dtype=np.float32),
+        np.full((4, 4), 0.5, dtype=np.float32),
+        np.full((4, 4), 0.9, dtype=np.float32),
+    ])
+    masked = np.ma.array(stack, mask=False)
+    for w in (np.zeros(3), np.array([1.0, -2.0, 1.0])):  # zero sum and cancelling
+        out = _integrate(masked, IntegrationMethod.WEIGHTED_AVERAGE, weights=w)
+        assert np.isfinite(out).all(), "degenerate weights produced non-finite output"
+        # Equal-weight fallback == plain mean of the three frames.
+        assert np.allclose(out, np.mean([0.1, 0.5, 0.9]), atol=1e-6)

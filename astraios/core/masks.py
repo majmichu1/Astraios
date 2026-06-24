@@ -93,11 +93,21 @@ def apply_mask(
     if mask is None:
         return processed
 
+    m = mask.data
+    # Guard against a wrong-resolution mask (e.g. built before a crop/resize):
+    # without this, numpy either raises a cryptic broadcast error or — worse —
+    # silently mis-blends when the shapes happen to broadcast (e.g. a (H, 1) or
+    # (1, W) mask). A clear error beats corrupted output.
+    if m.shape != original.shape[-2:]:
+        raise ValueError(
+            f"Mask spatial shape {m.shape} does not match image "
+            f"{original.shape[-2:]}"
+        )
+
     # All-zero mask: every pixel is fully protected — skip the blending entirely
-    if not mask.data.any():
+    if not m.any():
         return original
 
-    m = mask.data
     if original.ndim == 3:
         # Broadcast (H, W) mask to (C, H, W)
         m = m[np.newaxis, :, :]

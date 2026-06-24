@@ -457,7 +457,13 @@ def _integrate(
         return np.ma.median(masked_data, axis=0).data
     if method == IntegrationMethod.WEIGHTED_AVERAGE and weights is not None:
         w = np.asarray(weights, dtype=np.float64)
-        w = w / w.sum()
+        w_sum = w.sum()
+        if w_sum > 1e-10:
+            w = w / w_sum
+        else:
+            # All-zero or cancelling weights would normalize to NaN and corrupt
+            # the whole result — fall back to equal weighting.
+            w = np.full(len(w), 1.0 / len(w), dtype=np.float64)
         return np.ma.average(masked_data, axis=0, weights=w).data.astype(np.float32)
     return np.ma.mean(masked_data, axis=0).data
 
@@ -1556,7 +1562,17 @@ def stack_from_paths(
                 f"frame_weights length {len(params.frame_weights)} != number of frames {n}"
             )
         _tile_weights_np = np.asarray(params.frame_weights, dtype=np.float32)
-        _tile_weights_np = _tile_weights_np / _tile_weights_np.sum()
+        _weight_sum = float(_tile_weights_np.sum())
+        if _weight_sum > 1e-10:
+            _tile_weights_np = _tile_weights_np / _weight_sum
+        else:
+            # All-zero or cancelling weights would divide to NaN and silently
+            # corrupt the entire stack — fall back to equal weighting instead.
+            log.warning(
+                "frame_weights sum to %.3g (<= 0); using equal weights instead",
+                _weight_sum,
+            )
+            _tile_weights_np = np.full(n, 1.0 / n, dtype=np.float32)
         if use_gpu:
             _tile_weights_t = torch.from_numpy(_tile_weights_np).to(dm.device)
 
