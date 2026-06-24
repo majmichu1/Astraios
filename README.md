@@ -24,6 +24,8 @@ On first run the installer downloads PyTorch (a few minutes; it's the big piece)
 
 Astraios is in active development (v0.1.x-alpha), so expect rough edges and bugs. Reports in the [Issues](https://github.com/majmichu1/Astraios/issues) tab are very welcome.
 
+Want the newest features before they reach an installer? The `main` branch is updated continuously and runs ahead of the packaged releases. You can run it from source (see [Run from Source](#run-from-source-developers)) to try new work as it lands, with the understanding that it is the development line: it is less stable than a release and some things may be unfinished or temporarily broken.
+
 If you have an NVIDIA card, keep your GPU driver reasonably up to date, since the installer pulls CUDA 12.8 PyTorch (which covers older GPUs through the RTX 50-series).
 
 ## Why Astraios?
@@ -151,6 +153,8 @@ cd Astraios
 poetry install --with dev      # install with dev dependencies
 poetry run astraios            # run the application
 ```
+
+`main` is the development line and is updated far more often than the tagged releases, so a `git pull` gives you the newest features and fixes long before they are packaged into an installer. That is the trade-off: `main` carries a `-dev` version, it is less stable than a release, and a feature may be half-finished or temporarily broken while it is being worked on. For a dependable setup, use the installer at the top of this page; if you run `main` and something breaks, a note in the Issues tab helps a lot.
 
 On Linux/Windows with an NVIDIA GPU and a CUDA build of PyTorch installed, Astraios uses the GPU automatically (verify with the device shown in the log).
 
