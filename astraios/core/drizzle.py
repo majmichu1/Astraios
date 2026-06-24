@@ -68,8 +68,9 @@ def _drizzle_frame_numpy(
     """
     is_color = image.ndim == 3
     if is_color:
-        h, w = image.shape[1], image.shape[2]
+        n_ch, h, w = image.shape
     else:
+        n_ch = 1
         h, w = image.shape
 
     # Build grid of all input pixel centres: shape (H*W, 2). float32 is plenty
@@ -101,24 +102,41 @@ def _drizzle_frame_numpy(
 
     out_h, out_w = weight_map.shape
 
-    # Process each unique drop size (usually just 1–2 combinations)
-    # For each pixel, scatter into a footprint of (oy_min:oy_max, ox_min:ox_max)
-    # This is inherently irregular, but we can batch by footprint size.
-    # For the common case (drop_shrink < 1.0, scale=2), footprints are 1×1 or 2×2.
-    for idx in range(len(ox)):
-        x0 = max(0, ox_min[idx])
-        x1 = min(out_w, ox_max[idx])
-        y0 = max(0, oy_min[idx])
-        y1 = min(out_h, oy_max[idx])
-        if x0 >= x1 or y0 >= y1:
-            continue
-        src_y = idx // w
-        src_x = idx % w
-        if is_color:
-            output[:, y0:y1, x0:x1] += image[:, src_y, src_x][:, None, None]
-        else:
-            output[y0:y1, x0:x1] += image[src_y, src_x]
-        weight_map[y0:y1, x0:x1] += 1.0
+    # Vectorised footprint scatter. The original looped over every input pixel
+    # (O(H*W) ~ tens of millions of Python iterations) to add each pixel's value
+    # into its output footprint rectangle [oy_min:oy_max, ox_min:ox_max]. Instead
+    # clamp all footprints at once, then for each (dy, dx) offset within the
+    # LARGEST footprint, scatter every pixel that still covers that offset with a
+    # single np.add.at. Footprints are tiny (~1-3 px per side for typical
+    # drop_shrink/scale), so this is a handful of vectorised scatters. The
+    # accumulated output matches the loop to float32 epsilon (only the summation
+    # order of overlapping footprints differs); the weight map is exact.
+    y0 = np.maximum(0, oy_min)
+    x0 = np.maximum(0, ox_min)
+    fh = np.minimum(out_h, oy_max) - y0   # clamped footprint height per pixel
+    fw = np.minimum(out_w, ox_max) - x0   # clamped footprint width per pixel
+    covers = (fh > 0) & (fw > 0)
+    if not np.any(covers):
+        return
+
+    out_flat = output.reshape(n_ch, -1) if is_color else output.reshape(-1)
+    img_flat = image.reshape(n_ch, -1) if is_color else image.reshape(-1)
+    w_flat = weight_map.reshape(-1)
+
+    max_fh = int(fh[covers].max())
+    max_fw = int(fw[covers].max())
+    for dy in range(max_fh):
+        for dx in range(max_fw):
+            sel = covers & (dy < fh) & (dx < fw)
+            if not np.any(sel):
+                continue
+            tgt = (y0[sel] + dy) * out_w + (x0[sel] + dx)
+            if is_color:
+                for c in range(n_ch):
+                    np.add.at(out_flat[c], tgt, img_flat[c][sel])
+            else:
+                np.add.at(out_flat, tgt, img_flat[sel])
+            np.add.at(w_flat, tgt, 1.0)
 
 
 @torch.no_grad()
