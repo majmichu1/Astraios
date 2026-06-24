@@ -260,7 +260,13 @@ def arcsinh_stretch(
                 shifted = (t - params.black_point).clamp(0.0, None)
                 out = (shifted * scale_map).clamp(0.0, 1.0)
             else:
-                out = torch.stack([_stretch_channel(t[ch], beta) for ch in range(t.shape[0])])
+                # Write each stretched channel into a preallocated buffer rather
+                # than stacking a list of all channels — same result, but avoids
+                # holding every channel's result plus the stacked copy live at
+                # once (~one extra full image of VRAM at 73MP).
+                out = torch.empty_like(t)
+                for ch in range(t.shape[0]):
+                    out[ch] = _stretch_channel(t[ch], beta)
             return out.cpu().numpy().astype(np.float32)
 
 

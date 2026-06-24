@@ -174,29 +174,37 @@ def _drizzle_frame_gpu(
     oy_floor = (oy - half_drop).floor().long()
     oy_ceil  = (oy + half_drop).ceil().long()
 
-    # Expand each pixel into its footprint (bins in [ox_floor, ox_ceil] × [oy_floor, oy_ceil])
-    # Build index tensor for all 4 corners per pixel, then clamp/filter
-    corners_y = torch.stack([oy_floor, oy_floor, oy_ceil, oy_ceil], dim=1)  # (N, 4)
-    corners_x = torch.stack([ox_floor, ox_ceil, ox_floor, ox_ceil], dim=1)  # (N, 4)
-    valid = (corners_x >= 0) & (corners_x < out_w) & (corners_y >= 0) & (corners_y < out_h)
-    flat_idx = (corners_y * out_w + corners_x)[valid]
+    # Each input pixel spreads into the up-to-4 integer corners of its footprint
+    # [ox_floor, ox_ceil] x [oy_floor, oy_ceil]. Scatter one corner at a time
+    # instead of materialising a (C, 4N) "repeat each pixel 4x" tensor (4x the
+    # image in VRAM, plus a filtered copy): scatter_add is additive, so the
+    # accumulated totals — and the weight counts, including the harmless 4x
+    # over-count when the footprint collapses to one bin — are identical, while
+    # peak memory stays ~O(N) per corner.
+    corner_offsets = (
+        (oy_floor, ox_floor),
+        (oy_floor, ox_ceil),
+        (oy_ceil, ox_floor),
+        (oy_ceil, ox_ceil),
+    )
 
-    # Image values — each pixel's value repeated for every valid corner
     if is_color:
         img_t = dm.from_numpy(image.astype(np.float32))  # (C, H, W)
         img_flat = img_t.reshape(img_t.shape[0], -1)  # (C, N)
-        # Repeat per-pixel value 4 times (one per corner), then filter
-        repeated = img_flat.repeat_interleave(4, dim=1)  # (C, N*4)
-        repeated = repeated[:, valid.flatten()]
-        for c in range(img_t.shape[0]):
-            output_t[c].flatten().scatter_add_(0, flat_idx, repeated[c])
+        n_ch = img_t.shape[0]
     else:
-        img_t = dm.from_numpy(image.astype(np.float32)).flatten()
-        repeated = img_t.repeat_interleave(4)[valid.flatten()]
-        output_t.flatten().scatter_add_(0, flat_idx, repeated)
+        img_flat = dm.from_numpy(image.astype(np.float32)).flatten()  # (N,)
+        n_ch = 1
 
-    weight_flat = torch.ones(flat_idx.shape[0], device=device)
-    weight_t.flatten().scatter_add_(0, flat_idx, weight_flat)
+    for cy, cx in corner_offsets:
+        v = (cx >= 0) & (cx < out_w) & (cy >= 0) & (cy < out_h)
+        idx = (cy * out_w + cx)[v]
+        if is_color:
+            for c in range(n_ch):
+                output_t[c].flatten().scatter_add_(0, idx, img_flat[c][v])
+        else:
+            output_t.flatten().scatter_add_(0, idx, img_flat[v])
+        weight_t.flatten().scatter_add_(0, idx, torch.ones(idx.shape[0], device=device))
 
 
 # ---------------------------------------------------------------------------
