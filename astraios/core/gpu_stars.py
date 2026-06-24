@@ -88,11 +88,22 @@ def detect_stars_gpu(
     if n_comp == 0:
         return []
 
-    comp_ids = range(1, n_comp + 1)
-    centroids = ndimage.center_of_mass(is_max_np, labels, comp_ids)  # (row, col) sub-pixel
-    cys = np.array([c[0] for c in centroids], dtype=np.float64)
-    cxs = np.array([c[1] for c in centroids], dtype=np.float64)
-    comp_flux = np.asarray(ndimage.maximum(image_np, labels, comp_ids), dtype=np.float64)
+    # Reduce per connected component over ONLY the flagged pixels (a sparse mask:
+    # a few thousand local-maxima pixels) instead of scanning the full image per
+    # label. is_max_np is binary, so each component's centre of mass is just the
+    # mean of its flagged pixel coordinates (bincount), and its peak flux is the
+    # max of the image over those pixels (np.maximum.at). Both are bit-identical
+    # to ndimage.center_of_mass / ndimage.maximum but skip the argsort-heavy
+    # full-image scipy label scan that dominated star detection.
+    ys_lm, xs_lm = np.nonzero(is_max_np)
+    lab = labels[ys_lm, xs_lm]  # component id 1..n_comp for each flagged pixel
+    counts = np.bincount(lab, minlength=n_comp + 1)[1:]
+    sum_y = np.bincount(lab, weights=ys_lm.astype(np.float64), minlength=n_comp + 1)[1:]
+    sum_x = np.bincount(lab, weights=xs_lm.astype(np.float64), minlength=n_comp + 1)[1:]
+    cys = sum_y / counts
+    cxs = sum_x / counts
+    comp_flux = np.full(n_comp, -np.inf, dtype=np.float64)
+    np.maximum.at(comp_flux, lab - 1, image_np[ys_lm, xs_lm].astype(np.float64))
 
     keep = np.argsort(-comp_flux)[:max_stars]
     cys, cxs, comp_flux = cys[keep], cxs[keep], comp_flux[keep]
