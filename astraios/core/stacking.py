@@ -184,6 +184,29 @@ class StackResult:
 # ---------------------------------------------------------------------------
 
 
+def _row_medians(rows_2d: np.ndarray) -> np.ndarray:
+    """``np.median(rows_2d, axis=1)`` computed in parallel across rows.
+
+    Each row's median is independent, so splitting the rows across threads and
+    concatenating is bit-identical to a single ``np.median(axis=1)`` call, while
+    ``np.partition`` releases the GIL so the threads run in parallel. This is the
+    dominant cost of per-frame normalization on large stacks.
+    """
+    n = rows_2d.shape[0]
+    if n < 4 or rows_2d.shape[1] < 100_000:
+        return np.median(rows_2d, axis=1)
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    chunks = [c for c in np.array_split(np.arange(n), min(n, os.cpu_count() or 4)) if len(c)]
+    out = np.empty(n, dtype=np.result_type(rows_2d.dtype, np.float32))
+    with ThreadPoolExecutor(max_workers=len(chunks)) as ex:
+        futures = [(c, ex.submit(np.median, rows_2d[c[0]:c[-1] + 1], axis=1)) for c in chunks]
+        for c, fut in futures:
+            out[c[0]:c[-1] + 1] = fut.result()
+    return out
+
+
 def normalize_stack(
     stack: np.ndarray,
     method: NormalizationMethod = NormalizationMethod.ADDITIVE_SCALING,
@@ -210,20 +233,20 @@ def normalize_stack(
     ref_med = float(np.median(flat[0]))
 
     if method == NormalizationMethod.ADDITIVE:
-        frame_meds = np.median(flat, axis=1)
+        frame_meds = _row_medians(flat)
         shifts = ref_med - frame_meds
         return stack + shifts[broadcast]
 
     if method == NormalizationMethod.MULTIPLICATIVE:
-        frame_meds = np.median(flat, axis=1)
+        frame_meds = _row_medians(flat)
         safe_meds = np.where(np.abs(frame_meds) > 1e-8, frame_meds, 1.0)
         scales = ref_med / safe_meds
         return stack * scales[broadcast]
 
     # ADDITIVE_SCALING (default): robust MAD-based scale + shift
     ref_mad = float(np.median(np.abs(flat[0] - ref_med))) * 1.4826
-    frame_meds = np.median(flat, axis=1)
-    frame_mads = np.median(np.abs(flat - frame_meds[:, None]), axis=1) * 1.4826
+    frame_meds = _row_medians(flat)
+    frame_mads = _row_medians(np.abs(flat - frame_meds[:, None])) * 1.4826
 
     if ref_mad < 1e-6:
         # Reference has no structure: offset-only correction
