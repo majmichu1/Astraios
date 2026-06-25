@@ -4307,6 +4307,7 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             return
         params = self._tools_panel.get_deconvolution_params()
+        self._last_deconv_params = params
         if isinstance(params, SpatialDeconvParams):
             self._log_panel.log(
                 f"Running spatial deconvolution (3x3 zones, "
@@ -4335,7 +4336,15 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_deconvolution_done(self, result):
-        self._update_current_image(result, "Deconvolution complete")
+        # Only the standard (non-spatial) Richardson-Lucy is registered for replay.
+        p = getattr(self, "_last_deconv_params", None)
+        if p is not None and not isinstance(p, SpatialDeconvParams):
+            self._update_current_image(
+                result, "Deconvolution complete",
+                tool="deconvolution", tool_params=self._step_params(p),
+            )
+        else:
+            self._update_current_image(result, "Deconvolution complete")
         if self._project:
             self._project.add_history("Deconvolution", {})
 

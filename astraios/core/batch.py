@@ -113,6 +113,7 @@ def _register_default_tools():
     from astraios.core.banding import BandingParams, banding_reduction
     from astraios.core.color_tools import ColorAdjustParams, SCNRParams, color_adjust, scnr
     from astraios.core.cosmetic import cosmetic_correction
+    from astraios.core.deconvolution import DeconvolutionParams, richardson_lucy
     from astraios.core.denoise import DenoiseParams, denoise
     from astraios.core.filters import (
         ConvolutionKernel,
@@ -166,6 +167,9 @@ def _register_default_tools():
         "color_adjust", lambda data, **kw: color_adjust(data, _p(ColorAdjustParams, kw))
     )
     register_tool("denoise", lambda data, **kw: denoise(data, _p(DenoiseParams, kw)))
+    register_tool(
+        "deconvolution", lambda data, **kw: richardson_lucy(data, _p(DeconvolutionParams, kw))
+    )
     register_tool(
         "local_contrast",
         lambda data, **kw: local_contrast_enhance(data, _p(LocalContrastParams, kw)),
