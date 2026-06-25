@@ -184,24 +184,34 @@ class StackResult:
 # ---------------------------------------------------------------------------
 
 
-def _row_medians(rows_2d: np.ndarray) -> np.ndarray:
-    """``np.median(rows_2d, axis=1)`` computed in parallel across rows.
+def _row_medians(rows_2d: np.ndarray, centers: np.ndarray | None = None) -> np.ndarray:
+    """Per-row median across ``axis=1``, computed in parallel across rows.
 
-    Each row's median is independent, so splitting the rows across threads and
-    concatenating is bit-identical to a single ``np.median(axis=1)`` call, while
-    ``np.partition`` releases the GIL so the threads run in parallel. This is the
-    dominant cost of per-frame normalization on large stacks.
+    With ``centers`` it returns ``np.median(|rows_2d - centers[:, None]|, axis=1)``
+    (the per-row MAD numerator) without ever materialising the full absolute-
+    deviation array — each thread builds only its own chunk.
+
+    Each row is independent, so splitting the rows across threads and
+    concatenating is bit-identical to the single-call numpy version, while
+    ``np.partition`` releases the GIL so the threads run in parallel. The median
+    is the dominant cost of per-frame normalization on large stacks.
     """
+    def _reduce(lo: int, hi: int) -> np.ndarray:
+        block = rows_2d[lo:hi]
+        if centers is not None:
+            block = np.abs(block - centers[lo:hi, None])
+        return np.median(block, axis=1)
+
     n = rows_2d.shape[0]
     if n < 4 or rows_2d.shape[1] < 100_000:
-        return np.median(rows_2d, axis=1)
+        return _reduce(0, n)
     import os
     from concurrent.futures import ThreadPoolExecutor
 
     chunks = [c for c in np.array_split(np.arange(n), min(n, os.cpu_count() or 4)) if len(c)]
     out = np.empty(n, dtype=np.result_type(rows_2d.dtype, np.float32))
     with ThreadPoolExecutor(max_workers=len(chunks)) as ex:
-        futures = [(c, ex.submit(np.median, rows_2d[c[0]:c[-1] + 1], axis=1)) for c in chunks]
+        futures = [(c, ex.submit(_reduce, c[0], c[-1] + 1)) for c in chunks]
         for c, fut in futures:
             out[c[0]:c[-1] + 1] = fut.result()
     return out
@@ -246,7 +256,7 @@ def normalize_stack(
     # ADDITIVE_SCALING (default): robust MAD-based scale + shift
     ref_mad = float(np.median(np.abs(flat[0] - ref_med))) * 1.4826
     frame_meds = _row_medians(flat)
-    frame_mads = _row_medians(np.abs(flat - frame_meds[:, None])) * 1.4826
+    frame_mads = _row_medians(flat, centers=frame_meds) * 1.4826
 
     if ref_mad < 1e-6:
         # Reference has no structure: offset-only correction
