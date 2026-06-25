@@ -44,9 +44,10 @@ def _remove_stars_morph(
     is_color = img.ndim == 3
 
     if is_color:
-        if img.shape[0] >= 4:
-            lum = 0.2126 * img[0] + 0.7152 * (img[1] + img[2]) * 0.5 + 0.0722 * img[3]
-        elif img.shape[0] >= 3:
+        if img.shape[0] >= 3:
+            # Rec.709 luminance from the first three (RGB) channels. Extra
+            # channels (e.g. an alpha or L plane) are not part of luminance; the
+            # old >=4 branch halved the green weight and folded in a 4th channel.
             lum = 0.2126 * img[0] + 0.7152 * img[1] + 0.0722 * img[2]
         else:
             lum = img[0].copy()

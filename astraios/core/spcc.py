@@ -279,8 +279,9 @@ def spcc_calibrate(
     if params.neutralize_background:
         progress(0.90, "Neutralizing background…")
         H, W = result.shape[1], result.shape[2]
-        # Sample corners (avoid stars)
-        margin = max(H, W) // 10
+        # Sample corners (avoid stars). Keep margin >= 1 so a tiny image does not
+        # produce an empty slice (np.percentile on empty raises).
+        margin = max(1, max(H, W) // 10)
         bg_vals = []
         for c in range(3):
             corner = result[c, :margin, :margin].ravel()
