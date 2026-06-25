@@ -113,6 +113,7 @@ def _register_default_tools():
     from astraios.core.banding import BandingParams, banding_reduction
     from astraios.core.color_tools import ColorAdjustParams, SCNRParams, color_adjust, scnr
     from astraios.core.cosmetic import cosmetic_correction
+    from astraios.core.curves import CurvePoints, CurvesParams, curves_transform
     from astraios.core.deconvolution import DeconvolutionParams, richardson_lucy
     from astraios.core.denoise import DenoiseParams, denoise
     from astraios.core.filters import (
@@ -228,6 +229,22 @@ def _register_default_tools():
         return convolve(data, ConvolutionParams(kernel=k, radius=radius, amount=amount))
 
     register_tool("convolve", _convolve_tool)
+
+    def _curves_tool(data, master=None, red=None, green=None, blue=None, **kw):
+        def _cp(d):
+            if isinstance(d, CurvePoints):
+                return d
+            cp = CurvePoints()
+            pts = d.get("points") if isinstance(d, dict) else None
+            if pts:
+                cp.points = [tuple(p) for p in pts]
+            return cp
+        params = CurvesParams(
+            master=_cp(master), red=_cp(red), green=_cp(green), blue=_cp(blue)
+        )
+        return curves_transform(data, params)
+
+    register_tool("curves", _curves_tool)
 
 
 def apply_pipeline_to_image(

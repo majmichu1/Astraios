@@ -191,6 +191,35 @@ def test_step_label_fallback():
     assert HistoryStep(tool_name="", display_name="Custom").label == "Custom"
 
 
+def test_curves_nested_params_survive_json_and_replay():
+    # Curves params are nested (per-channel control points), not a flat dict.
+    # They must serialize to JSON and replay identically through the registry.
+    import json
+
+    from astraios.core.batch import get_registered_tools
+    from astraios.core.curves import CurvePoints, CurvesParams
+
+    tools = get_registered_tools()
+    cp = CurvePoints()
+    cp.points = [(0.0, 0.0), (0.3, 0.1), (0.7, 0.9), (1.0, 1.0)]
+    import dataclasses
+
+    flat = dataclasses.asdict(CurvesParams(master=cp))
+    g = _base(0.0)
+    g.set_base(np.clip(np.random.default_rng(0).random((3, 24, 24)).astype(np.float32), 0, 1))
+    g.record("curves", flat, "Curves")
+    g2 = ProcessingGraph.from_dict(json.loads(json.dumps(g.to_dict())))
+    g2.set_base(g.base_image.copy())
+
+    def pf(name, params, img):
+        return tools[name](img, **(params or {})) if name in tools else img
+
+    out_a = g.evaluate(process_fn=pf)
+    out_b = g2.evaluate(process_fn=pf)
+    assert out_a is not None and out_b is not None
+    assert np.allclose(out_a, out_b)
+
+
 def test_enum_params_survive_json_roundtrip():
     # Params hold enum members (e.g. DenoiseMethod); they must serialize to JSON
     # and rebuild as the real enum so a saved/reloaded history still replays.

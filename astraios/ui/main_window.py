@@ -4253,7 +4253,10 @@ class MainWindow(QMainWindow):
             return curves_transform(data, _p)
 
         def _curves_done(result):
-            self._update_current_image(result, "Curves applied")
+            self._update_current_image(
+                result, "Curves applied",
+                tool="curves", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history("Curves", {})
 
