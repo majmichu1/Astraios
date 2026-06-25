@@ -2151,11 +2151,19 @@ class MainWindow(QMainWindow):
         message: str,
         undo_desc: str | None = None,
         geometric: bool = False,
+        tool: str = "",
+        tool_params: dict | None = None,
     ):
         """Replace current image data and update display, recording undo.
 
         geometric=True for ops that only change image extent (crop/rotate/flip/resize):
         those should re-stretch from the result's own statistics, not the pre-op reference.
+
+        ``tool`` is the canonical registry name of the operation and ``tool_params``
+        its parameters; when given, the step recorded in the non-destructive
+        history is replayable (it can be re-evaluated, toggled, reordered and
+        re-edited). When omitted, a display-only step is recorded so the history
+        still shows the operation.
         """
         # If a live preview is running, keep it alive and re-trigger after update
         pending_preview = self._pending_preview_tool
@@ -2199,14 +2207,20 @@ class MainWindow(QMainWindow):
         self._log_panel.log(message, "success")
         self._update_image_status()
 
-        # Auto-add to Processing Graph if not triggered by graph itself
+        # Record the operation in the non-destructive history, unless this update
+        # is the history itself re-evaluating (which would recurse).
         if not self._skip_graph_auto_add and before is not None:
             if self._processing_graph is None:
                 from astraios.core.processing_graph import ProcessingGraph
                 self._processing_graph = ProcessingGraph()
                 self._processing_graph.set_base(before.data)
-            desc = undo_desc if undo_desc else message
-            self._processing_graph.add_node(desc, params={})
+            mask_name = self._active_mask.name if self._active_mask is not None else None
+            self._processing_graph.record(
+                tool_name=tool,
+                params=dict(tool_params) if tool_params else {},
+                display_name=undo_desc if undo_desc else message,
+                mask_name=mask_name,
+            )
 
         # The image now differs from the last saved/exported state.
         self._dirty = True
@@ -3443,7 +3457,7 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             return
         result = invert(self._current_image.data)
-        self._update_current_image(result, "Image inverted")
+        self._update_current_image(result, "Image inverted", tool="invert")
         if self._project:
             self._project.add_history("Invert", {})
         self._macro_recorder.record_step("invert")
@@ -4084,7 +4098,9 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def _on_background_done(self, result):
         corrected, bg_model = result
-        self._update_current_image(corrected, "Background extraction complete")
+        self._update_current_image(
+            corrected, "Background extraction complete", tool="background_extraction"
+        )
         params = self._tools_panel.get_background_params()
         if self._project:
             self._project.add_history(
@@ -4225,7 +4241,10 @@ class MainWindow(QMainWindow):
             return scnr(data, _p)
 
         def _scnr_done(result):
-            self._update_current_image(result, "SCNR applied")
+            self._update_current_image(
+                result, "SCNR applied",
+                tool="scnr", tool_params={"method": _p.method, "amount": _p.amount},
+            )
             if self._project:
                 self._project.add_history("SCNR", {"method": _p.method.name, "amount": _p.amount})
             self._macro_recorder.record_step("scnr", {"amount": _p.amount})
@@ -4558,7 +4577,15 @@ class MainWindow(QMainWindow):
             return denoise(data, _p)
 
         def _done(result):
-            self._update_current_image(result, f"Noise reduction complete ({_p.method.name})")
+            self._update_current_image(
+                result, f"Noise reduction complete ({_p.method.name})",
+                tool="denoise",
+                tool_params={
+                    "method": _p.method, "strength": _p.strength,
+                    "detail_preservation": _p.detail_preservation,
+                    "wavelet": _p.wavelet, "wavelet_levels": _p.wavelet_levels,
+                },
+            )
             if self._project:
                 self._project.add_history(
                     "Denoise", {"method": _p.method.name, "strength": _p.strength}
@@ -5027,21 +5054,77 @@ class MainWindow(QMainWindow):
             self._processing_graph.set_base(self._current_image.data)
 
         dialog = ProcessingGraphDialog(self, self._processing_graph)
-        dialog.graph_changed.connect(self._on_processing_graph_changed)
+        dialog.view_stage.connect(self._on_history_view_stage)
+        dialog.history_changed.connect(self._on_history_changed)
+        dialog.export_macro.connect(self._on_history_export_macro)
         dialog.exec()
 
-    def _on_processing_graph_changed(self):
-        if not hasattr(self, "_processing_graph") or self._processing_graph is None:
+    def _on_history_view_stage(self, index: int):
+        """Preview the image at history step *index* (-1 = base) on the canvas.
+
+        Pure preview: it does not alter the working image or the undo stack.
+        """
+        if getattr(self, "_processing_graph", None) is None or self._current_image is None:
             return
         self._skip_graph_auto_add = True
         try:
-            result = self._processing_graph.evaluate(
-                process_fn=self._process_graph_step
+            img = self._processing_graph.evaluate(
+                up_to=index, process_fn=self._process_graph_step
             )
-            if result is not None:
-                self._update_current_image(result, "Processing graph updated")
         finally:
             self._skip_graph_auto_add = False
+        if img is None:
+            self._log_panel.log(
+                "Cannot reconstruct this stage (an earlier step is not replayable yet)",
+                "warning",
+            )
+            return
+        preview = ImageData(
+            data=img,
+            header=self._current_image.header.copy(),
+            frame_type=self._current_image.frame_type,
+        )
+        self._display_image(preview)
+
+    def _on_history_changed(self):
+        """Recompute the final result after the history was edited, and commit it."""
+        if getattr(self, "_processing_graph", None) is None:
+            return
+        self._skip_graph_auto_add = True
+        try:
+            result = self._processing_graph.evaluate(process_fn=self._process_graph_step)
+            if result is not None:
+                self._update_current_image(result, "Processing history updated")
+        finally:
+            self._skip_graph_auto_add = False
+
+    def _on_history_export_macro(self):
+        """Export the replayable history steps as a reusable macro."""
+        if getattr(self, "_processing_graph", None) is None:
+            return
+        pipeline = self._processing_graph.to_pipeline("History Macro")
+        if not pipeline.steps:
+            self._log_panel.log(
+                "No replayable steps to export yet (display-only history).", "warning"
+            )
+            return
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QFileDialog
+
+        from astraios.core.scripting import save_macro
+
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export History as Macro", "history_macro.json", "Macro (*.json)"
+        )
+        if not path:
+            return
+        if not path.endswith(".json"):
+            path += ".json"
+        save_macro(pipeline, Path(path))
+        self._log_panel.log(
+            f"Exported {len(pipeline.steps)} step(s) to {Path(path).name}", "success"
+        )
 
     def _process_graph_step(self, process_name: str, params: dict, image):
         """Execute a single processing graph step.

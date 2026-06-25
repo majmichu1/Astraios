@@ -1,4 +1,10 @@
-"""Processing Graph dialog — non-destructive editing history."""
+"""Processing History dialog — non-destructive, linear editing history.
+
+Shows the recorded steps as an ordered list. Selecting a step previews the
+image at that stage; the checkbox toggles a step on/off; steps can be deleted,
+reordered, and exported as a reusable macro. All edits recompute the image
+non-destructively from the base.
+"""
 
 from __future__ import annotations
 
@@ -17,131 +23,144 @@ from astraios.core.processing_graph import ProcessingGraph
 
 
 class ProcessingGraphDialog(QDialog):
-    """Non-destructive editing history with navigation."""
+    """Non-destructive editing history with stage preview and editing."""
 
-    graph_changed = pyqtSignal()
+    # Preview the image after step <index> (-1 = base image).
+    view_stage = pyqtSignal(int)
+    # The step list changed (toggle/delete/reorder); recompute the result.
+    history_changed = pyqtSignal()
+    # Export the current history as a macro.
+    export_macro = pyqtSignal()
 
     def __init__(self, parent, graph: ProcessingGraph):
         super().__init__(parent)
         self._graph = graph
         self.setWindowTitle("Processing History")
-        self.setMinimumSize(450, 400)
+        self.setMinimumSize(460, 440)
         self.setModal(False)
+        self._suppress = False
         self._setup_ui()
         self._refresh()
-        # Auto-refresh every second to pick up auto-recorded nodes
-        self._refresh_timer = QTimer(self)
-        self._refresh_timer.setInterval(1000)
-        self._refresh_timer.timeout.connect(self._refresh_if_changed)
-        self._refresh_timer.start()
-        self._last_node_count = len(graph.nodes)
+        # Pick up steps recorded while the dialog is open.
+        self._timer = QTimer(self)
+        self._timer.setInterval(800)
+        self._timer.timeout.connect(self._refresh_if_changed)
+        self._timer.start()
+        self._last_count = len(graph.steps)
 
+    # ------------------------------------------------------------------ #
     def _setup_ui(self):
         lay = QVBoxLayout(self)
 
         info = QLabel(
-            "Click a step to view the image at that stage. "
-            "Changes cascade and invalidate downstream steps."
+            "Select a step to preview the image at that stage. Use the checkbox "
+            "to disable a step, or reorder and delete steps; the result "
+            "recomputes from the original, non-destructively."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #aaa; padding: 4px;")
         lay.addWidget(info)
 
-        self._history_list = QListWidget()
-        self._history_list.setAlternatingRowColors(True)
-        self._history_list.currentRowChanged.connect(self._on_select_step)
-        lay.addWidget(self._history_list)
+        self._list = QListWidget()
+        self._list.setAlternatingRowColors(True)
+        self._list.currentRowChanged.connect(self._on_row_changed)
+        self._list.itemChanged.connect(self._on_item_changed)
+        lay.addWidget(self._list)
 
-        btn_row = QHBoxLayout()
-        self._delete_btn = QPushButton("\u2715 Delete Step")
-        self._delete_btn.clicked.connect(self._delete_step)
-        self._delete_btn.setEnabled(False)
-        btn_row.addWidget(self._delete_btn)
+        row1 = QHBoxLayout()
+        self._up_btn = QPushButton("Move Up")
+        self._up_btn.clicked.connect(lambda: self._move(-1))
+        self._down_btn = QPushButton("Move Down")
+        self._down_btn.clicked.connect(lambda: self._move(1))
+        self._delete_btn = QPushButton("Delete")
+        self._delete_btn.clicked.connect(self._delete)
+        for b in (self._up_btn, self._down_btn, self._delete_btn):
+            b.setEnabled(False)
+            row1.addWidget(b)
+        row1.addStretch()
+        lay.addLayout(row1)
 
-        self._toggle_btn = QPushButton("\u2298 Toggle Step")
-        self._toggle_btn.clicked.connect(self._toggle_step)
-        self._toggle_btn.setEnabled(False)
-        btn_row.addWidget(self._toggle_btn)
-
-        self._lock_btn = QPushButton("\U0001f512 Lock Step")
-        self._lock_btn.clicked.connect(self._lock_step)
-        self._lock_btn.setEnabled(False)
-        btn_row.addWidget(self._lock_btn)
-
-        btn_row.addStretch()
-
+        row2 = QHBoxLayout()
+        self._export_btn = QPushButton("Export as Macro…")
+        self._export_btn.clicked.connect(self.export_macro.emit)
+        row2.addWidget(self._export_btn)
+        row2.addStretch()
+        self._base_btn = QPushButton("View Original")
+        self._base_btn.clicked.connect(lambda: self.view_stage.emit(-1))
+        row2.addWidget(self._base_btn)
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(close_btn)
+        row2.addWidget(close_btn)
+        lay.addLayout(row2)
 
-        lay.addLayout(btn_row)
-
+    # ------------------------------------------------------------------ #
     def _refresh(self):
-        self._history_list.blockSignals(True)
-        self._history_list.clear()
-        history = self._graph.list_history()
-        for entry in history:
-            item = QListWidgetItem(entry["display"])
-            item.setData(Qt.ItemDataRole.UserRole, entry["id"])
-            tooltip_parts = []
-            if entry["dependents"]:
-                tooltip_parts.append(f"Dependents: {entry['dependents']}")
-            else:
-                tooltip_parts.append("Leaf node")
-            item.setToolTip("; ".join(tooltip_parts))
-            if not entry["enabled"]:
+        self._suppress = True
+        self._list.clear()
+        for r in self._graph.list_steps():
+            item = QListWidgetItem(f"{r['index'] + 1}. {r['label']}")
+            item.setData(Qt.ItemDataRole.UserRole, r["index"])
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(
+                Qt.CheckState.Checked if r["enabled"] else Qt.CheckState.Unchecked
+            )
+            tips = []
+            if r["mask_name"]:
+                tips.append(f"mask: {r['mask_name']}")
+            if not r["replayable"]:
+                tips.append("display-only (recorded before it was replayable)")
+                item.setForeground(Qt.GlobalColor.darkGray)
+            elif not r["enabled"]:
                 item.setForeground(Qt.GlobalColor.gray)
-            self._history_list.addItem(item)
-        self._history_list.blockSignals(False)
-        self._last_node_count = len(self._graph.nodes)
+            item.setToolTip("; ".join(tips) if tips else "Replayable step")
+            self._list.addItem(item)
+        self._suppress = False
+        self._last_count = len(self._graph.steps)
+        self._update_buttons()
 
     def _refresh_if_changed(self):
-        if len(self._graph.nodes) != self._last_node_count:
+        if len(self._graph.steps) != self._last_count:
             self._refresh()
 
-    def _on_select_step(self, row: int):
-        has_selection = row >= 0
-        self._delete_btn.setEnabled(has_selection)
-        self._toggle_btn.setEnabled(has_selection)
-        self._lock_btn.setEnabled(has_selection)
-        if has_selection:
-            node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
-            if node_id and node_id in self._graph.nodes:
-                locked = self._graph.nodes[node_id].locked
-                self._lock_btn.setText("\U0001f513 Unlock Step" if locked else "\U0001f512 Lock Step")
-            self.graph_changed.emit()
+    def _update_buttons(self):
+        row = self._list.currentRow()
+        n = self._list.count()
+        sel = row >= 0
+        self._delete_btn.setEnabled(sel)
+        self._up_btn.setEnabled(sel and row > 0)
+        self._down_btn.setEnabled(sel and row < n - 1)
+        self._export_btn.setEnabled(n > 0)
 
-    def _delete_step(self):
-        row = self._history_list.currentRow()
+    # ------------------------------------------------------------------ #
+    def _on_row_changed(self, row: int):
+        self._update_buttons()
+        if row >= 0:
+            self.view_stage.emit(row)
+
+    def _on_item_changed(self, item: QListWidgetItem):
+        if self._suppress:
+            return
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if index is None:
+            return
+        enabled = item.checkState() == Qt.CheckState.Checked
+        self._graph.set_enabled(int(index), enabled)
+        self.history_changed.emit()
+
+    def _delete(self):
+        row = self._list.currentRow()
         if row < 0:
             return
-        node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
-        if node_id:
-            self._graph.remove_node(node_id)
-            self._graph.invalidate_downstream("base")
+        if self._graph.remove(row):
             self._refresh()
-            self.graph_changed.emit()
+            self.history_changed.emit()
 
-    def _lock_step(self):
-        row = self._history_list.currentRow()
-        if row < 0:
+    def _move(self, delta: int):
+        row = self._list.currentRow()
+        dst = row + delta
+        if row < 0 or dst < 0 or dst >= self._list.count():
             return
-        node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
-        if node_id and node_id in self._graph.nodes:
-            self._graph.nodes[node_id].locked = not self._graph.nodes[node_id].locked
-            self._lock_btn.setText(
-                "\U0001f513 Unlock Step" if self._graph.nodes[node_id].locked else "\U0001f512 Lock Step"
-            )
+        if self._graph.move(row, dst):
             self._refresh()
-            self.graph_changed.emit()
-
-    def _toggle_step(self):
-        row = self._history_list.currentRow()
-        if row < 0:
-            return
-        node_id = self._history_list.item(row).data(Qt.ItemDataRole.UserRole)
-        if node_id and node_id in self._graph.nodes:
-            self._graph.nodes[node_id].enabled = not self._graph.nodes[node_id].enabled
-            self._graph.invalidate_downstream(node_id)
-            self._refresh()
-            self.graph_changed.emit()
+            self._list.setCurrentRow(dst)
+            self.history_changed.emit()

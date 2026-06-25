@@ -137,12 +137,12 @@ class TestC9DagCache:
             call_count += 1
             return img + params.get("val", 0)
 
-        nid = g.add_node("test", params={"val": 1.0})
+        idx = g.record("test", params={"val": 1.0})
         g.evaluate(process_fn=fn)
         g.evaluate(process_fn=fn)
         assert call_count == 1, "Should cache on second call"
 
-        g.update_params(nid, {"val": 2.0})
+        g.update_params(idx, {"val": 2.0})
         g.evaluate(process_fn=fn)
         assert call_count == 2, "Should recompute after update_params"
 
@@ -160,10 +160,10 @@ class TestC9DagCache:
             call_count += 1
             return img + params.get("val", 0)
 
-        nid = g.add_node("test", params={"val": 1.0})
+        idx = g.record("test", params={"val": 1.0})
         g.evaluate(process_fn=fn)
         # Bypass update_params — simulate the bug (direct mutation)
-        g.nodes[nid].params = {"val": 3.0}
+        g.steps[idx].params = {"val": 3.0}
         g.evaluate(process_fn=fn)
         assert call_count == 2, "Hash should detect direct mutation"
 
