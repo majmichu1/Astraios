@@ -2145,6 +2145,19 @@ class MainWindow(QMainWindow):
         self._update_undo_actions()
         self._log_panel.log("Undo history cleared", "info")
 
+    @staticmethod
+    def _step_params(obj) -> dict:
+        """Flatten a params dataclass into a dict for the replayable history.
+
+        The registry rebuilds the dataclass from this flat dict on replay, so the
+        history can re-run the step. Enum fields stay as enum members (the
+        registry accepts those).
+        """
+        import dataclasses
+        if obj is not None and dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+        return {}
+
     def _update_current_image(
         self,
         data,
@@ -3478,7 +3491,10 @@ class MainWindow(QMainWindow):
             return unsharp_mask(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Unsharp mask applied")
+            self._update_current_image(
+                result, "Unsharp mask applied",
+                tool="unsharp_mask", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Unsharp Mask", {"radius": _p.radius, "amount": _p.amount}
@@ -4176,7 +4192,10 @@ class MainWindow(QMainWindow):
             return banding_reduction(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Banding reduction complete")
+            self._update_current_image(
+                result, "Banding reduction complete",
+                tool="banding_reduction", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Banding Reduction", {"horizontal": _p.horizontal, "vertical": _p.vertical}
@@ -4196,7 +4215,10 @@ class MainWindow(QMainWindow):
             return histogram_transform(data, _p)
 
         def _ht_done(result):
-            self._update_current_image(result, "Histogram transform applied")
+            self._update_current_image(
+                result, "Histogram transform applied",
+                tool="histogram_transform", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Histogram Transform",
@@ -4333,7 +4355,9 @@ class MainWindow(QMainWindow):
             return generalized_hyperbolic_stretch(d, _p)
 
         def _ghs_done(result):
-            self._update_current_image(result, "GHS applied")
+            self._update_current_image(
+                result, "GHS applied", tool="ghs", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history("GHS", {"D": _p.D, "b": _p.b, "SP": _p.SP})
             self._tools_panel.reset_ghs_params()
@@ -4352,7 +4376,10 @@ class MainWindow(QMainWindow):
             return arcsinh_stretch(d, _p)
 
         def _done(result):
-            self._update_current_image(result, "Arcsinh Stretch applied")
+            self._update_current_image(
+                result, "Arcsinh Stretch applied",
+                tool="arcsinh_stretch", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Arcsinh Stretch",
@@ -4632,7 +4659,10 @@ class MainWindow(QMainWindow):
             return frequency_separation(data, _p, progress=progress)
 
         def _done(result):
-            self._update_current_image(result, "Frequency separation complete")
+            self._update_current_image(
+                result, "Frequency separation complete",
+                tool="frequency_separation", tool_params=self._step_params(_p),
+            )
             step_params = {
                 "sigma": _p.sigma, "method": _p.method.name,
                 "hf_boost": _p.hf_boost, "lf_smooth": _p.lf_smooth,
@@ -4661,7 +4691,10 @@ class MainWindow(QMainWindow):
             return statistical_stretch(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Statistical stretch complete")
+            self._update_current_image(
+                result, "Statistical stretch complete",
+                tool="statistical_stretch", tool_params=self._step_params(_p),
+            )
             step_params = {
                 "target_median": _p.target_median,
                 "shadow_clip": _p.shadow_clip,
@@ -4690,7 +4723,10 @@ class MainWindow(QMainWindow):
             return star_stretch(data, _p, progress=progress)
 
         def _done(result):
-            self._update_current_image(result, "Star stretch complete")
+            self._update_current_image(
+                result, "Star stretch complete",
+                tool="star_stretch", tool_params=self._step_params(_p),
+            )
             step_params = {"amount": _p.amount, "color_boost": _p.color_boost}
             if self._project:
                 self._project.add_history("StarStretch", step_params)
@@ -4757,7 +4793,10 @@ class MainWindow(QMainWindow):
             return wavelet_sharpen(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Wavelet sharpening complete")
+            self._update_current_image(
+                result, "Wavelet sharpening complete",
+                tool="wavelet_sharpen", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Wavelet Sharpen", {"n_scales": _p.n_scales, "scale_weights": _p.scale_weights}
@@ -4917,7 +4956,10 @@ class MainWindow(QMainWindow):
             return local_contrast_enhance(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Local contrast enhancement complete")
+            self._update_current_image(
+                result, "Local contrast enhancement complete",
+                tool="local_contrast", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Local Contrast", {"clip_limit": _p.clip_limit, "amount": _p.amount}
@@ -4941,7 +4983,10 @@ class MainWindow(QMainWindow):
             return morphology_transform(data, _p)
 
         def _done(result):
-            self._update_current_image(result, f"Morphology {_p.operation.name} complete")
+            self._update_current_image(
+                result, f"Morphology {_p.operation.name} complete",
+                tool="morphology", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Morphology", {"operation": _p.operation.name, "kernel_size": _p.kernel_size}
