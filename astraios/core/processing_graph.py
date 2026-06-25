@@ -17,6 +17,8 @@ model is a straight pipeline: ``base -> step[0] -> step[1] -> ... -> result``.
 
 from __future__ import annotations
 
+import enum
+import importlib
 import json
 import logging
 from collections.abc import Callable
@@ -26,6 +28,41 @@ from typing import Any
 from numpy.typing import NDArray
 
 log = logging.getLogger(__name__)
+
+
+def _encode_params(value: Any) -> Any:
+    """Make params JSON-safe, tagging enum members so they round-trip.
+
+    Step params captured from the UI hold enum members (e.g. DenoiseMethod);
+    plain JSON would drop them and replay would break. Tag them as
+    ``{"__enum__": "module:Class", "name": "MEMBER"}`` and rebuild on load.
+    """
+    if isinstance(value, enum.Enum):
+        return {"__enum__": f"{type(value).__module__}:{type(value).__qualname__}",
+                "name": value.name}
+    if isinstance(value, dict):
+        return {k: _encode_params(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_encode_params(v) for v in value]
+    return value
+
+
+def _decode_params(value: Any) -> Any:
+    """Inverse of :func:`_encode_params`, rebuilding tagged enum members."""
+    if isinstance(value, dict) and "__enum__" in value and "name" in value:
+        try:
+            mod_name, qual = value["__enum__"].split(":", 1)
+            cls = getattr(importlib.import_module(mod_name), qual, None)
+            if cls is not None:
+                return cls[value["name"]]
+        except Exception:  # noqa: BLE001 - fall back to the raw tag rather than crash
+            pass
+        return value["name"]
+    if isinstance(value, dict):
+        return {k: _decode_params(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_decode_params(v) for v in value]
+    return value
 
 
 def _params_hash(params: dict[str, Any]) -> str:
@@ -264,7 +301,7 @@ class ProcessingGraph:
             "steps": [
                 {
                     "tool_name": s.tool_name,
-                    "params": s.params,
+                    "params": _encode_params(s.params),
                     "display_name": s.display_name,
                     "mask_name": s.mask_name,
                     "enabled": s.enabled,
@@ -284,7 +321,7 @@ class ProcessingGraph:
                 graph.steps.append(
                     HistoryStep(
                         tool_name=sd.get("tool_name", ""),
-                        params=sd.get("params", {}),
+                        params=_decode_params(sd.get("params", {})),
                         display_name=sd.get("display_name", ""),
                         mask_name=sd.get("mask_name"),
                         enabled=sd.get("enabled", True),

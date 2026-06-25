@@ -189,3 +189,20 @@ def test_from_dict_migrates_legacy_v1_nodes():
 def test_step_label_fallback():
     assert HistoryStep(tool_name="auto_stretch").label == "Auto Stretch"
     assert HistoryStep(tool_name="", display_name="Custom").label == "Custom"
+
+
+def test_enum_params_survive_json_roundtrip():
+    # Params hold enum members (e.g. DenoiseMethod); they must serialize to JSON
+    # and rebuild as the real enum so a saved/reloaded history still replays.
+    import json
+
+    from astraios.core.denoise import DenoiseMethod
+
+    g = _base(0.0)
+    g.record("denoise", {"method": DenoiseMethod.WAVELET, "strength": 0.5}, "Denoise")
+    d = g.to_dict()
+    # Must be JSON-serializable (a project save would otherwise crash).
+    blob = json.dumps(d)
+    g2 = ProcessingGraph.from_dict(json.loads(blob))
+    assert g2.steps[0].params["method"] is DenoiseMethod.WAVELET
+    assert g2.steps[0].params["strength"] == 0.5

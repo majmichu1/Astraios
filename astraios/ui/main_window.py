@@ -1453,6 +1453,13 @@ class MainWindow(QMainWindow):
             self._log_panel.log(f"Open failed: {type(e).__name__}: {e}", "error")
             return
         self._project_panel.set_project(self._project)
+        # Restore the non-destructive processing history. It is stored as a recipe
+        # (steps only, no pixels); its base image is set to the current image the
+        # first time the history dialog is opened.
+        hist = self._project.settings.get("processing_history")
+        if hist:
+            from astraios.core.processing_graph import ProcessingGraph
+            self._processing_graph = ProcessingGraph.from_dict(hist)
         self._log_panel.log(f"Opened project: {self._project.name}", "success")
 
     def _save_project(self):
@@ -2234,6 +2241,7 @@ class MainWindow(QMainWindow):
                 display_name=undo_desc if undo_desc else message,
                 mask_name=mask_name,
             )
+            self._sync_history_to_project()
 
         # The image now differs from the last saved/exported state.
         self._dirty = True
@@ -5096,6 +5104,9 @@ class MainWindow(QMainWindow):
 
         if not hasattr(self, "_processing_graph") or self._processing_graph is None:
             self._processing_graph = ProcessingGraph()
+        # A history restored from a project has no base pixels; anchor it to the
+        # current image so stages can be reproduced (replayed as a recipe).
+        if self._processing_graph.base_image is None:
             self._processing_graph.set_base(self._current_image.data)
 
         dialog = ProcessingGraphDialog(self, self._processing_graph)
@@ -5103,6 +5114,11 @@ class MainWindow(QMainWindow):
         dialog.history_changed.connect(self._on_history_changed)
         dialog.export_macro.connect(self._on_history_export_macro)
         dialog.exec()
+
+    def _sync_history_to_project(self):
+        """Persist the processing history into the project (saved with it)."""
+        if getattr(self, "_project", None) is not None and self._processing_graph is not None:
+            self._project.settings["processing_history"] = self._processing_graph.to_dict()
 
     def _on_history_view_stage(self, index: int):
         """Preview the image at history step *index* (-1 = base) on the canvas.
@@ -5142,6 +5158,7 @@ class MainWindow(QMainWindow):
                 self._update_current_image(result, "Processing history updated")
         finally:
             self._skip_graph_auto_add = False
+        self._sync_history_to_project()
 
     def _on_history_export_macro(self):
         """Export the replayable history steps as a reusable macro."""
