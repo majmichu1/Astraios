@@ -3417,7 +3417,10 @@ class MainWindow(QMainWindow):
             return
         params = self._tools_panel.get_crop_params()
         result = crop(self._current_image.data, params)
-        self._update_current_image(result, f"Cropped to {result.shape[-1]}x{result.shape[-2]}", geometric=True)
+        self._update_current_image(
+            result, f"Cropped to {result.shape[-1]}x{result.shape[-2]}", geometric=True,
+            tool="crop", tool_params=self._step_params(params),
+        )
         if self._project:
             self._project.add_history(
                 "Crop",
@@ -3433,7 +3436,10 @@ class MainWindow(QMainWindow):
             return
         params = self._tools_panel.get_rotate_params()
         result = rotate(self._current_image.data, params)
-        self._update_current_image(result, f"Rotated ({params.angle.name})", geometric=True)
+        self._update_current_image(
+            result, f"Rotated ({params.angle.name})", geometric=True,
+            tool="rotate", tool_params=self._step_params(params),
+        )
         if self._project:
             self._project.add_history("Rotate", {"angle": params.angle.name})
         self._macro_recorder.record_step("rotate", {"angle": params.angle.name})
@@ -3444,7 +3450,10 @@ class MainWindow(QMainWindow):
             return
         params = self._tools_panel.get_flip_params()
         result = flip(self._current_image.data, params)
-        self._update_current_image(result, f"Flipped ({params.axis.name})", geometric=True)
+        self._update_current_image(
+            result, f"Flipped ({params.axis.name})", geometric=True,
+            tool="flip", tool_params=self._step_params(params),
+        )
         if self._project:
             self._project.add_history("Flip", {"axis": params.axis.name})
         self._macro_recorder.record_step("flip", {"axis": params.axis.name})
@@ -3455,7 +3464,10 @@ class MainWindow(QMainWindow):
             return
         params = self._tools_panel.get_resize_params()
         result = resize(self._current_image.data, params)
-        self._update_current_image(result, f"Resized to {result.shape[-1]}x{result.shape[-2]}", geometric=True)
+        self._update_current_image(
+            result, f"Resized to {result.shape[-1]}x{result.shape[-2]}", geometric=True,
+            tool="resize", tool_params=self._step_params(params),
+        )
         if self._project:
             self._project.add_history("Resize", {"scale": params.scale})
         self._macro_recorder.record_step("resize", {"scale": params.scale})
@@ -3467,7 +3479,8 @@ class MainWindow(QMainWindow):
         params = self._tools_panel.get_bin_params()
         result = bin_image(self._current_image.data, params)
         self._update_current_image(
-            result, f"Binned {params.factor}x{params.factor} ({params.mode.name})"
+            result, f"Binned {params.factor}x{params.factor} ({params.mode.name})",
+            tool="bin", tool_params=self._step_params(params),
         )
         if self._project:
             self._project.add_history("Bin", {"factor": params.factor, "mode": params.mode.name})

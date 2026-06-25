@@ -147,7 +147,19 @@ def _register_default_tools():
         generalized_hyperbolic_stretch,
         statistical_stretch,
     )
-    from astraios.core.transforms import invert
+    from astraios.core.transforms import (
+        BinParams,
+        CropParams,
+        FlipParams,
+        ResizeParams,
+        RotateParams,
+        bin_image,
+        crop,
+        flip,
+        invert,
+        resize,
+        rotate,
+    )
     from astraios.core.wavelets import WaveletParams, wavelet_sharpen
 
     register_tool("auto_stretch", lambda data, **kw: auto_stretch(data, _p(StretchParams, kw)))
@@ -182,6 +194,11 @@ def _register_default_tools():
         "unsharp_mask", lambda data, **kw: unsharp_mask(data, _p(UnsharpMaskParams, kw))
     )
     register_tool("invert", lambda data, **kw: invert(data))
+    register_tool("crop", lambda data, **kw: crop(data, _p(CropParams, kw)))
+    register_tool("rotate", lambda data, **kw: rotate(data, _p(RotateParams, kw)))
+    register_tool("flip", lambda data, **kw: flip(data, _p(FlipParams, kw)))
+    register_tool("resize", lambda data, **kw: resize(data, _p(ResizeParams, kw)))
+    register_tool("bin", lambda data, **kw: bin_image(data, _p(BinParams, kw)))
     register_tool(
         "arcsinh_stretch", lambda data, **kw: arcsinh_stretch(data, _p(ArcsinhStretchParams, kw))
     )
