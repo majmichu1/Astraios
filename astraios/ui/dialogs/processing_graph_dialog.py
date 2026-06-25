@@ -53,9 +53,10 @@ class ProcessingGraphDialog(QDialog):
         lay = QVBoxLayout(self)
 
         info = QLabel(
-            "Select a step to preview the image at that stage. Use the checkbox "
-            "to disable a step, or reorder and delete steps; the result "
-            "recomputes from the original, non-destructively."
+            "Select a step to preview that stage. Double-click to edit its "
+            "parameters. Use the checkbox to disable a step, or reorder and "
+            "delete steps; the result recomputes from the original, "
+            "non-destructively."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #aaa; padding: 4px;")
@@ -65,6 +66,7 @@ class ProcessingGraphDialog(QDialog):
         self._list.setAlternatingRowColors(True)
         self._list.currentRowChanged.connect(self._on_row_changed)
         self._list.itemChanged.connect(self._on_item_changed)
+        self._list.itemDoubleClicked.connect(self._edit_step)
         lay.addWidget(self._list)
 
         row1 = QHBoxLayout()
@@ -154,6 +156,30 @@ class ProcessingGraphDialog(QDialog):
         if self._graph.remove(row):
             self._refresh()
             self.history_changed.emit()
+
+    def _edit_step(self, item: QListWidgetItem):
+        index = item.data(Qt.ItemDataRole.UserRole)
+        if index is None:
+            return
+        index = int(index)
+        if not (0 <= index < len(self._graph.steps)):
+            return
+        step = self._graph.steps[index]
+        if not step.replayable or not step.params:
+            self._info_flash("This step has no editable parameters.")
+            return
+        from astraios.ui.dialogs.param_edit_dialog import ParamEditDialog
+
+        dlg = ParamEditDialog(self, step.label, step.params)
+        if dlg.exec():
+            self._graph.update_params(index, dlg.get_params())
+            self._refresh()
+            self._list.setCurrentRow(index)
+            self.history_changed.emit()
+
+    def _info_flash(self, text: str):
+        self.setWindowTitle(f"Processing History — {text}")
+        QTimer.singleShot(2000, lambda: self.setWindowTitle("Processing History"))
 
     def _move(self, delta: int):
         row = self._list.currentRow()
