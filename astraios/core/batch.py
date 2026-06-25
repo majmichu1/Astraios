@@ -109,8 +109,14 @@ def _register_default_tools():
         filtered = {k: v for k, v in kw.items() if k in known}
         return cls(**filtered) if filtered else None
 
+    from astraios.core.abe import ABEParams, abe_extract
     from astraios.core.background import extract_background
+    from astraios.core.background_neutralization import (
+        BackgroundNeutralizationParams,
+        background_neutralization,
+    )
     from astraios.core.banding import BandingParams, banding_reduction
+    from astraios.core.chromatic_aberration import CAParams, correct_chromatic_aberration
     from astraios.core.color_tools import ColorAdjustParams, SCNRParams, color_adjust, scnr
     from astraios.core.cosmetic import cosmetic_correction
     from astraios.core.curves import CurvePoints, CurvesParams, curves_transform
@@ -160,6 +166,7 @@ def _register_default_tools():
         resize,
         rotate,
     )
+    from astraios.core.vignette import VignetteParams, correct_vignette
     from astraios.core.wavelets import WaveletParams, wavelet_sharpen
 
     register_tool("auto_stretch", lambda data, **kw: auto_stretch(data, _p(StretchParams, kw)))
@@ -199,6 +206,16 @@ def _register_default_tools():
     register_tool("flip", lambda data, **kw: flip(data, _p(FlipParams, kw)))
     register_tool("resize", lambda data, **kw: resize(data, _p(ResizeParams, kw)))
     register_tool("bin", lambda data, **kw: bin_image(data, _p(BinParams, kw)))
+    register_tool("abe", lambda data, **kw: abe_extract(data, _p(ABEParams, kw))[0])
+    register_tool("vignette", lambda data, **kw: correct_vignette(data, _p(VignetteParams, kw)))
+    register_tool(
+        "chromatic_aberration",
+        lambda data, **kw: correct_chromatic_aberration(data, _p(CAParams, kw)),
+    )
+    register_tool(
+        "background_neutralization",
+        lambda data, **kw: background_neutralization(data, _p(BackgroundNeutralizationParams, kw)),
+    )
     register_tool(
         "arcsinh_stretch", lambda data, **kw: arcsinh_stretch(data, _p(ArcsinhStretchParams, kw))
     )

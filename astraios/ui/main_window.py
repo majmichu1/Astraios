@@ -3560,7 +3560,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def _on_abe_done(self, result):
         corrected, bg_model = result
-        self._update_current_image(corrected, "ABE background extraction complete")
+        self._update_current_image(
+            corrected, "ABE background extraction complete",
+            tool="abe", tool_params=self._step_params(self._tools_panel.get_abe_params()),
+        )
         if self._project:
             self._project.add_history("ABE", {})
 
@@ -3576,7 +3579,10 @@ class MainWindow(QMainWindow):
             return correct_vignette(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Vignette correction applied")
+            self._update_current_image(
+                result, "Vignette correction applied",
+                tool="vignette", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Vignette Correction", {"strength": _p.strength, "falloff": _p.falloff}
@@ -3599,7 +3605,10 @@ class MainWindow(QMainWindow):
             return correct_chromatic_aberration(data, _p)
 
         def _done(result):
-            self._update_current_image(result, "Chromatic aberration corrected")
+            self._update_current_image(
+                result, "Chromatic aberration corrected",
+                tool="chromatic_aberration", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history("CA Correction", {"auto": _p.auto_detect})
 
@@ -4165,7 +4174,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_bg_neutralization_done(self, result):
-        self._update_current_image(result, "Background neutralization complete")
+        self._update_current_image(
+            result, "Background neutralization complete",
+            tool="background_neutralization",
+            tool_params=self._step_params(
+                self._tools_panel.get_background_neutralization_params()
+            ),
+        )
         if self._project:
             params = self._tools_panel.get_background_neutralization_params()
             self._project.add_history(
