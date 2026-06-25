@@ -4293,7 +4293,10 @@ class MainWindow(QMainWindow):
             return color_adjust(data, _p)
 
         def _ca_done(result):
-            self._update_current_image(result, "Color adjustment applied")
+            self._update_current_image(
+                result, "Color adjustment applied",
+                tool="color_adjust", tool_params=self._step_params(_p),
+            )
             if self._project:
                 self._project.add_history(
                     "Color Adjustment",
