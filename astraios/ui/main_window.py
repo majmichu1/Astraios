@@ -195,7 +195,13 @@ def _score_and_stack_worker(
     def _stack_prog(frac, msg):
         _prog(stack_progress_start + frac * (1.0 - stack_progress_start), msg)
 
-    return stack_from_paths(final_paths, params=params, progress=_stack_prog)
+    # exact_normalization: compute full-frame factors (one frame in RAM at a
+    # time) so the memory-safe tiled stack matches what the in-memory stacker
+    # would produce, instead of the faster center-crop approximation. Costs one
+    # extra read per frame; worth it for a result that matches across paths.
+    return stack_from_paths(
+        final_paths, params=params, progress=_stack_prog, exact_normalization=True
+    )
 
 
 class _ProcessingCancelled(BaseException):
