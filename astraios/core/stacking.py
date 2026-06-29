@@ -341,6 +341,57 @@ def _compute_frame_norm_factors(
     return scales, shifts
 
 
+def _compute_frame_norm_factors_exact(
+    paths: "list",
+    method: NormalizationMethod,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-frame scale/shift from FULL frames, matching the in-memory
+    ``normalize_stack`` instead of the center-crop approximation.
+
+    Reads one whole frame at a time (memory-bounded) and computes the same
+    full-frame median/MAD over all pixels (all channels) that ``normalize_stack``
+    uses, so a tiled stack reproduces the in-memory stack's normalization. Costs
+    one extra full read per frame; use it when the result must match the
+    in-memory path rather than for speed.
+    """
+    n = len(paths)
+    scales = np.ones(n, dtype=np.float32)
+    shifts = np.zeros(n, dtype=np.float32)
+    if n < 2 or method == NormalizationMethod.NONE:
+        return scales, shifts
+    if method == NormalizationMethod.LOCAL:
+        log.warning("LOCAL normalization not supported in tiled stacking; skipping")
+        return scales, shifts
+
+    frame_meds = np.empty(n, dtype=np.float32)
+    frame_mads = np.empty(n, dtype=np.float32)
+    for i, p in enumerate(paths):
+        shp = _get_fits_shape(p)
+        full_h = int(shp[-2])
+        flat = _load_fits_tile(p, 0, full_h).reshape(-1)  # whole frame, normalized
+        frame_meds[i] = np.median(flat)
+        frame_mads[i] = np.median(np.abs(flat - frame_meds[i]))
+        del flat
+
+    ref_med = float(frame_meds[0])
+
+    if method == NormalizationMethod.ADDITIVE:
+        return scales, (ref_med - frame_meds).astype(np.float32)
+    if method == NormalizationMethod.MULTIPLICATIVE:
+        safe_meds = np.where(np.abs(frame_meds) > 1e-8, frame_meds, 1.0)
+        return (ref_med / safe_meds).astype(np.float32), shifts
+
+    # ADDITIVE_SCALING
+    ref_mad = float(frame_mads[0]) * 1.4826
+    frame_mads = frame_mads * 1.4826
+    if ref_mad < 1e-6:
+        return scales, (ref_med - frame_meds).astype(np.float32)
+    safe_mads = np.maximum(frame_mads, 1e-8)
+    scales = (ref_mad / safe_mads).astype(np.float32)
+    shifts = (ref_med - scales * frame_meds).astype(np.float32)
+    return scales, shifts
+
+
 # ---------------------------------------------------------------------------
 # Pixel Rejection Helpers
 # ---------------------------------------------------------------------------
@@ -1515,6 +1566,7 @@ def stack_from_paths(
     paths: "list[Path]",
     params: "StackingParams | None" = None,
     progress: ProgressCallback = _noop_progress,
+    exact_normalization: bool = False,
 ) -> "StackResult":
     """Stack frames from FITS file paths using tiled processing.
 
@@ -1584,7 +1636,12 @@ def stack_from_paths(
     shifts = np.zeros(n, dtype=np.float32)
     if params.normalization != NormalizationMethod.NONE:
         progress(0.02, "Computing normalization factors…")
-        scales, shifts = _compute_frame_norm_factors(paths, params.normalization)
+        if exact_normalization:
+            # Full-frame factors (one frame in RAM at a time) so the tiled result
+            # matches the in-memory stack instead of the center-crop approximation.
+            scales, shifts = _compute_frame_norm_factors_exact(paths, params.normalization)
+        else:
+            scales, shifts = _compute_frame_norm_factors(paths, params.normalization)
         log.debug(
             "Normalization scales: [%.4f, %.4f] shifts: [%.4f, %.4f]",
             scales.min(), scales.max(), shifts.min(), shifts.max(),

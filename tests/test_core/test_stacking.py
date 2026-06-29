@@ -346,6 +346,28 @@ class TestStackFromPaths:
         tiled = stack_from_paths(paths, params=params)
         np.testing.assert_allclose(tiled.image.data, mem.image.data, rtol=0.05, atol=0.02)
 
+    def test_stack_from_paths_exact_normalization_matches_in_memory(self, tmp_path):
+        """exact_normalization makes the tiled stack match the in-memory stack
+        to float precision (the center-crop approximation does not)."""
+        rng = np.random.default_rng(7)
+        base = rng.random((48, 56)).astype(np.float32) * 0.2 + 0.05
+        frames = [
+            np.clip(base * sc + off, 0, 1).astype(np.float32)
+            for off, sc in [(0.02, 1.0), (0.0, 1.15), (0.04, 0.92), (0.06, 1.08), (0.01, 0.95)]
+        ]
+        paths = [self._write_fits(tmp_path, f"e_{i}.fits", f) for i, f in enumerate(frames)]
+        images = [ImageData(data=f.copy()) for f in frames]
+        params = StackingParams(
+            rejection=RejectionMethod.NONE,
+            normalization=NormalizationMethod.ADDITIVE_SCALING,
+            integration=IntegrationMethod.AVERAGE,
+            use_gpu=False,
+        )
+        mem = stack_images(images, params=params, align=False)
+        tiled = stack_from_paths(paths, params=params, exact_normalization=True)
+        # Deterministic (no-rejection) path: normalization now matches exactly.
+        np.testing.assert_allclose(tiled.image.data, mem.image.data, rtol=1e-5, atol=1e-6)
+
     def test_stack_from_paths_multiplicative(self, tmp_path):
         """Multiplicative normalization scales frames with different medians."""
         base = np.full((30, 30), 0.2, dtype=np.float32)
