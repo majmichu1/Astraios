@@ -1,6 +1,6 @@
 [project]
 name = "astraios"
-version = "0.1.19.dev0"
+version = "0.1.19"
 description = "Professional GPU-accelerated astrophotography image processing"
 authors = [
     {name = "Astraios Contributors"}
