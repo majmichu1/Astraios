@@ -1794,11 +1794,18 @@ def stack_images(
 
     # 2. Build numpy stack (N, H, W)
     progress(0.30, "Loading frames into memory...")
-    data_stack = np.array([img.data for img in aligned_images], dtype=np.float32)
-    # data_stack is now a contiguous copy of every frame; keep only the reference
-    # header and release the N aligned frames so they don't sit in RAM alongside
-    # the stack (a transient 2x of the whole frame set on real workloads).
+    # Copy each frame into a preallocated contiguous buffer and drop its
+    # reference as we go, instead of np.array([...]) which holds the whole
+    # aligned frame set AND the stack at once. When align=True the aligned
+    # frames are freshly allocated, so releasing them here avoids a transient
+    # extra full-stack of RAM; for align=False the caller still owns them (this
+    # is a harmless no-op). data_stack is bit-identical to the old build.
     ref_header = aligned_images[0].header.copy()
+    n_frames = len(aligned_images)
+    data_stack = np.empty((n_frames, *aligned_images[0].data.shape), dtype=np.float32)
+    for i in range(n_frames):
+        data_stack[i] = aligned_images[i].data
+        aligned_images[i] = None  # release each aligned frame once it is copied
     del aligned_images
 
     # 3. Normalization
