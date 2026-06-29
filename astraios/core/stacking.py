@@ -220,6 +220,7 @@ def _row_medians(rows_2d: np.ndarray, centers: np.ndarray | None = None) -> np.n
 def normalize_stack(
     stack: np.ndarray,
     method: NormalizationMethod = NormalizationMethod.ADDITIVE_SCALING,
+    inplace: bool = False,
 ) -> np.ndarray:
     """Normalize background levels across frames.
 
@@ -230,28 +231,52 @@ def normalize_stack(
     ----------
     stack : ndarray, shape (N, H, W) or (N, C, H, W)
     method : NormalizationMethod
+    inplace : bool
+        Apply the scale/shift in place (mutating ``stack``) instead of allocating
+        a new array. Bit-identical to the out-of-place result and saves one
+        full-stack allocation; only honoured for floating-point stacks. The
+        caller must own ``stack`` (the in-memory stacker does — it builds and
+        immediately reuses the buffer).
     """
     n = stack.shape[0]
     if n < 2 or method == NormalizationMethod.NONE:
         return stack
 
+    inplace = inplace and np.issubdtype(stack.dtype, np.floating)
+
     # Build broadcast shape: (N, 1, 1, ...) matching extra trailing dims
     extra_dims = stack.ndim - 1  # number of non-N dimensions
     broadcast = (slice(None),) + (None,) * extra_dims  # e.g. [:, None, None] or [:, None, None, None]
+
+    def _apply(scales=None, shifts=None):
+        # stack * scales + shifts, in place when requested. np.multiply/np.add
+        # with out=stack mutate the buffer without rebinding the name (a bare
+        # ``stack *= ...`` would make stack a local of this closure). Same
+        # arithmetic and order as the out-of-place expression -> bit-identical.
+        if inplace:
+            if scales is not None:
+                np.multiply(stack, scales[broadcast], out=stack)
+            if shifts is not None:
+                np.add(stack, shifts[broadcast], out=stack)
+            return stack
+        out = stack
+        if scales is not None:
+            out = out * scales[broadcast]
+        if shifts is not None:
+            out = out + shifts[broadcast]
+        return out
 
     flat = stack.reshape(n, -1)
     ref_med = float(np.median(flat[0]))
 
     if method == NormalizationMethod.ADDITIVE:
         frame_meds = _row_medians(flat)
-        shifts = ref_med - frame_meds
-        return stack + shifts[broadcast]
+        return _apply(shifts=ref_med - frame_meds)
 
     if method == NormalizationMethod.MULTIPLICATIVE:
         frame_meds = _row_medians(flat)
         safe_meds = np.where(np.abs(frame_meds) > 1e-8, frame_meds, 1.0)
-        scales = ref_med / safe_meds
-        return stack * scales[broadcast]
+        return _apply(scales=ref_med / safe_meds)
 
     # ADDITIVE_SCALING (default): robust MAD-based scale + shift
     ref_mad = float(np.median(np.abs(flat[0] - ref_med))) * 1.4826
@@ -260,15 +285,14 @@ def normalize_stack(
 
     if ref_mad < 1e-6:
         # Reference has no structure: offset-only correction
-        shifts = ref_med - frame_meds
         log.debug("Normalization: offset-only (reference has no structure)")
-        return stack + shifts[broadcast]
+        return _apply(shifts=ref_med - frame_meds)
 
     safe_mads = np.maximum(frame_mads, 1e-8)
     scales = ref_mad / safe_mads
     shifts = ref_med - scales * frame_meds
     log.debug("Normalization: scale range [%.4f, %.4f]", scales.min(), scales.max())
-    return stack * scales[broadcast] + shifts[broadcast]
+    return _apply(scales=scales, shifts=shifts)
 
 
 def normalize_stack_linear_fit(stack: np.ndarray) -> np.ndarray:
@@ -1782,7 +1806,9 @@ def stack_images(
     if params.normalization == NormalizationMethod.LOCAL:
         data_stack = local_normalize(data_stack, params=LocalNormParams())
     else:
-        data_stack = normalize_stack(data_stack, params.normalization)
+        # In place: stack_images owns data_stack and reuses the buffer, so this
+        # avoids a second full-stack allocation during normalization.
+        data_stack = normalize_stack(data_stack, params.normalization, inplace=True)
 
     # 4. Rejection + Integration (GPU path when available)
     progress(0.50, f"Running {params.rejection.name}...")
