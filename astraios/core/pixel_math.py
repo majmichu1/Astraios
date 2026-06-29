@@ -82,7 +82,10 @@ def _get_torch_functions():
         # torch.median(x) with no dim returns the scalar median directly; the
         # `.values` accessor only exists on the (values, indices) tuple from the
         # dim form, so `.values` here returned a bound method, not the median.
-        "median": lambda x: torch.median(x) if x.numel() > 0 else torch.tensor(0.0),
+        "median": lambda x: (
+            torch.median(x) if x.numel() > 0
+            else torch.tensor(0.0, device=x.device, dtype=x.dtype)
+        ),
         "sin": torch.sin,
         "cos": torch.cos,
         "pow": torch.pow,

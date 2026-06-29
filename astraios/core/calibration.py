@@ -159,7 +159,9 @@ def _create_master(
 
         if subtract2 is not None:
             sub_data = subtract2.data
-            if sub_data.shape == shape:
+            if sub_data.shape != shape:
+                log.warning("Subtraction frame 2 shape mismatch, skipping subtraction")
+            else:
                 stack -= sub_data[np.newaxis, ...]
 
         progress(0.7, f"Computing {method} of {label} stack...")

@@ -100,7 +100,11 @@ def align_channels(
     ch_idx_map = {"R": 0, "G": 1, "B": 2}
 
     for ch_name in ("R", "G", "B"):
-        if ch_name == params.reference_channel or params.reference_channel == "Mean":
+        # Skip only the channel that IS the reference. For "Mean" the reference
+        # is the average of all three (computed above), so every channel is
+        # aligned to it — the old "or reference == Mean" skipped them all, which
+        # made Mean mode a silent no-op.
+        if ch_name == params.reference_channel:
             continue
 
         moving = channels[ch_name]
