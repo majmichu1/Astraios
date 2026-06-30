@@ -22,6 +22,31 @@ from PyQt6.QtWidgets import (
 from astraios.core.processing_graph import ProcessingGraph
 
 
+def _summarize_params(params: dict, max_items: int = 4) -> str:
+    """A short, human-readable summary of a step's params for the tooltip."""
+    if not params:
+        return ""
+    parts = []
+    for k, v in list(params.items())[:max_items]:
+        if hasattr(v, "name"):          # enum member
+            sv = v.name
+        elif isinstance(v, bool):
+            sv = str(v)
+        elif isinstance(v, float):
+            sv = f"{v:.3g}"
+        elif isinstance(v, (list, tuple)):
+            sv = f"[{len(v)}]"
+        elif isinstance(v, dict):
+            continue                    # nested (e.g. curve points) — skip
+        else:
+            sv = str(v)
+        parts.append(f"{k}={sv}")
+    summary = ", ".join(parts)
+    if len(params) > max_items and summary:
+        summary += ", …"
+    return summary
+
+
 class ProcessingGraphDialog(QDialog):
     """Non-destructive editing history with stage preview and editing."""
 
@@ -107,6 +132,10 @@ class ProcessingGraphDialog(QDialog):
                 Qt.CheckState.Checked if r["enabled"] else Qt.CheckState.Unchecked
             )
             tips = []
+            if r["replayable"]:
+                summary = _summarize_params(r["params"])
+                if summary:
+                    tips.append(summary)
             if r["mask_name"]:
                 tips.append(f"mask: {r['mask_name']}")
             if not r["replayable"]:
