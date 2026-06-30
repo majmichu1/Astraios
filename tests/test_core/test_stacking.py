@@ -70,6 +70,25 @@ class TestNormalizeStack:
         r2 = normalize_stack(stack, NormalizationMethod.ADDITIVE_SCALING)
         np.testing.assert_allclose(r1, r2)
 
+    def test_inplace_is_bit_identical(self):
+        """inplace normalization must equal the out-of-place result bit-for-bit
+        (the in-memory stacker relies on this to save a full-stack allocation)."""
+        rng = np.random.default_rng(11)
+        for shape in [(6, 20, 24), (5, 3, 16, 18)]:
+            stack = (rng.random(shape).astype(np.float32) * 0.4 + 0.1)
+            for i in range(shape[0]):
+                stack[i] = stack[i] * (1 + 0.08 * i) + 0.02 * i
+            for method in (
+                NormalizationMethod.ADDITIVE,
+                NormalizationMethod.MULTIPLICATIVE,
+                NormalizationMethod.ADDITIVE_SCALING,
+            ):
+                oop = normalize_stack(stack.copy(), method, inplace=False)
+                buf = stack.copy()
+                ip = normalize_stack(buf, method, inplace=True)
+                assert np.array_equal(oop, ip)
+                assert ip is buf  # mutated the caller's buffer, no new allocation
+
 
 # ---------------------------------------------------------------------------
 # Rejection methods
