@@ -429,3 +429,38 @@ class TestMorphologyToolRegistration:
         # 'DISK' alias and lowercase operation must not raise.
         assert tool(img, element="DISK", operation="dilate").shape == img.shape
         assert tool(img, element="square", operation="OPEN").shape == img.shape
+
+
+def _color_sample(h=64, w=80, seed=0):
+    """A small colour image with stars + gentle gradient, for tool smoke tests."""
+    from scipy.ndimage import gaussian_filter
+    rng = np.random.default_rng(seed)
+    base = np.zeros((h, w), np.float32)
+    sy = rng.integers(5, h - 5, 60)
+    sx = rng.integers(5, w - 5, 60)
+    base[sy, sx] = rng.uniform(0.3, 0.9, 60).astype(np.float32)
+    base = gaussian_filter(base, 1.2) + 0.1
+    return np.stack([
+        np.clip(base + rng.normal(0, 0.01, (h, w)).astype(np.float32), 0, 1)
+        for _ in range(3)
+    ]).astype(np.float32)
+
+
+def test_all_registered_tools_run_on_color_image():
+    """Every registered tool must run on a colour image with default params and
+    return a finite array. This guards the history / macro / batch replay path:
+    a broken registry entry (wrong param mapping, missing import) fails here.
+    """
+    tools = get_registered_tools()
+    img = _color_sample()
+    failures = []
+    for name, fn in tools.items():
+        try:
+            out = np.asarray(fn(img.copy()))
+            if out is None or not np.isfinite(out).all():
+                failures.append(f"{name}: non-finite/None output")
+            elif out.ndim not in (2, 3):
+                failures.append(f"{name}: unexpected ndim {out.ndim}")
+        except Exception as e:  # noqa: BLE001 - collect all failures
+            failures.append(f"{name}: {type(e).__name__}: {e}")
+    assert not failures, "registered tools failed:\n  " + "\n  ".join(failures)
