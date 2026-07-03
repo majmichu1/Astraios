@@ -355,6 +355,10 @@ class MainWindow(QMainWindow):
         self._master_dark: ImageData | None = None
         self._master_flat: ImageData | None = None
         self._calibrated_lights: list[ImageData] = []
+        # Calibrated frames written to disk (cal_*.fits). Set alongside or
+        # instead of _calibrated_lights; large datasets stream here to keep
+        # RAM bounded, and stacking/alignment read these paths.
+        self._calibrated_paths: list[Path] = []
         # True when the current image has unsaved edits since the last export.
         self._dirty: bool = False
 
@@ -1459,6 +1463,17 @@ class MainWindow(QMainWindow):
             self._log_panel.log(f"Open failed: {type(e).__name__}: {e}", "error")
             return
         self._project_panel.set_project(self._project)
+        # Restore calibrated-frame paths so alignment/stacking resume from the
+        # calibrated files instead of re-reading raw lights.
+        self._calibrated_lights = []
+        self._calibrated_paths = [
+            e.path for e in self._project.frames_by_type(FrameType.CALIBRATED)
+            if e.path.exists()
+        ]
+        self._aligned_paths = [
+            e.path for e in self._project.frames_by_type(FrameType.ALIGNED)
+            if e.path.exists()
+        ]
         # Restore the non-destructive processing history. It is stored as a recipe
         # (steps only, no pixels); its base image is set to the current image the
         # first time the history dialog is opened.
@@ -2546,6 +2561,7 @@ class MainWindow(QMainWindow):
             bias_paths, dark_paths, flat_paths,
             [e.path for e in light_frames],
             bias_master_path, dark_master_path, flat_master_path,
+            self._project.calibrated_dir,
             on_done=self._on_calibration_done,
         )
 
@@ -2553,6 +2569,7 @@ class MainWindow(QMainWindow):
     def _calibration_pipeline(
         bias_paths, dark_paths, flat_paths, light_paths,
         bias_master_path=None, dark_master_path=None, flat_master_path=None,
+        calibrated_dir=None,
         progress=None,
     ):
         results = {}
@@ -2605,14 +2622,61 @@ class MainWindow(QMainWindow):
 
         # ── Calibrate lights ──────────────────────────────────────────────────
         prog(0.55, f"Calibrating {len(light_paths)} light frames…")
-        calibrated = calibrate_lights_batch(
-            light_paths,
-            master_bias=master_bias,
-            master_dark=master_dark,
-            master_flat=master_flat,
-            progress=lambda f, m: prog(0.55 + f * 0.45, m),
-        )
-        results["calibrated"] = calibrated
+
+        # Decide in-memory vs streaming by estimated dataset size. Holding every
+        # calibrated frame in RAM OOMs on large sets; streaming keeps one frame
+        # resident at a time. Small sets stay in RAM (fast in-memory alignment)
+        # AND are written to disk so downstream path-based stages read
+        # calibrated pixels.
+        keep_in_memory = True
+        if calibrated_dir is not None and light_paths:
+            try:
+                # NB: local "from ... import load_image" statements elsewhere in
+                # this function make the bare name function-local; alias it.
+                from astraios.core.image_io import load_image as _load_first
+                first = _load_first(light_paths[0])
+                frame_bytes = first.data.nbytes
+                del first
+                estimated = frame_bytes * len(light_paths)
+                import psutil
+                budget = psutil.virtual_memory().available * 0.25
+                keep_in_memory = estimated <= budget
+                if not keep_in_memory:
+                    prog(
+                        0.55,
+                        f"Large dataset (~{estimated / 1024**3:.1f} GB) — "
+                        "streaming calibration to disk",
+                    )
+            except Exception:
+                log.debug("Could not estimate dataset size; keeping in memory")
+
+        if calibrated_dir is not None and not keep_in_memory:
+            from astraios.core.calibration import calibrate_lights_to_disk
+            cal_paths = calibrate_lights_to_disk(
+                light_paths,
+                calibrated_dir,
+                master_bias=master_bias,
+                master_dark=master_dark,
+                master_flat=master_flat,
+                progress=lambda f, m: prog(0.55 + f * 0.45, m),
+            )
+            results["calibrated"] = []
+            results["calibrated_paths"] = cal_paths
+        else:
+            calibrated = calibrate_lights_batch(
+                light_paths,
+                master_bias=master_bias,
+                master_dark=master_dark,
+                master_flat=master_flat,
+                output_dir=calibrated_dir,
+                progress=lambda f, m: prog(0.55 + f * 0.45, m),
+            )
+            results["calibrated"] = calibrated
+            results["calibrated_paths"] = (
+                [img.file_path for img in calibrated if img.file_path is not None]
+                if calibrated_dir is not None
+                else []
+            )
         return results
 
     @pyqtSlot(object)
@@ -2621,23 +2685,54 @@ class MainWindow(QMainWindow):
         self._master_dark = results.get("master_dark")
         self._master_flat = results.get("master_flat")
         self._calibrated_lights = results.get("calibrated", [])
+        self._calibrated_paths = [Path(p) for p in results.get("calibrated_paths", [])]
 
-        n = len(self._calibrated_lights)
-        self._log_panel.log(f"Calibration complete: {n} lights calibrated", "success")
+        n = len(self._calibrated_lights) or len(self._calibrated_paths)
+        mode = " (streamed to disk)" if not self._calibrated_lights else ""
+        self._log_panel.log(f"Calibration complete: {n} lights calibrated{mode}", "success")
 
         if self._calibrated_lights:
             self._display_image(self._calibrated_lights[0])
+        elif self._calibrated_paths:
+            try:
+                self._display_image(load_image(str(self._calibrated_paths[0])))
+            except Exception as exc:
+                log.warning("Could not display first calibrated frame: %s", exc)
 
         if self._project:
+            if self._calibrated_paths:
+                for p in self._calibrated_paths:
+                    self._project.remove_frame(p)
+                self._project.add_frames(
+                    [p for p in self._calibrated_paths if p.exists()], FrameType.CALIBRATED
+                )
+                if hasattr(self, "_project_panel"):
+                    self._project_panel.refresh()
             self._project.add_history("Calibration", {"n_lights": n})
             self._save_project()
 
-    def _get_raw_light_paths(self) -> list[Path] | None:
-        """Return raw light frame paths after user confirmation.
+    def _get_calibrated_paths(self) -> list[Path]:
+        """Return calibrated frame paths on disk, freshest source first."""
+        if self._calibrated_paths:
+            return [p for p in self._calibrated_paths if p.exists()]
+        if self._project:
+            return [
+                e.path for e in self._project.frames_by_type(FrameType.CALIBRATED)
+                if e.path.exists()
+            ]
+        return []
 
-        Shows a warning dialog about uncalibrated frames on first use.
-        Returns None if cancelled or no lights in project.
+    def _get_raw_light_paths(self) -> list[Path] | None:
+        """Return light frame paths after user confirmation.
+
+        Prefers calibrated frames (on disk, then the in-RAM batch's saved
+        file paths). Shows a warning dialog about uncalibrated frames on
+        first use. Returns None if cancelled or no lights in project.
         """
+        cal_paths = self._get_calibrated_paths()
+        if cal_paths:
+            return cal_paths
+
         if self._calibrated_lights:
             return [img.file_path for img in self._calibrated_lights
                     if img.file_path is not None]
@@ -2676,10 +2771,15 @@ class MainWindow(QMainWindow):
         return [f.path for f in light_frames]
 
     def _get_light_paths(self) -> list | None:
-        """Return raw light frame paths from project without loading them into RAM.
+        """Return light frame paths from project without loading them into RAM.
 
-        Returns None if the user cancels or there are no lights.
+        Prefers calibrated frames on disk over raw lights. Returns None if the
+        user cancels or there are no lights.
         """
+        cal_paths = self._get_calibrated_paths()
+        if cal_paths:
+            return cal_paths
+
         if not self._project:
             self._log_panel.log("No project loaded", "error")
             return None
@@ -2944,9 +3044,14 @@ class MainWindow(QMainWindow):
             return
 
         # No aligned frames on disk — prefer path-based align+stack to avoid loading
-        # all frames into RAM on the main thread. Fall back to in-memory only when
-        # calibrated lights are already loaded (small dataset path).
-        light_paths = self._get_light_paths() if not self._calibrated_lights else None
+        # all frames into RAM on the main thread. _get_light_paths() returns
+        # calibrated frames from disk when they exist (so calibration is never
+        # silently discarded); fall back to in-memory only when calibrated
+        # lights exist solely in RAM with no disk copies.
+        if self._calibrated_lights and not self._get_calibrated_paths():
+            light_paths = None
+        else:
+            light_paths = self._get_light_paths()
 
         if light_paths is not None:
             # Disk-based align + stack (memory-safe for large datasets)
