@@ -998,6 +998,8 @@ class MainWindow(QMainWindow):
         self._project_panel.dso_overlay_clicked.connect(self._on_toggle_dso_overlay)
         self._project_panel.show_statistics.connect(self._on_show_statistics)
         self._project_panel.show_fits_header.connect(self._show_fits_header)
+        self._project_panel.new_project_clicked.connect(self._new_project)
+        self._project_panel.open_project_clicked.connect(self._open_project)
         # With no project loaded, the History tree shows the editing history
         # of the current image (the non-destructive processing graph).
         self._project_panel.set_fallback_history_provider(self._session_history_entries)
@@ -1441,6 +1443,10 @@ class MainWindow(QMainWindow):
         self._log_panel.log(f"Created project: {name}", "success")
 
     def _open_project(self):
+        # Same protection _open_image has: unsaved edits on the current image
+        # deserve a prompt before the project (and its history) is swapped.
+        if not self._maybe_discard_changes():
+            return
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Project", "", "Astraios Project (astraios_project.json)"
         )
@@ -1549,7 +1555,27 @@ class MainWindow(QMainWindow):
         path = getattr(self._current_image, "file_path", None)
         dlg = FITSHeaderDialog(self._current_image.header, file_path=path, parent=self)
         if dlg.exec():
-            self._current_image.header.update(dlg.get_header())
+            from astraios.ui.dialogs.fits_header_dialog import _READONLY_KEYS
+            header = self._current_image.header
+            new_header = dlg.get_header()
+            new_keys = {k.upper() for k in new_header}
+            changed = False
+            # Honor deletions (plain .update() could never remove a key),
+            # keeping structural keys and COMMENT/HISTORY untouched.
+            for k in list(header.keys()):
+                ku = str(k).upper()
+                if (ku and ku not in new_keys and ku not in _READONLY_KEYS
+                        and ku not in ("COMMENT", "HISTORY", "END")):
+                    del header[k]
+                    changed = True
+            for k, v in new_header.items():
+                if header.get(k) != v:
+                    header[k] = v
+                    changed = True
+            if changed:
+                # Header edits are edits: without this the discard-changes
+                # prompt never fired and the change was silently lost.
+                self._dirty = True
             self._log_panel.log("FITS header updated", "success")
 
     def _show_color_management(self):
@@ -1665,7 +1691,9 @@ class MainWindow(QMainWindow):
         dialog.deleteLater()  # don't linger as a child holding panel images
 
     def _on_mosaic_result(self, result):
-        self._update_current_image(result.data, "Mosaic stitching complete")
+        # geometric: the mosaic's extent and statistics are unrelated to
+        # whatever image happened to be loaded before stitching.
+        self._update_current_image(result.data, "Mosaic stitching complete", geometric=True)
         if self._project:
             self._project.add_history(
                 "Mosaic Stitch",
@@ -2048,6 +2076,17 @@ class MainWindow(QMainWindow):
             # A freshly loaded image is clean; reset edit/workflow/mask state.
             self._dirty = False
             self._active_mask = None
+            # Drop masks that no longer fit the new image — each is a
+            # full-resolution float32 array and the list otherwise grew
+            # unboundedly across differently-sized loads.
+            new_shape = image.data.shape[-2:]
+            kept = [m for m in self._masks if m.data.shape == new_shape]
+            if len(kept) != len(self._masks):
+                self._log_panel.log(
+                    f"Discarded {len(self._masks) - len(kept)} mask(s) that do "
+                    "not fit the new image size", "info",
+                )
+                self._masks = kept
             self._workflow_bar.set_current(0)
             # The processing graph is created lazily (on the first edit, or when
             # the graph dialog is opened) so we don't hold an always-on full-res
@@ -3243,6 +3282,15 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_ms_add_folder(self):
         """Let the user pick a folder of light frames as a new session."""
+        # Re-entrancy guard: a second click while a folder is still loading
+        # overwrote _ms_pending_name (mislabeled sessions) and dropped the
+        # only reference to the running loader thread.
+        loader = getattr(self, "_ms_folder_loader", None)
+        if loader is not None and loader.isRunning():
+            self._log_panel.log(
+                "A session folder is already loading; wait for it to finish", "warning"
+            )
+            return
         from PyQt6.QtWidgets import QFileDialog, QInputDialog
         folder = QFileDialog.getExistingDirectory(self, "Select Session Folder", "")
         if not folder:
@@ -3636,7 +3684,7 @@ class MainWindow(QMainWindow):
         result = bin_image(self._current_image.data, params)
         self._update_current_image(
             result, f"Binned {params.factor}x{params.factor} ({params.mode.name})",
-            tool="bin", tool_params=self._step_params(params),
+            geometric=True, tool="bin", tool_params=self._step_params(params),
         )
         if self._project:
             self._project.add_history("Bin", {"factor": params.factor, "mode": params.mode.name})
@@ -3705,6 +3753,9 @@ class MainWindow(QMainWindow):
         if self._current_image is None:
             return
         params = self._tools_panel.get_abe_params()
+        # Record the params that actually ran: re-reading the panel in the
+        # completion handler picked up any slider changes made mid-run.
+        self._abe_run_params = params
         self._log_panel.log("Running ABE (RBF background extraction)...", "info")
         self._start_worker(
             abe_extract,
@@ -3716,9 +3767,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot(object)
     def _on_abe_done(self, result):
         corrected, bg_model = result
+        params = getattr(self, "_abe_run_params", None) or self._tools_panel.get_abe_params()
         self._update_current_image(
             corrected, "ABE background extraction complete",
-            tool="abe", tool_params=self._step_params(self._tools_panel.get_abe_params()),
+            tool="abe", tool_params=self._step_params(params),
         )
         if self._project:
             self._project.add_history("ABE", {})
@@ -4295,15 +4347,20 @@ class MainWindow(QMainWindow):
         def _bg_work(data, progress=None):
             return extract_background(data, params)
 
+        # Record the params that actually ran, not whatever the panel says
+        # when the worker finishes.
+        self._bg_run_params = params
         self._start_worker(_bg_work, self._current_image.data, on_done=self._on_background_done)
 
     @pyqtSlot(object)
     def _on_background_done(self, result):
         corrected, bg_model = result
+        params = (getattr(self, "_bg_run_params", None)
+                  or self._tools_panel.get_background_params())
         self._update_current_image(
-            corrected, "Background extraction complete", tool="background_extraction"
+            corrected, "Background extraction complete",
+            tool="background_extraction", tool_params=self._step_params(params),
         )
-        params = self._tools_panel.get_background_params()
         if self._project:
             self._project.add_history(
                 "Background Extraction",
@@ -4326,19 +4383,19 @@ class MainWindow(QMainWindow):
             from astraios.core.background_neutralization import _noop_progress
             return background_neutralization(data, params, progress=progress or _noop_progress)
 
+        self._bgn_run_params = params
         self._start_worker(_work, self._current_image.data, on_done=self._on_bg_neutralization_done)
 
     @pyqtSlot(object)
     def _on_bg_neutralization_done(self, result):
+        params = (getattr(self, "_bgn_run_params", None)
+                  or self._tools_panel.get_background_neutralization_params())
         self._update_current_image(
             result, "Background neutralization complete",
             tool="background_neutralization",
-            tool_params=self._step_params(
-                self._tools_panel.get_background_neutralization_params()
-            ),
+            tool_params=self._step_params(params),
         )
         if self._project:
-            params = self._tools_panel.get_background_neutralization_params()
             self._project.add_history(
                 "Background Neutralization",
                 {"percentile": params.percentile, "amount": params.amount},
@@ -4814,11 +4871,10 @@ class MainWindow(QMainWindow):
             self._update_current_image(
                 result, f"Noise reduction complete ({_p.method.name})",
                 tool="denoise",
-                tool_params={
-                    "method": _p.method, "strength": _p.strength,
-                    "detail_preservation": _p.detail_preservation,
-                    "wavelet": _p.wavelet, "wavelet_levels": _p.wavelet_levels,
-                },
+                # Full dataclass fields: a hand-picked dict silently dropped
+                # chrominance_only, so a chroma-only denoise replayed as a
+                # full-image denoise.
+                tool_params=self._step_params(_p),
             )
             if self._project:
                 self._project.add_history(
@@ -5500,7 +5556,7 @@ class MainWindow(QMainWindow):
             lambda data, progress=None: upscale(data, params),
             self._current_image.data,
             on_done=lambda result: self._update_current_image(
-                result, f"Super-resolution {scale}× complete"
+                result, f"Super-resolution {scale}× complete", geometric=True
             ),
         )
 
@@ -5736,7 +5792,7 @@ class MainWindow(QMainWindow):
             self._log_panel.log("No image loaded", "warning")
             return
         self._blink_images[slot] = self._make_display_rgb(self._current_image.data)
-        name = getattr(self._current_image, "path", None)
+        name = self._current_image.file_path
         name = Path(name).name if name else "current image"
         self._blink_names[slot] = name
         self._tools_panel.set_blink_slot_label("a" if slot == 0 else "b", name)
@@ -5793,9 +5849,12 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         """Global keyboard shortcuts."""
         from PyQt6.QtCore import Qt as _Qt
+        # Shift+B toggles the Blink comparator. Plain B belongs to the
+        # Before/After Split QAction, whose shortcut fires before this
+        # handler — the old unmodified check here was unreachable.
         if (event.key() == _Qt.Key.Key_B
                 and not event.isAutoRepeat()
-                and event.modifiers() == _Qt.KeyboardModifier.NoModifier):
+                and event.modifiers() == _Qt.KeyboardModifier.ShiftModifier):
             btn = self._tools_panel._blink_toggle_btn
             btn.setChecked(not btn.isChecked())
             return

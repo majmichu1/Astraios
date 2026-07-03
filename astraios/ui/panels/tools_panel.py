@@ -409,6 +409,16 @@ class ToolsPanel(QWidget):
             "Reference frame",
             ["Auto (best quality)", "First frame", "Last frame", "Specific frame #"],
         )
+        # Index input for "Specific frame #" (1-based, shown only when chosen;
+        # the option used to silently behave like "First frame").
+        self._ref_frame_spin = styled_spin(1, 9999, 1, 1, 0, "")
+        self._ref_frame_row = QWidget()
+        self._ref_frame_row.setLayout(field_row("Frame #", self._ref_frame_spin, 110))
+        self._ref_frame_row.setVisible(False)
+        reg.add_widget(self._ref_frame_row)
+        self._ref_frame_combo.currentTextChanged.connect(
+            lambda t: self._ref_frame_row.setVisible(t == "Specific frame #")
+        )
         reg.add_run("▶ Align Frames", self.run_alignment.emit, flat=True)
         lay.addWidget(reg)
 
@@ -694,6 +704,13 @@ class ToolsPanel(QWidget):
         )
         btns = ghs.add_btn_row([("▶ Apply GHS", False), ("Reset", True)])
         btns[0].clicked.connect(self.run_ghs.emit)
+        btns[1].clicked.connect(lambda: (
+            self._ghs_d_spin.setValue(5.0),
+            self._ghs_b_spin.setValue(0.0),
+            self._ghs_sp_spin.setValue(0.0),
+            self._ghs_shadow_slider.setValue(0.0),
+            self._ghs_highlight_slider.setValue(0.0),
+        ))
         lay.addWidget(ghs)
 
         # Histogram Transform
@@ -720,6 +737,7 @@ class ToolsPanel(QWidget):
         )
         btns = ht.add_btn_row([("▶ Apply HT", False), ("Reset", True)])
         btns[0].clicked.connect(self.run_histogram_transform.emit)
+        btns[1].clicked.connect(self.reset_histogram_transform_params)
         lay.addWidget(ht)
 
         # Curves
@@ -818,9 +836,11 @@ class ToolsPanel(QWidget):
         scnr = CollapsibleSection("Remove Green Cast (SCNR)", accent=True)
         scnr.add_info("Remove color noise, typically excess green channel.")
         self._scnr_target_combo  = scnr.add_combo("Target",  ["Green", "Red", "Blue"])
+        # Only the two implemented SCNR methods are offered; the previous
+        # third entry silently ran Average Neutral.
         self._scnr_method_combo  = scnr.add_combo(
             "Method",
-            ["Average Neutral", "Maximum Neutral", "Additive-Subtractive Mask"],
+            ["Average Neutral", "Maximum Neutral"],
         )
         self._scnr_amount = scnr.add_slider("Amount", 0.5, 0.0, 1.0, 0.01, 2)
         self._scnr_preview_check = scnr.add_check("Show before/after preview")
@@ -838,7 +858,9 @@ class ToolsPanel(QWidget):
         ca = CollapsibleSection("Color Adjustment")
         self._hue_slider        = ca.add_slider("Hue shift",   0, -180, 180, 1, 0)
         self._sat_slider        = ca.add_slider("Saturation",  0, -100, 100, 1, 0)
-        self._vibrance_slider   = ca.add_slider("Vibrance",    0, -100, 100, 1, 0)
+        # Vibrance is boost-only in the core (0-1); a negative range here was
+        # an inert half of the slider.
+        self._vibrance_slider   = ca.add_slider("Vibrance",    0, 0, 100, 1, 0)
         ca.add_run("▶ Apply Color Adjust", self.run_color_adjust.emit)
         lay.addWidget(ca)
 
@@ -869,8 +891,9 @@ class ToolsPanel(QWidget):
         self._cc_rgb_row = rgb_row
         self._cc_method_combo.currentIndexChanged.connect(self._toggle_cc_manual_rgb)
         self._toggle_cc_manual_rgb()
-        btns = cc.add_btn_row([("Pick BG Reference", True), ("Calibrate", False)])
-        btns[1].clicked.connect(self.run_color_calibration.emit)
+        # (A "Pick BG Reference" button used to sit here, wired to nothing —
+        # the calibrator finds the background from the darkest pixels itself.)
+        cc.add_run("▶ Calibrate", self.run_color_calibration.emit)
         lay.addWidget(cc)
 
         # PCC — Photometric Color Calibration (plate solve + Gaia DR3)
@@ -1255,10 +1278,30 @@ class ToolsPanel(QWidget):
         train.add_code_block(
             "poetry run python scripts/\ntrain_denoise_model.py\n--input astro_data --epochs 30"
         )
-        train.add_run("Open Training Guide…", flat=True)
+        train.add_run("Open Training Guide…", self._show_training_guide, flat=True)
         lay.addWidget(train)
 
         self._tabs.addTab(scrollable_tab(lay), "✦  AI Tools")
+
+    def _show_training_guide(self):
+        """Explain how to train a personal denoise model (button was dead)."""
+        from PyQt6.QtWidgets import QMessageBox
+
+        QMessageBox.information(
+            self,
+            "Train Your Own Denoise Model",
+            "Astraios can fine-tune the AI denoiser on your own raw subs\n"
+            "using self-supervised Noise2Self training (no clean targets\n"
+            "needed).\n\n"
+            "1. Collect a folder of your raw light frames (FITS).\n"
+            "2. From the Astraios source checkout, run:\n\n"
+            "   poetry run python scripts/train_denoise_model.py \\\n"
+            "       --input /path/to/your/lights --epochs 30\n\n"
+            "3. Point Preferences > AI Models > Denoise model at the\n"
+            "   resulting .pt file.\n\n"
+            "Training benefits from a CUDA GPU; expect roughly an hour\n"
+            "for 30 epochs on a mid-range card.",
+        )
 
     # ── TAB 9: Utility ────────────────────────────────────
     def _build_utility_tab(self):
@@ -1504,6 +1547,16 @@ class ToolsPanel(QWidget):
             kappa_high=kappa,
         )
 
+    def set_ref_frame_max(self, n: int):
+        """Cap the 'Specific frame #' input at the loaded frame count.
+
+        main_window has always called this before alignment, but the method
+        did not exist — aligning in-memory calibrated lights crashed with
+        AttributeError before registration even started.
+        """
+        if n >= 1:
+            self._ref_frame_spin.setMaximum(n)
+
     def get_alignment_params(self) -> dict:
         mode_map = {
             "Star (1-Pass)":    RegistrationMode.STAR_1_PASS,
@@ -1516,12 +1569,15 @@ class ToolsPanel(QWidget):
             "Auto (best quality)": -1,   # -1 = auto-select highest-variance frame
             "First frame":          0,
             "Last frame":          -2,   # -2 = last frame (special sentinel in stacking.py)
-            "Specific frame #":     0,
         }
         mode = mode_map.get(
             self._reg_mode_combo.currentText(), RegistrationMode.STAR_2_PASS
         )
-        ref_idx = ref_map.get(self._ref_frame_combo.currentText(), 0)
+        ref_choice = self._ref_frame_combo.currentText()
+        if ref_choice == "Specific frame #":
+            ref_idx = int(self._ref_frame_spin.value()) - 1  # UI is 1-based
+        else:
+            ref_idx = ref_map.get(ref_choice, 0)
         return {
             "mode": mode,
             "reference_frame_index": ref_idx,
@@ -1878,11 +1934,21 @@ class ToolsPanel(QWidget):
         )
 
     def get_abe_params(self) -> ABEParams:
+        # abe.py compares lowercase tokens; passing the display text meant
+        # "RBF" never matched "rbf" and RBF mode silently ran the polynomial.
+        kernel_map = {
+            "Thin Plate Spline": "thin_plate_spline",
+            "Multiquadric": "multiquadric",
+            "Gaussian": "gaussian",
+        }
+        model = "rbf" if self._abe_model_combo.currentText() == "RBF" else "polynomial"
         return ABEParams(
             grid_size=int(self._abe_grid_spin.value()),
-            model_type=self._abe_model_combo.currentText(),
+            model_type=model,
             polynomial_degree=int(self._abe_degree_spin.value()),
-            rbf_kernel=self._abe_kernel_combo.currentText(),
+            rbf_kernel=kernel_map.get(
+                self._abe_kernel_combo.currentText(), "thin_plate_spline"
+            ),
             correction_mode=self._abe_mode_combo.currentText().lower(),
         )
 
@@ -1892,7 +1958,7 @@ class ToolsPanel(QWidget):
         op_map = {
             "Erosion": MorphOp.ERODE, "Dilation": MorphOp.DILATE,
             "Opening": MorphOp.OPEN, "Closing": MorphOp.CLOSE,
-            "Gradient": MorphOp.DILATE,
+            "Gradient": MorphOp.GRADIENT,
         }
         el_map = {
             "Disk": StructuringElement.CIRCLE, "Square": StructuringElement.SQUARE,

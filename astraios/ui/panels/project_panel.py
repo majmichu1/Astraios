@@ -186,6 +186,8 @@ class ProjectPanel(QWidget):
     dso_overlay_clicked = pyqtSignal()
     show_statistics = pyqtSignal()
     show_fits_header = pyqtSignal()
+    new_project_clicked = pyqtSignal()
+    open_project_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -240,6 +242,9 @@ class ProjectPanel(QWidget):
         btn_open.setFixedSize(22, 22)
         btn_open.setToolTip("Open Project")
         btn_open.setStyleSheet(btn_new.styleSheet())
+        # These two header buttons were rendered but wired to nothing.
+        btn_new.clicked.connect(self.new_project_clicked)
+        btn_open.clicked.connect(self.open_project_clicked)
         title_row.addWidget(btn_new)
         title_row.addWidget(btn_open)
         header_layout.addLayout(title_row)

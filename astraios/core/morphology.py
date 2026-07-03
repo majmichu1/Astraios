@@ -31,6 +31,7 @@ class MorphOp(Enum):
     DILATE = auto()
     OPEN = auto()
     CLOSE = auto()
+    GRADIENT = auto()  # dilation - erosion (edge/boundary extraction)
 
 
 @dataclass
@@ -75,6 +76,9 @@ def _morphology_gpu(data: np.ndarray, op: MorphOp, kernel_size: int, iterations:
         elif op == MorphOp.CLOSE:
             t = F.max_pool2d(t, k, stride=1, padding=pad)
             t = -F.max_pool2d(-t, k, stride=1, padding=pad)
+        elif op == MorphOp.GRADIENT:
+            t = (F.max_pool2d(t, k, stride=1, padding=pad)
+                 - (-F.max_pool2d(-t, k, stride=1, padding=pad)))
 
     result = dm.to_cpu(t).squeeze().numpy()
     return np.clip(result, 0, 1).astype(np.float32)
@@ -117,6 +121,7 @@ def morphology_transform(
             MorphOp.DILATE: cv2.MORPH_DILATE,
             MorphOp.OPEN: cv2.MORPH_OPEN,
             MorphOp.CLOSE: cv2.MORPH_CLOSE,
+            MorphOp.GRADIENT: cv2.MORPH_GRADIENT,
         }
         result = _morphology_cpu(data, kernel, op_map[params.operation], params.iterations)
 
