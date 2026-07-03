@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -33,6 +34,8 @@ from astraios.ui.theme import (
     TEXT_PRIMARY,
     TEXT_SECONDARY,
 )
+
+log = logging.getLogger(__name__)
 
 FRAME_TYPE_LABELS = {
     FrameType.LIGHT: "Light Frames",
@@ -195,6 +198,10 @@ class ProjectPanel(QWidget):
         self._search_text = ""
         self._selected_path: str | None = None
         self._frame_rows: list[_FrameRow] = []
+        # Fallback source for the History tree when no project is loaded
+        # (main window supplies the non-destructive editing history).
+        self._fallback_history_provider = None
+        self._history_signature: tuple = ()
 
         # WCS info cache
         self._wcs_ra = ""
@@ -430,6 +437,15 @@ class ProjectPanel(QWidget):
         hist_vbox.addWidget(self._history_tree)
         outer.addWidget(hist_container)
 
+        # Keep the History tree current: operations record history from 50+
+        # call sites, none of which know about this panel — poll cheaply
+        # instead of wiring every one.
+        from PyQt6.QtCore import QTimer
+        self._history_timer = QTimer(self)
+        self._history_timer.setInterval(1500)
+        self._history_timer.timeout.connect(self._refresh_history_if_changed)
+        self._history_timer.start()
+
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     @staticmethod
@@ -553,18 +569,51 @@ class ProjectPanel(QWidget):
 
     def refresh(self):
         self._rebuild_frame_list()
-        self._history_tree.clear()
-        if self._project is None:
-            return
-        for step in self._project.history:
-            ts = step.timestamp.split("T")[-1][:8] if "T" in step.timestamp else step.timestamp
-            QTreeWidgetItem(self._history_tree, [step.name, ts])
+        self.refresh_history()
 
         # Update stats label
         if self._project:
             lights = [e for e in self._project.frames if e.frame_type == FrameType.LIGHT]
             good = sum(1 for e in lights if e.path.exists())
             self._proj_stats_lbl.setText(f"{good}/{len(lights)} frames")
+
+    def set_fallback_history_provider(self, provider):
+        """Set a zero-arg callable returning [(name, time_str), ...] used for
+        the History tree when no project is loaded (e.g. the editing history
+        of a directly-opened image)."""
+        self._fallback_history_provider = provider
+
+    def _history_entries(self) -> list[tuple[str, str]]:
+        if self._project is not None:
+            entries = []
+            for step in self._project.history:
+                ts = (step.timestamp.split("T")[-1][:8]
+                      if "T" in step.timestamp else step.timestamp)
+                entries.append((step.name, ts))
+            return entries
+        if self._fallback_history_provider is not None:
+            try:
+                return list(self._fallback_history_provider())
+            except Exception:
+                log.debug("Fallback history provider failed", exc_info=True)
+        return []
+
+    def refresh_history(self):
+        """Rebuild the History tree from the current source."""
+        entries = self._history_entries()
+        self._history_signature = (len(entries), entries[-1] if entries else None)
+        self._history_tree.clear()
+        for name, ts in entries:
+            QTreeWidgetItem(self._history_tree, [name, ts])
+        # Newest step visible without scrolling
+        if entries:
+            self._history_tree.scrollToBottom()
+
+    def _refresh_history_if_changed(self):
+        entries = self._history_entries()
+        sig = (len(entries), entries[-1] if entries else None)
+        if sig != self._history_signature:
+            self.refresh_history()
 
     def set_wcs_info(self, ra: str, dec: str, scale: str, pa: str):
         """Update plate solve result display."""

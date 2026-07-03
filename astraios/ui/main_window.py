@@ -998,6 +998,9 @@ class MainWindow(QMainWindow):
         self._project_panel.dso_overlay_clicked.connect(self._on_toggle_dso_overlay)
         self._project_panel.show_statistics.connect(self._on_show_statistics)
         self._project_panel.show_fits_header.connect(self._show_fits_header)
+        # With no project loaded, the History tree shows the editing history
+        # of the current image (the non-destructive processing graph).
+        self._project_panel.set_fallback_history_provider(self._session_history_entries)
         top_splitter.addWidget(self._project_panel)
 
         # Center: Canvas toolbar + Canvas + histogram
@@ -2107,6 +2110,25 @@ class MainWindow(QMainWindow):
         self._update_curves_histogram(hist_data)
         self._sync_console_image()
 
+    def _display_preview_only(self, data: "np.ndarray", label: str = "Preview"):
+        """Render pixels on the canvas WITHOUT touching the working image.
+
+        _display_image assigns ``self._current_image``; routing previews
+        through it permanently replaced the working image with the previewed
+        pixels (history stage previews, console show()). This renders only.
+        """
+        small, _scale = self._downscale_for_preview(data)
+        small_img = ImageData(data=small, header={})
+        rgb = small_img.to_display(stretch=True)
+        self._canvas.set_image(rgb, data, display_scale=_scale)
+        shape_str = "x".join(str(d) for d in data.shape)
+        self._canvas.set_image_info(label, shape_str)
+
+    def _restore_working_display(self):
+        """Re-display the committed working image after a transient preview."""
+        if self._current_image is not None:
+            self._display_image(self._current_image)
+
     def _update_curves_histogram(self, hist_data: dict | None = None):
         """Push histogram data into the curve editor if the show-histogram checkbox is on."""
         tp = self._tools_panel
@@ -2237,6 +2259,11 @@ class MainWindow(QMainWindow):
         image = ImageData(
             data=data,
             header=self._current_image.header.copy() if self._current_image else {},
+            # Preserve the source path: dropping it here broke everything
+            # downstream that identifies the file (plate-solve WCS write-back
+            # to the project, export filename suggestion, PCC) after the
+            # first edit.
+            file_path=self._current_image.file_path if self._current_image else None,
             frame_type=self._current_image.frame_type if self._current_image else FrameType.RESULT,
         )
         if before is not None:
@@ -2518,8 +2545,23 @@ class MainWindow(QMainWindow):
             lambda _=None: setattr(self, "_worker", None), _Qt.ConnectionType.QueuedConnection
         )
         self._log_panel.set_cancel_visible(True)
-        self._log_panel.cancel_requested.connect(self._worker.cancel, _Qt.ConnectionType.UniqueConnection)
+        # Route Cancel through a stable method that looks up the CURRENT
+        # worker. Connecting each worker's bound .cancel here added one
+        # permanent connection per operation (UniqueConnection cannot dedupe
+        # distinct bound methods), keeping every finished worker — and its
+        # captured full-image copy — alive for the whole session.
+        try:
+            self._log_panel.cancel_requested.connect(
+                self._cancel_current_worker, _Qt.ConnectionType.UniqueConnection
+            )
+        except TypeError:
+            pass  # already connected
         self._worker.start()
+
+    def _cancel_current_worker(self):
+        worker = self._worker
+        if worker is not None:
+            worker.cancel()
 
     # ---------- Processing operations ----------
 
@@ -4094,9 +4136,9 @@ class MainWindow(QMainWindow):
         if not isinstance(arr, _np.ndarray):
             return
         arr = _np.clip(arr, 0, 1).astype(_np.float32)
-        from astraios.core.image_io import ImageData
-        preview = ImageData(data=arr, header={})
-        self._display_image(preview)
+        # Preview-only render: routing this through _display_image replaced
+        # the working image with the previewed pixels.
+        self._display_preview_only(arr, "Console preview")
 
     @pyqtSlot()
     def _on_open_star_mask(self):
@@ -5271,11 +5313,22 @@ class MainWindow(QMainWindow):
         dialog.history_changed.connect(self._on_history_changed)
         dialog.export_macro.connect(self._on_history_export_macro)
         dialog.exec()
+        # Stage previews render transient pixels; put the committed working
+        # image back on the canvas when the dialog closes.
+        self._restore_working_display()
 
     def _sync_history_to_project(self):
         """Persist the processing history into the project (saved with it)."""
         if getattr(self, "_project", None) is not None and self._processing_graph is not None:
             self._project.settings["processing_history"] = self._processing_graph.to_dict()
+
+    def _session_history_entries(self) -> list[tuple[str, str]]:
+        """Editing history of the current image for the project panel's
+        History tree when no project is loaded."""
+        graph = getattr(self, "_processing_graph", None)
+        if graph is None:
+            return []
+        return [(step.label, "") for step in graph.steps]
 
     def _on_history_view_stage(self, index: int):
         """Preview the image at history step *index* (-1 = base) on the canvas.
@@ -5297,12 +5350,8 @@ class MainWindow(QMainWindow):
                 "warning",
             )
             return
-        preview = ImageData(
-            data=img,
-            header=self._current_image.header.copy(),
-            frame_type=self._current_image.frame_type,
-        )
-        self._display_image(preview)
+        stage = "original" if index < 0 else f"step {index + 1}"
+        self._display_preview_only(img, f"History preview ({stage})")
 
     def _on_history_changed(self):
         """Recompute the final result after the history was edited, and commit it."""

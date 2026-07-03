@@ -36,19 +36,32 @@ class LiveStacker:
 
     def set_reference(self, frame: NDArray):
         with self._lock:
-            self.reference = frame.astype(np.float32)
-            self.stack_sum = np.zeros_like(self.reference)
-            self.stack_count = np.zeros(self.reference.shape[-2:], dtype=np.int32)
-            self.n_frames = 0
+            self._set_reference_locked(frame)
+
+    def _set_reference_locked(self, frame: NDArray):
+        """Set the reference. Caller must hold self._lock.
+
+        add_frame used to call the public set_reference() while already
+        holding the (non-reentrant) lock — the very first add_frame() on a
+        fresh stacker deadlocked forever, which made Live Stacking hang on
+        frame one since the dialog never seeds the reference itself.
+        """
+        self.reference = frame.astype(np.float32)
+        self.stack_sum = np.zeros_like(self.reference)
+        self.stack_count = np.zeros(self.reference.shape[-2:], dtype=np.int32)
+        self.n_frames = 0
 
     def add_frame(self, frame: NDArray):
         with self._lock:
-            if self.reference is None:
-                self.set_reference(frame)
-                return
+            first = self.reference is None
+            if first:
+                self._set_reference_locked(frame)
 
             aligned = frame.astype(np.float32)
-            if self.alignment_mode == "fft" and frame.shape == self.reference.shape:
+            # The first frame IS the reference: no alignment needed, but its
+            # signal belongs in the stack (it used to be silently dropped).
+            if (not first and self.alignment_mode == "fft"
+                    and frame.shape == self.reference.shape):
                 from skimage.registration import phase_cross_correlation
                 try:
                     shift, _, _ = phase_cross_correlation(
