@@ -154,11 +154,13 @@ def auto_match_calibration(
     """
     progress(0.0, "Reading light frame metadata...")
 
-    # Group lights by filter + exptime
+    # Group lights by filter + exptime. Filterless frames (OSC cameras) are
+    # keyed "NONE" to match how the flats are grouped below — keying lights
+    # by "" while flats use "NONE" silently dropped the flat for OSC data.
     light_groups: dict[tuple[str, float], list[Path]] = defaultdict(list)
     for i, p in enumerate(light_paths):
         progress(0.01 * (i / max(len(light_paths), 1)), f"Reading {p.name}...")
-        filt = _read_filter(p)
+        filt = _read_filter(p) or "NONE"
         exp = _read_exptime(p) or 0.0
         light_groups[(filt, exp)].append(p)
 

@@ -103,3 +103,25 @@ class TestRunPreprocessing:
         # Bias subtraction visible: background below the raw 0.06 floor
         bg = float(np.median(result.stacked_image.data))
         assert bg < 0.055, f"bias subtraction lost (bg={bg:.4f})"
+
+
+class TestAutoMatchCalibration:
+    def test_osc_flats_match_filterless_lights(self, dithered_lights, tmp_path):
+        """OSC data has no FILTER header on lights or flats; they must match."""
+        from astraios.core.preprocessing import auto_match_calibration
+
+        rng = np.random.default_rng(2)
+        flat_paths = []
+        for i in range(5):
+            d = np.clip(0.7 + rng.normal(0, 0.01, (120, 160)), 0, 1).astype(np.float32)
+            p = tmp_path / f"flat_{i}.fits"
+            hdu = fits.PrimaryHDU(d)
+            hdu.header["IMAGETYP"] = "Flat"
+            hdu.writeto(str(p))
+            flat_paths.append(p)
+
+        matches = auto_match_calibration(dithered_lights, flat_paths=flat_paths)
+        assert len(matches) == 1
+        assert matches[0].master_flat is not None, (
+            "flat with no FILTER header must match lights with no FILTER header"
+        )
