@@ -605,9 +605,27 @@ def richardson_lucy_spatial(
     else:
         channels = [image[c] for c in range(n_ch)]
 
+    # Zone FWHMs are quantized (the radial-profile fit steps by 0.5 px), so
+    # many zones share the exact same PSF. The RL run depends only on
+    # (channel, fwhm), so deconvolving once per UNIQUE fwhm and reusing the
+    # result is bit-identical to the per-zone runs while skipping most of the
+    # work (e.g. 64 zones with 5 unique PSFs = 5 runs instead of 64). Cached
+    # results are freed after their last use to bound peak memory.
+    from collections import Counter
+
+    fwhm_uses = Counter(
+        zone_psfs[zy][zx].fwhm for zy in range(nz) for zx in range(nz)
+    )
+    log.info(
+        "Spatial deconvolution: %d zones share %d unique PSFs",
+        total_zones, len(fwhm_uses),
+    )
+
     result_channels = []
     for ch_idx, channel in enumerate(channels):
         accumulated = np.zeros((h, w), dtype=np.float32)
+        remaining = dict(fwhm_uses)
+        deconv_cache: dict[float, np.ndarray] = {}
 
         for zy in range(nz):
             for zx in range(nz):
@@ -620,25 +638,32 @@ def richardson_lucy_spatial(
                 )
 
                 zone_fwhm = zone_psfs[zy][zx].fwhm
-                zone_psf_np = _create_gaussian_psf(zone_fwhm)
 
-                # Build per-zone deconv params
-                zone_params = DeconvolutionParams(
-                    psf_fwhm=zone_fwhm,
-                    iterations=params.iterations,
-                    regularization=params.regularization,
-                    deringing=params.deringing,
-                    deringing_amount=params.deringing_amount,
-                )
+                if zone_fwhm in deconv_cache:
+                    deconv = deconv_cache[zone_fwhm]
+                else:
+                    zone_psf_np = _create_gaussian_psf(zone_fwhm)
+                    zone_params = DeconvolutionParams(
+                        psf_fwhm=zone_fwhm,
+                        iterations=params.iterations,
+                        regularization=params.regularization,
+                        deringing=params.deringing,
+                        deringing_amount=params.deringing_amount,
+                    )
+                    # Deconvolve full channel with this zone's PSF
+                    deconv = _rl_channel(
+                        channel, zone_psf_np, zone_params, dm,
+                        _noop_progress, 0, 1,
+                    )
+                    if remaining[zone_fwhm] > 1:
+                        deconv_cache[zone_fwhm] = deconv
 
-                # Deconvolve full channel with this zone's PSF
-                deconv = _rl_channel(
-                    channel, zone_psf_np, zone_params, dm,
-                    _noop_progress, 0, 1,
-                )
-
-                # Accumulate weighted result
+                # Accumulate weighted result (same per-zone order as before)
                 accumulated += deconv * blend_weights[zy][zx]
+
+                remaining[zone_fwhm] -= 1
+                if remaining[zone_fwhm] == 0:
+                    deconv_cache.pop(zone_fwhm, None)
 
         result_channels.append(np.clip(accumulated, 0, 1).astype(np.float32))
 
