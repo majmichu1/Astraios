@@ -190,6 +190,11 @@ class PythonConsoleWidget(QWidget):
     image_updated = pyqtSignal(object)  # np.ndarray
     #: Emitted when show(arr) is called — shows without replacing
     image_preview = pyqtSignal(object)  # np.ndarray
+    #: Internal: console text + inspector refresh routed to the GUI thread.
+    #: User code runs on a worker thread (and keeps running after a timeout),
+    #: so apply()/show() must never touch widgets directly.
+    _thread_message = pyqtSignal(str, str)  # text, color
+    _thread_refresh = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -197,6 +202,8 @@ class PythonConsoleWidget(QWidget):
         self._timeout_sec: float = 5.0
         self._setup_namespace()
         self._build_ui()
+        self._thread_message.connect(self._write)
+        self._thread_refresh.connect(lambda: self._inspector.refresh(self._namespace))
         self._write(_BANNER, color="#888888")
         self._write(">>> ", color="#61afef")
 
@@ -208,15 +215,15 @@ class PythonConsoleWidget(QWidget):
             import numpy as _np
             arr = _np.asarray(arr, dtype=_np.float32)
             console_ref.image_updated.emit(arr)
-            console_ref._write("Image updated.\n", color="#98c379")
-            console_ref._inspector.refresh(console_ref._namespace)
+            console_ref._thread_message.emit("Image updated.\n", "#98c379")
+            console_ref._thread_refresh.emit()
 
         def show(arr):
             """Display array on canvas without replacing current image."""
             import numpy as _np
             arr = _np.asarray(arr, dtype=_np.float32)
             console_ref.image_preview.emit(arr)
-            console_ref._write("Showing preview.\n", color="#56b6c2")
+            console_ref._thread_message.emit("Showing preview.\n", "#56b6c2")
 
         import numpy as np
         try:

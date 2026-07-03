@@ -143,9 +143,22 @@ class FITSHeaderDialog(QDialog):
         try:
             from astropy.io import fits
             new_header = self.get_header()
+            new_keys = {k.upper() for k in new_header}
             with fits.open(self._file_path, mode="update") as hdul:
                 for hdu in hdul:
                     if hdu.data is not None:
+                        # Delete keywords the user removed from the table —
+                        # assignment alone can never delete, so "Delete
+                        # Selected" + Save silently kept them before.
+                        for key in list(hdu.header.keys()):
+                            ku = key.upper()
+                            if (ku and ku not in new_keys
+                                    and ku not in _READONLY_KEYS
+                                    and ku not in ("COMMENT", "HISTORY", "END")):
+                                try:
+                                    del hdu.header[key]
+                                except Exception:
+                                    pass
                         for key, val in new_header.items():
                             if key.upper() not in _READONLY_KEYS:
                                 try:

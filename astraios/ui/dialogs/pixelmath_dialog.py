@@ -421,15 +421,26 @@ class PixelMathDialog(QDialog):
 
     def _apply_to_channels(self, data: np.ndarray,
                            result: np.ndarray) -> np.ndarray:
-        """Return the result early if it already matches the target channel shape."""
+        """Composite the result into the selected output channel."""
         channel = self._channel_combo.currentText()
         if channel == "All channels":
             return result
         idx = {"Red (R)": 0, "Green (G)": 1, "Blue (B)": 2}.get(channel)
-        if idx is not None and data.ndim == 3 and result.shape == data[idx].shape:
-            out = data.copy()
-            out[idx] = result
-            return out
+        if idx is not None and data.ndim == 3:
+            # A whole-image expression (e.g. T*0.5) yields a (C, H, W)
+            # result; take the target channel's plane from it. Previously
+            # the shape check failed and the full 3-channel result was
+            # returned, silently ignoring the channel selection.
+            if result.ndim == 3 and result.shape == data.shape:
+                result = result[idx]
+            if result.shape == data[idx].shape:
+                out = data.copy()
+                out[idx] = result
+                return out
+            self._log.append(
+                f"  Warning: result shape {result.shape} does not fit "
+                f"channel {channel}; applying to all channels"
+            )
         return result
 
     def _do_evaluate(self, expr: str):

@@ -180,10 +180,6 @@ class ChannelCombineDialog(QDialog):
         options_group = QGroupBox("Options")
         opt_layout = QFormLayout(options_group)
 
-        self._bit_depth_combo = QComboBox()
-        self._bit_depth_combo.addItems(["Float32 (lossless)", "16-bit FITS", "8-bit TIFF"])
-        opt_layout.addRow("Output bit depth:", self._bit_depth_combo)
-
         self._normalize_check_combo = QComboBox()
         self._normalize_check_combo.addItems(["None", "Per-channel (match median)", "Global (common scale)"])
         self._normalize_check_combo.setCurrentIndex(1)
