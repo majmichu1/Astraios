@@ -212,12 +212,14 @@ def _rl_channel(
             frac = ch_offset + ch_scale * (i / params.iterations)
             progress(frac, f"Deconvolution ch{ch_idx + 1} iter {i + 1}/{params.iterations}")
 
-            # Convolution of estimate with PSF
+            # Convolution of estimate with PSF. The intermediates are fresh
+            # tensors owned by this loop, so the clamp/div/mul run in place —
+            # bit-identical math, ~3 fewer full-frame buffers live per iteration.
             blurred = _fft_convolve_with_kernel_fft(estimate, psf_fft, h, w)
-            blurred = torch.clamp(blurred, min=1e-10)
+            blurred.clamp_(min=1e-10)
 
-            # Ratio
-            ratio = t_img / blurred
+            # Ratio (reuses the blurred buffer)
+            ratio = torch.div(t_img, blurred, out=blurred)
 
             # Correlation with flipped PSF
             correction = _fft_convolve_with_kernel_fft(ratio, psf_flip_fft, h, w)
@@ -225,11 +227,11 @@ def _rl_channel(
             # TV regularization
             if params.regularization > 0:
                 tv_factor = _tv_regularization(estimate, params.regularization)
-                correction = correction * tv_factor
+                correction.mul_(tv_factor)
 
             # Update
-            estimate = estimate * correction
-            estimate = torch.clamp(estimate, 0, 1)
+            estimate.mul_(correction)
+            estimate.clamp_(0, 1)
 
     # Deringing: blend result back toward the original near edges and where
     # ringing oscillations are detected.  The `deringing_amount` slider always

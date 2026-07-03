@@ -239,6 +239,13 @@ class ChannelCombineDialog(QDialog):
         channels: dict[str, np.ndarray] = {}
         channel_counts: dict[str, int] = {}
 
+        # Evict cached arrays for paths no longer referenced by any row —
+        # otherwise browsing through files accumulates one full-res frame
+        # per path ever selected.
+        live_keys = {str(row.path) for row in self._channel_rows if row.path is not None}
+        for stale in [k for k in self._cached_channels if k not in live_keys]:
+            del self._cached_channels[stale]
+
         for row in self._channel_rows:
             if row.path is None:
                 continue
