@@ -24,6 +24,7 @@ class FrameType(Enum):
     MASTER_DARK = auto()
     MASTER_FLAT = auto()
     MASTER_BIAS = auto()
+    CALIBRATED = auto()
     ALIGNED = auto()
     RESULT = auto()
     UNKNOWN = auto()
@@ -196,8 +197,23 @@ def _normalize_fits_tile(tile: np.ndarray, header: dict | None = None) -> np.nda
     distorted the absolute scale of any narrow-range frame — calibration
     darks/flats, short subs — (e.g. uint16 10000-30000 became 0..1 instead of
     0.15..0.46). Dispatch on the real (integer/float) dtype instead.
+
+    Float data written by Astraios itself (CREATOR header) is already in our
+    normalized convention and passes through untouched: calibrated frames
+    legitimately hold small negatives (bias/dark residue, preserved on purpose
+    for correct stacking statistics) and values above 1.0 (flat division on
+    bright stars). Min-max stretching those on reload would silently destroy
+    the linear scale — and for tile reads would stretch each tile by its own
+    local range, corrupting the frame.
     """
-    return _normalize_fits_data(np.asarray(tile))
+    tile = np.asarray(tile)
+    if (
+        header is not None
+        and tile.dtype.kind == "f"
+        and str(header.get("CREATOR", "")).startswith("Astraios")
+    ):
+        return tile.astype(np.float32)
+    return _normalize_fits_data(tile)
 
 
 def _normalize_fits_data(data: np.ndarray) -> np.ndarray:

@@ -168,3 +168,65 @@ class TestTiledMaster:
             np.stack([load_image(p).data - bias.data for p in paths]), axis=0
         ).astype(np.float32)
         assert np.max(np.abs(got - expected)) < 1e-5
+
+
+class TestBatchAndDiskCalibration:
+    """calibrate_lights_batch / calibrate_lights_to_disk parity and path tracking."""
+
+    def _lights_and_masters(self, tmp_path):
+        rng = np.random.default_rng(42)
+        light_paths = []
+        for i in range(4):
+            data = np.clip(
+                0.2 + rng.normal(0, 0.05, (40, 50)).astype(np.float32), 0, 1
+            )
+            light_paths.append(_make_fits(tmp_path, f"light_{i}.fits", data, "Light"))
+        bias = ImageData(data=np.full((40, 50), 0.01, dtype=np.float32))
+        flat = ImageData(data=np.clip(
+            1.0 - 0.2 * rng.random((40, 50)).astype(np.float32), 0.5, 1.0
+        ))
+        return light_paths, bias, flat
+
+    def test_batch_output_dir_retargets_file_path(self, tmp_path):
+        from astraios.core.calibration import calibrate_lights_batch
+        light_paths, bias, flat = self._lights_and_masters(tmp_path)
+        out_dir = tmp_path / "cal"
+        out_dir.mkdir()
+        results = calibrate_lights_batch(
+            light_paths, master_bias=bias, master_flat=flat, output_dir=out_dir
+        )
+        assert len(results) == 4
+        for src, img in zip(light_paths, results):
+            expected = out_dir / f"cal_{src.stem}.fits"
+            assert img.file_path == expected
+            assert expected.exists()
+
+    def test_to_disk_bit_identical_to_batch(self, tmp_path):
+        from astraios.core.calibration import (
+            calibrate_lights_batch,
+            calibrate_lights_to_disk,
+        )
+        from astraios.core.image_io import load_image
+        light_paths, bias, flat = self._lights_and_masters(tmp_path)
+
+        in_memory = calibrate_lights_batch(light_paths, master_bias=bias, master_flat=flat)
+
+        out_dir = tmp_path / "cal_stream"
+        out_paths = calibrate_lights_to_disk(
+            light_paths, out_dir, master_bias=bias, master_flat=flat
+        )
+        assert len(out_paths) == len(in_memory)
+        for mem, p in zip(in_memory, out_paths):
+            assert p.exists()
+            disk = load_image(p)
+            assert np.array_equal(mem.data, disk.data), "disk round-trip must be bit-identical"
+
+    def test_to_disk_skips_unreadable_frame(self, tmp_path):
+        from astraios.core.calibration import calibrate_lights_to_disk
+        light_paths, bias, _ = self._lights_and_masters(tmp_path)
+        bad = tmp_path / "broken.fits"
+        bad.write_bytes(b"not a fits file")
+        out_paths = calibrate_lights_to_disk(
+            [light_paths[0], bad, light_paths[1]], tmp_path / "out", master_bias=bias
+        )
+        assert len(out_paths) == 2

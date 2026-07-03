@@ -189,12 +189,12 @@ class Project:
         return proj
 
     def _prune_missing_derived(self) -> None:
-        """Remove derived frames (ALIGNED) whose files no longer exist on disk.
+        """Remove derived frames (CALIBRATED/ALIGNED) whose files no longer exist.
 
         Raw source frames (LIGHT/DARK/FLAT/BIAS) are kept even if missing — they
         may be on removable media. Derived frames are re-generated and safe to prune.
         """
-        derived_types = {FrameType.ALIGNED}
+        derived_types = {FrameType.CALIBRATED, FrameType.ALIGNED}
         before = len(self.frames)
         self.frames = [
             f for f in self.frames

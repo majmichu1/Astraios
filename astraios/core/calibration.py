@@ -411,7 +411,12 @@ def calibrate_lights_batch(
     output_dir: Path | None = None,
     progress: ProgressCallback = _noop_progress,
 ) -> list[ImageData]:
-    """Calibrate a batch of light frames."""
+    """Calibrate a batch of light frames.
+
+    When output_dir is given, each calibrated frame is also saved to disk and
+    the returned ImageData.file_path points at the saved calibrated file (not
+    the raw source), so path-based consumers read calibrated pixels.
+    """
     results = []
     n = len(light_paths)
 
@@ -421,10 +426,52 @@ def calibrate_lights_batch(
         calibrated = calibrate_light(light, master_bias, master_dark, master_flat)
 
         if output_dir is not None:
-            out_path = output_dir / f"cal_{path.stem}.fits"
+            out_path = Path(output_dir) / f"cal_{Path(path).stem}.fits"
             save_fits(calibrated, out_path)
+            calibrated.file_path = out_path
 
         results.append(calibrated)
 
     progress(1.0, "Calibration complete")
     return results
+
+
+def calibrate_lights_to_disk(
+    light_paths: list[Path],
+    output_dir: Path,
+    master_bias: ImageData | None = None,
+    master_dark: ImageData | None = None,
+    master_flat: ImageData | None = None,
+    progress: ProgressCallback = _noop_progress,
+) -> list[Path]:
+    """Calibrate light frames streaming to disk, one frame in RAM at a time.
+
+    Memory-safe for arbitrarily large datasets: each light is loaded,
+    calibrated, saved to output_dir as ``cal_<stem>.fits`` and freed before the
+    next one is touched. The written files are bit-identical to what
+    calibrate_lights_batch would produce (float32 FITS round-trips exactly).
+
+    Returns the list of calibrated file paths, in input order. Frames that
+    fail to load or save are skipped with a warning.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_paths: list[Path] = []
+    n = len(light_paths)
+
+    for i, path in enumerate(light_paths):
+        progress(i / n, f"Calibrating light {i + 1}/{n}")
+        try:
+            light = load_image(path)
+            calibrated = calibrate_light(light, master_bias, master_dark, master_flat)
+            out_path = output_dir / f"cal_{Path(path).stem}.fits"
+            save_fits(calibrated, out_path)
+            out_paths.append(out_path)
+        except Exception as exc:
+            log.warning("Failed to calibrate %s: %s", path, exc)
+        finally:
+            light = None
+            calibrated = None
+
+    progress(1.0, "Calibration complete")
+    return out_paths

@@ -42,6 +42,7 @@ FRAME_TYPE_LABELS = {
     FrameType.MASTER_DARK: "Master Dark",
     FrameType.MASTER_FLAT: "Master Flat",
     FrameType.MASTER_BIAS: "Master Bias",
+    FrameType.CALIBRATED: "Calibrated Lights",
     FrameType.ALIGNED: "Aligned Frames",
     FrameType.RESULT: "Results",
 }
@@ -51,6 +52,7 @@ _TYPE_COLOR = {
     "DARK":   (TEXT_SECONDARY, "#1c1c1c"),
     "FLAT":   ("#388bfd", "#0d1a2d"),
     "BIAS":   ("#d29922", "#2d1f00"),
+    "CALIBRATED": ("#3fb950", "#0d2818"),
     "ALIGNED": ("#58a6ff", "#0d2040"),
     "RESULT": ("#a371f7", "#2d1060"),
 }
