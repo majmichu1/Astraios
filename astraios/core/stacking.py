@@ -1409,6 +1409,10 @@ def _write_aligned_fits(img: ImageData, out_path) -> None:
             except Exception:
                 log.warning("Could not copy FITS key %s", k)
     hdr["ALIGNED"] = True
+    # Mark as Astraios-normalized float data so the loader passes it through
+    # unchanged (no min-max stretch): warping interpolation legitimately
+    # produces small negatives that must survive the round-trip.
+    hdr["CREATOR"] = "Astraios"
     hdu = _fits.PrimaryHDU(data=data.astype(np.float32), header=hdr)
     hdu.writeto(str(out_path), overwrite=True)
 
