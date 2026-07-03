@@ -146,7 +146,12 @@ def save_macro(macro: Pipeline, path: Path) -> None:
     path : Path
         Output file path (.json).
     """
-    data = macro.to_dict()
+    # Params may hold enum members (e.g. a history exported as a macro keeps
+    # RotateAngle/DenoiseMethod values); tag-encode them so json.dump works
+    # and load_macro can rebuild the real enums.
+    from astraios.core.processing_graph import _encode_params
+
+    data = _encode_params(macro.to_dict())
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
@@ -166,8 +171,10 @@ def load_macro(path: Path) -> Pipeline:
     Pipeline
         Loaded macro.
     """
+    from astraios.core.processing_graph import _decode_params
+
     with open(path) as f:
-        data = json.load(f)
+        data = _decode_params(json.load(f))
     macro = Pipeline.from_dict(data)
     log.info("Macro loaded: %s (%d steps)", macro.name, len(macro.steps))
     return macro

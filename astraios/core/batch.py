@@ -104,9 +104,30 @@ def _register_default_tools():
     import dataclasses as _dc
 
     def _p(cls, kw):
-        """Build a Params dataclass from a flat dict, ignoring unknown keys."""
-        known = {f.name for f in _dc.fields(cls)}
-        filtered = {k: v for k, v in kw.items() if k in known}
+        """Build a Params dataclass from a flat dict, ignoring unknown keys.
+
+        String values are coerced back to enum members when the target field
+        holds an enum default (macros/JSON serialize enums by name). Without
+        this a replayed {"angle": "CW_90"} failed every enum comparison and
+        e.g. rotate became a silent no-op and flip flipped BOTH axes.
+        """
+        import enum as _enum
+
+        known = {f.name: f for f in _dc.fields(cls)}
+        filtered = {}
+        for k, v in kw.items():
+            f = known.get(k)
+            if f is None:
+                continue
+            if isinstance(v, str) and isinstance(f.default, _enum.Enum):
+                enum_cls = type(f.default)
+                try:
+                    v = enum_cls[v]
+                except KeyError:
+                    log.warning("Unknown %s member %r for %s.%s; keeping default",
+                                enum_cls.__name__, v, cls.__name__, k)
+                    continue
+            filtered[k] = v
         return cls(**filtered) if filtered else None
 
     from astraios.core.abe import ABEParams, abe_extract
@@ -280,6 +301,36 @@ def _register_default_tools():
 
     register_tool("curves", _curves_tool)
 
+    # ── AI tools ─────────────────────────────────────────────────────────
+    # Recorded by the UI (macro recorder); without these registrations a
+    # replayed macro silently dropped its denoise/sharpen/star-removal steps.
+    # Imports are deferred: torch model loading only happens on use.
+
+    def _ai_denoise_tool(data, **kw):
+        from astraios.ai.inference.denoise import AIDenoiseParams, ai_denoise
+        return ai_denoise(data, params=_p(AIDenoiseParams, kw))
+
+    def _ai_sharpen_tool(data, **kw):
+        from astraios.ai.inference.sharpen import AISharpenParams, ai_sharpen
+        return ai_sharpen(data, params=_p(AISharpenParams, kw))
+
+    def _starnet_tool(data, threshold=0.5, **kw):
+        from astraios.ai.inference.starnet import find_starnet_binary, run_starnet
+        if find_starnet_binary() is not None:
+            result = run_starnet(data, extract_stars=False)
+            if result.success:
+                return result.starless
+            log.warning("StarNet failed (%s); using built-in star removal",
+                        result.message)
+        else:
+            log.warning("StarNet binary not found; using built-in star removal")
+        from astraios.ai.inference.star_removal import remove_stars_builtin
+        return remove_stars_builtin(data, threshold)
+
+    register_tool("ai_denoise", _ai_denoise_tool)
+    register_tool("ai_sharpen", _ai_sharpen_tool)
+    register_tool("starnet", _starnet_tool)
+
 
 def apply_pipeline_to_image(
     data: np.ndarray,
@@ -325,8 +376,19 @@ def apply_pipeline_to_image(
         log.info("Applying: %s", step.tool_name)
         processed = func(result, **step.params)
         if step.mask_name and masks and step.mask_name in masks:
-            processed = apply_mask(result, processed, masks[step.mask_name])
+            m = masks[step.mask_name]
+            if isinstance(m, np.ndarray):
+                # The documented API is {name: (H, W) float32 array};
+                # apply_mask needs a Mask dataclass.
+                from astraios.core.masks import Mask
+                m = Mask(data=m.astype(np.float32), name=step.mask_name)
+            processed = apply_mask(result, processed, m)
             log.info("  masked with '%s'", step.mask_name)
+        elif step.mask_name:
+            log.warning(
+                "Step '%s' recorded with mask '%s' but no mask was supplied; "
+                "applying at full strength", step.tool_name, step.mask_name,
+            )
         result = processed
 
     progress(1.0, "Pipeline complete")

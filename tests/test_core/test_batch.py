@@ -464,3 +464,50 @@ def test_all_registered_tools_run_on_color_image():
         except Exception as e:  # noqa: BLE001 - collect all failures
             failures.append(f"{name}: {type(e).__name__}: {e}")
     assert not failures, "registered tools failed:\n  " + "\n  ".join(failures)
+
+
+class TestMacroReplayFidelity:
+    """Steps recorded with enum names / masks must replay faithfully."""
+
+    def test_rotate_flip_replay_from_string_names(self):
+        tools = get_registered_tools()
+        img = np.random.default_rng(0).random((3, 20, 30)).astype(np.float32)
+
+        r = tools["rotate"](img, angle="CW_90")
+        assert np.array_equal(r, np.rot90(img, k=-1, axes=(1, 2))), \
+            "rotate with recorded string enum must not be a no-op"
+
+        f = tools["flip"](img, axis="HORIZONTAL")
+        assert np.array_equal(f, np.flip(img, axis=-1)), \
+            "flip with recorded string enum must flip one axis, not both"
+
+    def test_pipeline_mask_accepts_ndarray(self):
+        from astraios.core.scripting import Pipeline, PipelineStep, play_macro
+
+        img = np.full((3, 10, 16), 0.4, dtype=np.float32)
+        mask = np.zeros((10, 16), dtype=np.float32)
+        mask[:, :8] = 1.0
+        pipe = Pipeline(name="m", steps=[
+            PipelineStep(tool_name="invert", params={}, mask_name="half"),
+        ])
+        out = play_macro(img, pipe, masks={"half": mask})
+        assert np.allclose(out[:, :, :8], 0.6)
+        assert np.allclose(out[:, :, 8:], 0.4)
+
+    def test_macro_json_roundtrip_with_enums(self, tmp_path):
+        from astraios.core.scripting import Pipeline, PipelineStep, load_macro, save_macro
+        from astraios.core.transforms import RotateAngle
+
+        pipe = Pipeline(name="e", steps=[
+            PipelineStep(tool_name="rotate",
+                         params={"angle": RotateAngle.CW_180, "arbitrary_degrees": 0.0}),
+        ])
+        p = tmp_path / "m.json"
+        save_macro(pipe, p)  # raised TypeError before enum encoding
+        loaded = load_macro(p)
+        assert loaded.steps[0].params["angle"] is RotateAngle.CW_180
+
+    def test_ai_tools_registered(self):
+        tools = get_registered_tools()
+        for name in ("ai_denoise", "ai_sharpen", "starnet"):
+            assert name in tools, f"{name} recorded by the UI but not replayable"

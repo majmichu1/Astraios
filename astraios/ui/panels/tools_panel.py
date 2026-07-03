@@ -1851,9 +1851,20 @@ class ToolsPanel(QWidget):
         )
 
     def get_resize_params(self) -> ResizeParams:
+        from astraios.core.transforms import InterpolationMethod
+
+        interp_map = {
+            "lanczos": InterpolationMethod.LANCZOS,
+            "bicubic": InterpolationMethod.BICUBIC,
+            "bilinear": InterpolationMethod.BILINEAR,
+            "nearest": InterpolationMethod.NEAREST,
+        }
         return ResizeParams(
             scale=float(self._resize_scale_spin.value()),
-            interpolation=self._resize_interp_combo.currentText(),
+            interpolation=interp_map.get(
+                self._resize_interp_combo.currentText().lower(),
+                InterpolationMethod.LANCZOS,
+            ),
         )
 
     def get_bin_params(self) -> BinParams:

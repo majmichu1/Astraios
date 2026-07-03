@@ -3553,7 +3553,10 @@ class MainWindow(QMainWindow):
         )
         if self._project:
             self._project.add_history("Rotate", {"angle": params.angle.name})
-        self._macro_recorder.record_step("rotate", {"angle": params.angle.name})
+        self._macro_recorder.record_step(
+            "rotate",
+            {"angle": params.angle.name, "arbitrary_degrees": params.arbitrary_degrees},
+        )
 
     @pyqtSlot()
     def _on_run_flip(self):
@@ -5577,8 +5580,12 @@ class MainWindow(QMainWindow):
             "info",
         )
 
+        # Supply the app's mask registry so steps recorded with an active
+        # mask replay masked instead of silently applying at full strength.
+        mask_arrays = {m.name: m.data for m in self._masks}
+
         def _play_work(data, progress=None):
-            return play_macro(data, macro, progress=progress)
+            return play_macro(data, macro, progress=progress, masks=mask_arrays)
 
         def _play_done(result):
             self._update_current_image(result, "Macro playback complete")
