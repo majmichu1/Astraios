@@ -1,9 +1,10 @@
 """Tests for the batch preprocessing pipeline (calibrate -> register -> stack)."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from astropy.io import fits
-from pathlib import Path
 
 from astraios.core.preprocessing import run_preprocessing
 from astraios.core.stacking import RejectionMethod, StackingParams
