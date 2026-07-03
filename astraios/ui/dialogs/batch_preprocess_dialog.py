@@ -526,6 +526,7 @@ class BatchPreprocessDialog(QDialog):
         )
 
         self._run_btn.setVisible(False)
+        self._cancel_btn.setEnabled(True)
         self._log_output.clear()
         self._log_output.append("Starting preprocessing pipeline...")
 

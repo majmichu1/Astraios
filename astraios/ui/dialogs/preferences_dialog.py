@@ -360,7 +360,8 @@ class PreferencesDialog(QDialog):
             "appearance/pixel_readout_format",
             "platesolver/auto_solve", "platesolver/astrometry_net_path",
             "platesolver/astrometry_api_key",
-            "updates/check_on_startup",
+            "update/check_on_startup",
+            "update/auto_download",
         ]
         for key in keys_to_remove:
             self._settings.remove(key)

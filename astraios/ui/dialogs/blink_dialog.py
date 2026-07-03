@@ -151,7 +151,10 @@ class BlinkDialog(QDialog):
         if ch > 3:
             arr = arr[:, :, :3]
             ch = 3
-        img = QImage(arr.data, w, h, w * ch, fmt)
+        # to_display() output is non-contiguous for color (transposed view);
+        # QImage requires contiguous bytes.
+        arr = np.ascontiguousarray(arr)
+        img = QImage(arr.tobytes(), w, h, w * ch, fmt)
         return QPixmap.fromImage(img.copy())
 
     def _show_frame(self):
@@ -239,6 +242,8 @@ class BlinkDialog(QDialog):
     # ── Rejection ─────────────────────────────────────────────────────────
 
     def _on_reject_toggled(self, state: int):
+        if not self._frame_paths:
+            return
         path = self._frame_paths[self._current_idx]
         if state == Qt.CheckState.Checked.value:
             self._rejected.add(path)

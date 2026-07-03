@@ -197,10 +197,8 @@ class BatchDialog(QDialog):
             self._status.setText("Add at least one processing step")
             return
 
-        self._run_btn.setEnabled(False)
-        self._run_btn.setText("Cancel")
-        self._run_btn.clicked.disconnect()
-        self._run_btn.clicked.connect(self._cancel)
+        # Keep the button ENABLED — it now acts as the Cancel button.
+        self._set_button_mode(run_mode=False)
         self._status.setText("Processing...")
 
         self._worker = BatchWorker(
@@ -215,28 +213,39 @@ class BatchDialog(QDialog):
         self._worker.finished.connect(lambda: self._worker.deleteLater())
         self._worker.start()
 
+    def _set_button_mode(self, run_mode: bool):
+        """Switch the Run/Cancel button between its two states."""
+        self._run_btn.setEnabled(True)
+        self._run_btn.setText("Run Batch" if run_mode else "Cancel")
+        try:
+            self._run_btn.clicked.disconnect()
+        except TypeError:
+            pass
+        self._run_btn.clicked.connect(self._run if run_mode else self._cancel)
+
     def _cancel(self):
         if self._worker:
             self._worker.cancel()
-        self._status.setText("Cancelling...")
-        self._run_btn.setEnabled(False)
-        self._run_btn.setText("Run Batch")
-        self._run_btn.clicked.disconnect()
-        self._run_btn.clicked.connect(self._run)
+            self._status.setText("Cancelling...")
+            # Prevent double-cancel; _on_finished/_on_error restores the button.
+            self._run_btn.setEnabled(False)
+        else:
+            self._set_button_mode(run_mode=True)
 
     def _on_error(self, message: str):
-        self._run_btn.setText("Run Batch")
-        self._run_btn.clicked.disconnect()
-        self._run_btn.clicked.connect(self._run)
+        self._set_button_mode(run_mode=True)
         self._progress_bar.setValue(0)
-        self._status.setText(f"Error: {message}")
+        if "Cancelled" in message:
+            self._status.setText("Batch cancelled")
+        else:
+            self._status.setText(f"Error: {message}")
 
     def _on_progress(self, fraction: float, message: str):
         self._progress_bar.setValue(int(fraction * 100))
         self._status.setText(message)
 
     def _on_finished(self, result: BatchResult):
-        self._run_btn.setEnabled(True)
+        self._set_button_mode(run_mode=True)
         self._progress_bar.setValue(100)
         self._status.setText(
             f"Done: {result.n_processed} processed, {result.n_failed} failed"

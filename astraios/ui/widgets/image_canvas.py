@@ -366,9 +366,14 @@ class ImageCanvas(QWidget):
         painter.setFont(font)
         coord_pen = QPen(QColor(255, 255, 255, 120))
         painter.setPen(coord_pen)
+        # Label with full-resolution image dimensions, not the (possibly
+        # downscaled) pixmap dimensions — same mapping as the overlays.
+        s = self._display_scale
+        full_w = int(round(pw / s)) if s > 0 else pw
+        full_h = int(round(ph / s)) if s > 0 else ph
         labels = [
             ("0, 0", 4, 14),
-            (f"{pw}, {ph}", dst.width() - 60, dst.height() - 4),
+            (f"{full_w}, {full_h}", dst.width() - 60, dst.height() - 4),
         ]
         for text, lx, ly in labels:
             painter.drawText(QPointF(dst.left() + lx, dst.top() + ly), text)

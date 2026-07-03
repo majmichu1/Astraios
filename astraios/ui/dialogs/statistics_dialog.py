@@ -75,7 +75,7 @@ class StatisticsDialog(QDialog):
             snr_lin = ch.snr_estimate
             color = _noise_quality_color(snr_lin)
 
-            if snr_lin >= 40 ** (1 / 20):  # > 32 dB
+            if snr_lin >= 10 ** (40 / 20):  # > 40 dB
                 quality_text = "Excellent"
             elif snr_lin >= 10 ** (25 / 20):  # > 25 dB
                 quality_text = "Good"

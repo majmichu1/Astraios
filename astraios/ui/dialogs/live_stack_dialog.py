@@ -310,19 +310,24 @@ class LiveStackDialog(QDialog):
         h, w = arr.shape[-2], arr.shape[-1]
         if arr.ndim == 2:
             fmt = QImage.Format.Format_Grayscale8
-            display = np.clip(arr * 255, 0, 255).astype(np.uint8)
+            display = np.ascontiguousarray(np.clip(arr * 255, 0, 255).astype(np.uint8))
             bytes_per_line = w
-            img = QImage(display.data, w, h, bytes_per_line, fmt)
+            img = QImage(display.tobytes(), w, h, bytes_per_line, fmt)
         else:
             fmt = QImage.Format.Format_RGB888
             ch = arr.shape[0]
             if ch >= 3:
+                # The transpose makes this non-contiguous; QImage needs
+                # contiguous bytes (a raw .data memoryview raises TypeError).
                 display = np.clip(arr[:3].transpose(1, 2, 0) * 255, 0, 255).astype(np.uint8)
             else:
                 display = np.clip(arr[0] * 255, 0, 255).astype(np.uint8)
                 fmt = QImage.Format.Format_Grayscale8
+            display = np.ascontiguousarray(display)
             bytes_per_line = display.shape[1] * (3 if ch >= 3 else 1)
-            img = QImage(display.data, display.shape[1], display.shape[0], bytes_per_line, fmt)
+            img = QImage(
+                display.tobytes(), display.shape[1], display.shape[0], bytes_per_line, fmt
+            )
 
         pixmap = QPixmap.fromImage(img.copy())
 
