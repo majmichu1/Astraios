@@ -121,6 +121,7 @@ def local_normalize(
     if use_gpu:
         ref_t = dm.from_numpy(reference.astype(np.float32, copy=True))
         bg_ref = _gaussian_blur_gpu(ref_t, params.sigma)
+        del ref_t
 
         result = []
         for frame in frame_list:
@@ -145,3 +146,109 @@ def local_normalize(
         log.debug("Local normalization CPU: %d frames processed", n)
 
     return np.array(result, dtype=np.float32)
+
+
+def _blur_frame(data: np.ndarray, sigma: float) -> np.ndarray:
+    """Gaussian-blur one frame, GPU when worthwhile, returning float32 numpy."""
+    dm = get_device_manager()
+    if dm.is_gpu and data.size >= 256 * 256:
+        t = dm.from_numpy(data.astype(np.float32, copy=True))
+        out = dm.to_cpu(_gaussian_blur_gpu(t, sigma)).numpy().astype(np.float32)
+        del t
+        return out
+    return _gaussian_blur_cpu(data.astype(np.float32), sigma)
+
+
+def local_normalize_to_disk(
+    paths,
+    output_dir,
+    params: LocalNormParams | None = None,
+    progress=None,
+):
+    """Streamed local normalization: one frame resident at a time.
+
+    Two passes over the files:
+      1. Accumulate the mean of each frame's blurred background — the
+         reference background (a single full-frame accumulator in RAM).
+      2. Correct each frame against that reference and save it to
+         ``output_dir`` as a float32 FITS (CREATOR-stamped, exact reload).
+
+    The correction math per frame matches :func:`local_normalize`
+    (``(frame - bg) * clipped_ratio + bg_ref``); only the reference differs:
+    the in-memory path uses the median frame, which cannot be streamed, so
+    this uses the mean of the blurred backgrounds instead — an equally
+    valid (arguably smoother) target for background matching.
+
+    Returns the list of corrected file paths in input order. Frames that
+    fail to load or mismatch the reference shape are skipped with a warning.
+    """
+    from pathlib import Path
+
+    from astraios.core.image_io import load_image, save_fits
+
+    if params is None:
+        params = LocalNormParams()
+    if progress is None:
+        def progress(f, m):
+            pass
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    n = len(paths)
+
+    # Pass 1: reference background = mean of blurred backgrounds
+    bg_sum = None
+    used = 0
+    for i, p in enumerate(paths):
+        progress(0.5 * i / max(n, 1), f"Local normalization: measuring {i + 1}/{n}")
+        try:
+            img = load_image(p)
+            bg = _blur_frame(img.data, params.sigma)
+            if bg_sum is None:
+                bg_sum = bg.astype(np.float32)
+            elif bg.shape == bg_sum.shape:
+                bg_sum += bg
+            else:
+                log.warning("Local normalization: %s shape %s mismatches reference %s",
+                            p, bg.shape, bg_sum.shape)
+                continue
+            used += 1
+        except Exception as exc:
+            log.warning("Local normalization: failed to read %s: %s", p, exc)
+        finally:
+            img = None
+            bg = None
+    if bg_sum is None or used < 2:
+        log.warning("Local normalization: not enough readable frames (%d)", used)
+        return []
+    bg_ref = bg_sum / float(used)
+    del bg_sum
+
+    # Pass 2: correct each frame and save
+    out_paths = []
+    for i, p in enumerate(paths):
+        progress(0.5 + 0.5 * i / max(n, 1),
+                 f"Local normalization: correcting {i + 1}/{n}")
+        try:
+            img = load_image(p)
+            if img.data.shape != bg_ref.shape:
+                log.warning("Local normalization: skipping %s (shape mismatch)", p)
+                continue
+            bg = _blur_frame(img.data, params.sigma)
+            ratio = bg_ref / np.maximum(bg, 1e-8)
+            np.clip(ratio, 1.0 - params.clip_limit, 1.0 + params.clip_limit, out=ratio)
+            corrected = ((img.data - bg) * ratio + bg_ref).astype(np.float32)
+            img.data = corrected
+            out_path = output_dir / f"ln_{Path(p).stem}.fits"
+            save_fits(img, out_path)
+            out_paths.append(out_path)
+        except Exception as exc:
+            log.warning("Local normalization: failed on %s: %s", p, exc)
+        finally:
+            img = None
+            bg = None
+            ratio = None
+            corrected = None
+
+    progress(1.0, "Local normalization complete")
+    return out_paths

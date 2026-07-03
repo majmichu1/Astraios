@@ -1601,6 +1601,45 @@ def stack_from_paths(
         img = load_image(str(paths[0]))
         return StackResult(image=img, n_frames=1)
 
+    if params.normalization == NormalizationMethod.LOCAL:
+        # LOCAL needs full-frame spatial correction maps, which per-tile
+        # scale/shift factors cannot express. Stream-correct every frame to a
+        # temp file first (one frame resident at a time), then tile-stack the
+        # corrected files with normalization done. Previously LOCAL was
+        # silently SKIPPED here, stacking unnormalized frames.
+        import dataclasses as _dc_mod
+        import shutil
+        import tempfile
+        from pathlib import Path
+
+        from astraios.core.local_normalization import local_normalize_to_disk
+
+        tmp_dir = Path(tempfile.mkdtemp(prefix="astraios_localnorm_"))
+        try:
+            norm_paths = local_normalize_to_disk(
+                paths, tmp_dir,
+                progress=lambda f, m: progress(f * 0.25, m),
+            )
+            if len(norm_paths) == n:
+                sub_params = _dc_mod.replace(
+                    params, normalization=NormalizationMethod.NONE
+                )
+                return stack_from_paths(
+                    norm_paths,
+                    params=sub_params,
+                    progress=lambda f, m: progress(0.25 + f * 0.75, m),
+                    exact_normalization=exact_normalization,
+                )
+            log.warning(
+                "Local normalization corrected %d/%d frames; falling back to "
+                "additive-scaling normalization", len(norm_paths), n,
+            )
+            params = _dc_mod.replace(
+                params, normalization=NormalizationMethod.ADDITIVE_SCALING
+            )
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
     # 1. Determine output shape from first file
     progress(0.0, "Reading file headers…")
     ref_shape = _get_fits_shape(paths[0])
