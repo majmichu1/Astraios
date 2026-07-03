@@ -137,7 +137,22 @@ def _upscale_ai(
 
 
 def _load_model(scale: int) -> Any | None:
-    """Load Real-ESRGAN model from local cache, downloading if needed."""
+    """Load a Real-ESRGAN model from the local cache, downloading if needed.
+
+    Requires ``basicsr`` (optional dependency). Without it the AI path uses a
+    bicubic upsampler — and we deliberately do NOT download the multi-MB
+    weights we could never load.
+    """
+    try:
+        from basicsr.archs.rrdbnet_arch import RRDBNet
+    except ImportError:
+        log.info(
+            "basicsr not installed — AI super-resolution uses a bicubic "
+            "upsampler (install basicsr + Real-ESRGAN weights for the "
+            "neural model)"
+        )
+        return _make_simple_upsampler(scale)
+
     model_name = f"real_esrgan_x{scale}.pth"
     model_path = MODEL_DIR / model_name
 
@@ -148,7 +163,11 @@ def _load_model(scale: int) -> Any | None:
             log.info("Downloading super-resolution model: %s", url)
             try:
                 import urllib.request
-                urllib.request.urlretrieve(url, model_path)
+                # Download to a temp name and rename: writing straight to the
+                # final path let an interrupted download poison the cache.
+                tmp_path = model_path.with_suffix(".tmp")
+                urllib.request.urlretrieve(url, tmp_path)
+                tmp_path.replace(model_path)
                 log.info("Model downloaded: %s", model_path)
             except Exception as e:
                 log.warning("Failed to download model: %s", e)
@@ -158,43 +177,75 @@ def _load_model(scale: int) -> Any | None:
             return None
 
     try:
-        from collections import OrderedDict
-
         import torch
 
         state = torch.load(model_path, map_location="cpu", weights_only=True)
+        # Official Real-ESRGAN checkpoints wrap the weights.
+        if isinstance(state, dict):
+            for wrapper in ("params_ema", "params", "state_dict"):
+                if wrapper in state and isinstance(state[wrapper], dict):
+                    state = state[wrapper]
+                    break
 
-        class _SimpleUpsampler(torch.nn.Module):
-            def __init__(self, scale):
-                super().__init__()
-                self.scale = scale
-
-            def forward(self, x):
-                return torch.nn.functional.interpolate(
-                    x, scale_factor=self.scale, mode="bicubic", align_corners=False
-                )
-
-        try:
-            from basicsr.archs.rrdbnet_arch import RRDBNet
-            model = RRDBNet(
-                num_in_ch=1, num_out_ch=1, num_feat=64,
-                num_block=23, num_grow_ch=32, scale=scale,
+        model = RRDBNet(
+            num_in_ch=3, num_out_ch=3, num_feat=64,
+            num_block=23, num_grow_ch=32, scale=scale,
+        )
+        cleaned = {k.replace("module.", ""): v for k, v in state.items()}
+        missing, unexpected = model.load_state_dict(cleaned, strict=False)
+        if len(missing) == len(model.state_dict()):
+            log.warning(
+                "Real-ESRGAN checkpoint shares no parameters with RRDBNet — "
+                "refusing to run with random weights"
             )
-            if isinstance(state, OrderedDict):
-                new_state = OrderedDict()
-                for k, v in state.items():
-                    new_state[k.replace("module.", "")] = v
-                missing, unexpected = model.load_state_dict(new_state, strict=False)
-                if missing:
-                    log.debug("Missing keys in model: %d", len(missing))
-            return model
-        except ImportError:
-            log.debug("basicsr not installed, using simple upsampler")
-            return _SimpleUpsampler(scale)
+            return None
+        if missing:
+            log.debug("Missing keys in model: %d", len(missing))
+        return _wrap_mono_adapter(model)
 
     except Exception as e:
         log.warning("Failed to load model: %s", e)
         return None
+
+
+def _make_simple_upsampler(scale: int):
+    import torch
+
+    class _SimpleUpsampler(torch.nn.Module):
+        def __init__(self, scale):
+            super().__init__()
+            self.scale = scale
+
+        def forward(self, x):
+            return torch.nn.functional.interpolate(
+                x, scale_factor=self.scale, mode="bicubic", align_corners=False
+            )
+
+    return _SimpleUpsampler(scale)
+
+
+def _wrap_mono_adapter(net):
+    """Wrap a 3-channel network so (1, 1, H, W) mono tiles pass through it.
+
+    The upscale pipeline feeds one channel at a time; official Real-ESRGAN
+    weights are RGB, so mono input is replicated to 3 channels and the
+    output averaged back to 1. (torch import stays lazy, matching the
+    module's import style.)
+    """
+    import torch
+
+    class _MonoAdapter(torch.nn.Module):
+        def __init__(self, inner):
+            super().__init__()
+            self.net = inner
+
+        def forward(self, x):
+            if x.shape[1] == 1:
+                x = x.repeat(1, 3, 1, 1)
+                return self.net(x).mean(dim=1, keepdim=True)
+            return self.net(x)
+
+    return _MonoAdapter(net)
 
 
 def _tiled_inference(model, tensor, tile_size: int, device, scale: int):

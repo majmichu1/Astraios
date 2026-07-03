@@ -85,6 +85,7 @@ class Pipeline:
 
 # Tool registry: maps tool names to processing functions
 _TOOL_REGISTRY: dict[str, Callable] = {}
+_defaults_registered = False
 
 
 def register_tool(name: str, func: Callable):
@@ -92,10 +93,22 @@ def register_tool(name: str, func: Callable):
     _TOOL_REGISTRY[name] = func
 
 
+def _ensure_default_tools():
+    """Register the built-in tools exactly once.
+
+    Tracked with a flag, not registry emptiness: external registrations
+    (plugins) can land first, and an emptiness check would then silently
+    skip every built-in tool.
+    """
+    global _defaults_registered
+    if not _defaults_registered:
+        _defaults_registered = True
+        _register_default_tools()
+
+
 def get_registered_tools() -> dict[str, Callable]:
     """Get all registered tools (registering the built-in defaults on first use)."""
-    if not _TOOL_REGISTRY:
-        _register_default_tools()
+    _ensure_default_tools()
     return dict(_TOOL_REGISTRY)
 
 
@@ -356,8 +369,7 @@ def apply_pipeline_to_image(
     ndarray
         Processed image.
     """
-    if not _TOOL_REGISTRY:
-        _register_default_tools()
+    _ensure_default_tools()
 
     if progress is None:
         progress = _noop_progress

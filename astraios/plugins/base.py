@@ -78,6 +78,30 @@ def scan_plugins():
                 _load_plugin_from_file(path)
             elif path.is_dir() and (path / "plugin.toml").exists():
                 _load_plugin_from_dir(path)
+    _bridge_to_tool_registry()
+
+
+def _bridge_to_tool_registry():
+    """Expose loaded plugin processes as batch/macro tools.
+
+    Without this bridge the plugin registry had no consumers at all: a
+    plugin loaded, logged 'registered', and could never be invoked. Each
+    process becomes tool ``plugin:<identifier>``, usable from batch
+    pipelines, macros, and history replay.
+    """
+    try:
+        from astraios.core.batch import register_tool
+    except Exception as e:  # pragma: no cover — core should always import
+        log.warning("Could not bridge plugins to the tool registry: %s", e)
+        return
+
+    for ident, proc in registry.items():
+        def _tool(data, _proc=proc, **kw):
+            return _proc.apply(data, kw or None)
+
+        register_tool(f"plugin:{ident}", _tool)
+    if registry:
+        log.info("Bridged %d plugin process(es) into the tool registry", len(registry))
 
 
 def _load_plugin_from_file(path: Path):

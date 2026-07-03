@@ -118,10 +118,12 @@ class ModelManager:
         return None
 
     def is_available(self, model_type: ModelType) -> bool:
-        """Check if a model is available (bundled or downloaded)."""
-        info = MODEL_REGISTRY.get(model_type)
-        if info is not None and not info.sha256:
-            return False
+        """Check if a model is available (bundled or downloaded).
+
+        A model file already on disk is available regardless of registry
+        state — an empty sha256 only means it cannot be DOWNLOADED (not yet
+        published on the CDN), not that a locally-installed copy is unusable.
+        """
         return self.get_model_path(model_type).exists()
 
     def needs_download(self, model_type: ModelType) -> bool:
@@ -158,6 +160,11 @@ class ModelManager:
         info = MODEL_REGISTRY.get(model_type)
         if info is None:
             raise ValueError(f"Unknown model type: {model_type}")
+        if not info.sha256:
+            raise RuntimeError(
+                f"{info.description} is not published on the CDN yet; "
+                "place the file manually in the model cache to use it"
+            )
 
         url = f"{MODEL_CDN_BASE}/{info.filename}"
         dest = self._models_dir / info.filename
