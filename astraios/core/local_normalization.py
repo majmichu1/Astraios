@@ -69,6 +69,7 @@ def local_normalize(
     frames: list[np.ndarray] | np.ndarray,
     reference: np.ndarray | None = None,
     params: LocalNormParams | None = None,
+    inplace: bool = False,
 ) -> np.ndarray:
     """Apply local normalization to a list of frames.
 
@@ -89,6 +90,11 @@ def local_normalize(
             (N,C,H,W) numpy stack.
         reference: Reference frame (default: median of all frames).
         params: LocalNormParams controlling kernel size, sigma, and clip limit.
+        inplace: Write corrected frames back into the input stack instead of
+            allocating a second full stack. Only honoured when ``frames`` is a
+            float32 ndarray stack the caller owns. Values are identical to the
+            out-of-place result (each frame's correction depends only on that
+            frame and the reference, which is computed before any write).
 
     Returns:
         Normalized frames as a numpy stack of same shape as input.
@@ -96,7 +102,9 @@ def local_normalize(
     if params is None:
         params = LocalNormParams()
 
-    if isinstance(frames, np.ndarray) and frames.ndim >= 2:
+    is_stack = isinstance(frames, np.ndarray) and frames.ndim >= 2
+    inplace = inplace and is_stack and frames.dtype == np.float32
+    if is_stack:
         n = frames.shape[0]
         if n < 2:
             return frames
@@ -124,27 +132,36 @@ def local_normalize(
         del ref_t
 
         result = []
-        for frame in frame_list:
+        for i, frame in enumerate(frame_list):
             frame_t = dm.from_numpy(frame.astype(np.float32, copy=True))
             bg_frame = _gaussian_blur_gpu(frame_t, params.sigma)
             ratio = bg_ref / bg_frame.clamp(min=1e-8)
             ratio = ratio.clamp(1.0 - params.clip_limit, 1.0 + params.clip_limit)
             norm_t = (frame_t - bg_frame) * ratio + bg_ref
-            result.append(dm.to_cpu(norm_t).numpy().astype(np.float32))
+            norm = dm.to_cpu(norm_t).numpy().astype(np.float32)
+            if inplace:
+                frames[i] = norm  # write back into the caller's stack
+            else:
+                result.append(norm)
 
         log.debug("Local normalization GPU: %d frames processed", n)
     else:
         bg_ref = _gaussian_blur_cpu(reference, params.sigma)
         result = []
-        for frame in frame_list:
+        for i, frame in enumerate(frame_list):
             bg_frame = _gaussian_blur_cpu(frame, params.sigma)
             ratio = bg_ref / np.maximum(bg_frame, 1e-8)
             ratio = np.clip(ratio, 1.0 - params.clip_limit, 1.0 + params.clip_limit)
             norm = (frame - bg_frame) * ratio + bg_ref
-            result.append(norm.astype(np.float32))
+            if inplace:
+                frames[i] = norm.astype(np.float32)
+            else:
+                result.append(norm.astype(np.float32))
 
         log.debug("Local normalization CPU: %d frames processed", n)
 
+    if inplace:
+        return frames
     return np.array(result, dtype=np.float32)
 
 

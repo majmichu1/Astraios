@@ -1911,7 +1911,8 @@ def stack_images(
     # 3. Normalization
     progress(0.35, "Normalizing background levels...")
     if params.normalization == NormalizationMethod.LOCAL:
-        data_stack = local_normalize(data_stack, params=LocalNormParams())
+        # In place: stack_images owns data_stack; avoids a second full stack.
+        data_stack = local_normalize(data_stack, params=LocalNormParams(), inplace=True)
     else:
         # In place: stack_images owns data_stack and reuses the buffer, so this
         # avoids a second full-stack allocation during normalization.
