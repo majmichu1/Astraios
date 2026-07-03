@@ -911,8 +911,11 @@ class ToolsPanel(QWidget):
         # SPCC — Spectrophotometric Color Calibration (sensor QE + filter curves)
         spcc = CollapsibleSection("SPCC (Spectrophotometric)")
         spcc.add_info("Sensor QE + filter transmission curves for precise white balance.")
+        # Only filter sets with real response curves in spcc.py are offered;
+        # the previous "Narrowband" and "Custom" entries silently ran the
+        # OSC broadband calibration.
         self._spcc_filter_combo  = spcc.add_combo(
-            "Filter set", ["Broadband (L/R/G/B)", "Narrowband Ha/OIII/SII", "Custom"]
+            "Filter set", ["OSC (no filter)", "Broadband (L/R/G/B)"]
         )
         self._spcc_camera_combo  = spcc.add_combo(
             "Camera", ["ZWO ASI2600MM Pro", "QHY268M", "ZWO ASI533MC Pro"]
@@ -2018,9 +2021,8 @@ class ToolsPanel(QWidget):
         """Return SPCCParams from the SPCC UI section."""
         from astraios.core.spcc import SPCCParams
         filter_map = {
+            "OSC (no filter)": "OSC (no filter)",
             "Broadband (L/R/G/B)": "Mono + Baader LRGB",
-            "Narrowband Ha/OIII/SII": "OSC (no filter)",
-            "Custom": "OSC (no filter)",
         }
         filter_name = filter_map.get(self._spcc_filter_combo.currentText(), "OSC (no filter)")
         return SPCCParams(filter_name=filter_name)
