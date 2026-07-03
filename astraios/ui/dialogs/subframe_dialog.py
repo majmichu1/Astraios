@@ -41,11 +41,14 @@ from astraios.core.subframe_selector import (
 _THUMB_SIZE = 80   # px — thumbnail column width/height
 
 
-def _make_thumbnail(path: str, size: int = _THUMB_SIZE) -> QPixmap:
-    """Load an image, auto-stretch, and return a square QPixmap thumbnail.
+def _make_thumbnail(path: str, size: int = _THUMB_SIZE) -> QImage:
+    """Load an image, auto-stretch, and return a square QImage thumbnail.
 
     Downscales to 256px *before* stretching so auto_stretch runs on a tiny
     array — typically 20–50× faster than stretching the full image.
+
+    Returns a QImage (NOT a QPixmap): this runs in a worker thread and
+    QPixmap is GUI-thread-only; the caller converts on the GUI thread.
     """
     try:
         from astraios.core.image_io import load_image
@@ -75,14 +78,13 @@ def _make_thumbnail(path: str, size: int = _THUMB_SIZE) -> QPixmap:
         y0, x0 = (h2 - s) // 2, (w2 - s) // 2
         crop = np.ascontiguousarray(rgb8[y0:y0+s, x0:x0+s])
         qimg = QImage(crop.tobytes(), s, s, s * 3, QImage.Format.Format_RGB888)
-        pix = QPixmap.fromImage(qimg)
-        return pix.scaled(size, size,
-                          Qt.AspectRatioMode.KeepAspectRatio,
-                          Qt.TransformationMode.SmoothTransformation)
+        return qimg.copy().scaled(size, size,
+                                  Qt.AspectRatioMode.KeepAspectRatio,
+                                  Qt.TransformationMode.SmoothTransformation)
     except Exception:
-        pix = QPixmap(size, size)
-        pix.fill(QColor(40, 40, 40))
-        return pix
+        qimg = QImage(size, size, QImage.Format.Format_RGB888)
+        qimg.fill(QColor(40, 40, 40))
+        return qimg
 
 
 class _ThumbLabel(QLabel):
@@ -141,10 +143,10 @@ class _ScoreWorker(QThread):
     """Run subframe scoring off the main thread."""
 
     progress = pyqtSignal(float, str)
-    # Emitted as each frame finishes measuring (row, raw metrics dict)
+    # Emitted as each frame finishes measuring (frame index, raw metrics dict)
     frame_measured = pyqtSignal(int, dict)
     finished = pyqtSignal(list)       # list[SubframeScore] — emitted immediately after scoring
-    thumbnail = pyqtSignal(int, object)  # row, QPixmap — emitted async after scoring
+    thumbnail = pyqtSignal(str, object)  # file path, QImage — emitted async after scoring
     error = pyqtSignal(str)
 
     def __init__(self, paths: list[str], params: SubframeSelectorParams):
@@ -167,15 +169,16 @@ class _ScoreWorker(QThread):
             # Emit scores immediately so the table shows accept/reject status
             self.finished.emit(scores)
 
-            # Generate thumbnails in parallel (IO-bound) — emit each as it arrives
+            # Generate thumbnails in parallel (IO-bound) — emit each as it
+            # arrives, keyed by file path so sorting can't misplace them.
             with ThreadPoolExecutor(max_workers=4) as pool:
-                futures = {pool.submit(_make_thumbnail, s.file_path): row
-                           for row, s in enumerate(scores)}
+                futures = {pool.submit(_make_thumbnail, s.file_path): s.file_path
+                           for s in scores}
                 for future in futures_as_completed(futures):
-                    row = futures[future]
+                    path = futures[future]
                     try:
-                        pix = future.result()
-                        self.thumbnail.emit(row, pix)
+                        qimg = future.result()
+                        self.thumbnail.emit(path, qimg)
                     except Exception:
                         pass
 
@@ -210,6 +213,13 @@ class SubframeDialog(QDialog):
         self._paths: list[str] = []
         # Manual overrides: path → True (force accept) / False (force reject)
         self._manual_overrides: dict[str, bool] = {}
+        # Manual sorting state. Qt's built-in item sorting is NOT used: it
+        # moves items but leaves cell widgets (thumbnails) behind, and every
+        # row-index → score mapping breaks. Header clicks re-sort the score
+        # list and rebuild the table instead, keeping everything attached.
+        self._sort_col: int | None = None
+        self._sort_desc: bool = False
+        self._thumb_cache: dict[str, QPixmap] = {}
 
         layout = QVBoxLayout(self)
 
@@ -372,10 +382,13 @@ class SubframeDialog(QDialog):
         self._table.verticalHeader().setVisible(False)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.setSortingEnabled(True)
+        self._table.setSortingEnabled(False)
         self._table.selectionModel().selectionChanged.connect(self._on_selection_changed)
 
         hdr = self._table.horizontalHeader()
+        hdr.setSectionsClickable(True)
+        hdr.setSortIndicatorShown(True)
+        hdr.sectionClicked.connect(self._on_sort_column)
         hdr.setSectionResizeMode(self._COL_THUMB,  QHeaderView.ResizeMode.Fixed)
         hdr.setSectionResizeMode(self._COL_FILE,   QHeaderView.ResizeMode.Stretch)
         hdr.setSectionResizeMode(self._COL_STATUS, QHeaderView.ResizeMode.Fixed)
@@ -457,16 +470,100 @@ class SubframeDialog(QDialog):
             btn.setEnabled(has_sel and bool(self._scores))
 
     def _selected_paths(self) -> list[str]:
-        """Return file paths for all selected rows."""
+        """Return file paths for all selected rows (resolved via item data,
+        never row index, so sorting cannot mis-target a file)."""
         paths = []
         seen_rows = set()
         for idx in self._table.selectionModel().selectedRows():
             row = idx.row()
-            if row in seen_rows or row >= len(self._scores):
+            if row in seen_rows:
                 continue
             seen_rows.add(row)
-            paths.append(self._scores[row].file_path)
+            item = self._table.item(row, self._COL_FILE)
+            path = item.data(Qt.ItemDataRole.UserRole) if item else None
+            if path:
+                paths.append(path)
         return paths
+
+    def _row_for_path(self, path: str) -> int:
+        """Find the current table row showing ``path``, or -1."""
+        for row in range(self._table.rowCount()):
+            item = self._table.item(row, self._COL_FILE)
+            if item and item.data(Qt.ItemDataRole.UserRole) == path:
+                return row
+        return -1
+
+    # ── Sorting ───────────────────────────────────────────────────────────────
+
+    _SORT_KEYS = {
+        1: lambda s: Path(s.file_path).name.lower(),   # _COL_FILE
+        2: lambda s: s.fwhm,                           # _COL_FWHM
+        3: lambda s: s.eccentricity,                   # _COL_ECC
+        4: lambda s: s.snr,                            # _COL_SNR
+        5: lambda s: s.background,                     # _COL_BG
+        6: lambda s: s.n_stars,                        # _COL_STARS
+        7: lambda s: s.quality_score,                  # _COL_SCORE
+    }
+
+    def _on_sort_column(self, col: int):
+        if not self._scores or col not in self._SORT_KEYS:
+            return
+        if self._sort_col == col:
+            self._sort_desc = not self._sort_desc
+        else:
+            self._sort_col = col
+            self._sort_desc = False
+        hdr = self._table.horizontalHeader()
+        hdr.setSortIndicator(
+            col,
+            Qt.SortOrder.DescendingOrder if self._sort_desc else Qt.SortOrder.AscendingOrder,
+        )
+        self._rebuild_table()
+
+    def _display_scores(self) -> list:
+        """Scores in the current display (sort) order."""
+        if self._sort_col is None or self._sort_col not in self._SORT_KEYS:
+            return list(self._scores)
+        return sorted(self._scores, key=self._SORT_KEYS[self._sort_col],
+                      reverse=self._sort_desc)
+
+    def _rebuild_table(self):
+        """Repopulate every row from the score list in display order.
+
+        Thumbnails, colors, and status travel with their file — unlike Qt's
+        built-in sorting, which moved items but left cell widgets behind.
+        """
+        filtered = self._apply_filter(self._scores)
+        accepted_paths = {s.file_path for s in filtered if s.accepted}
+        accepted_paths = self._apply_manual_overrides(accepted_paths)
+
+        ordered = self._display_scores()
+        self._table.setRowCount(len(ordered))
+        for row, s in enumerate(ordered):
+            accepted = s.file_path in accepted_paths
+            override = self._manual_overrides.get(s.file_path)
+            self._set_row_scored(row, s, accepted, override)
+            pix = self._thumb_cache.get(s.file_path)
+            widget = self._table.cellWidget(row, self._COL_THUMB)
+            if pix is not None:
+                if isinstance(widget, _ThumbLabel):
+                    widget.setPixmap(pix)
+                    widget.set_full_pixmap(pix)
+                else:
+                    lbl = _ThumbLabel()
+                    lbl.setPixmap(pix)
+                    lbl.set_full_pixmap(pix)
+                    self._table.setCellWidget(row, self._COL_THUMB, lbl)
+            elif not isinstance(widget, _ThumbLabel):
+                ph = QPixmap(_THUMB_SIZE, _THUMB_SIZE)
+                ph.fill(QColor(30, 30, 30))
+                lbl = _ThumbLabel()
+                lbl.setPixmap(ph)
+                self._table.setCellWidget(row, self._COL_THUMB, lbl)
+            w = self._table.cellWidget(row, self._COL_THUMB)
+            if w:
+                w.setStyleSheet(f"background: {'#1a3a1a' if accepted else '#3a1a1a'};")
+        self._update_summary(self._scores, accepted_paths)
 
     def _force_accept_selected(self):
         for path in self._selected_paths():
@@ -518,12 +615,14 @@ class SubframeDialog(QDialog):
         self._paths = paths
         self._scores = []
         self._manual_overrides.clear()
+        self._thumb_cache.clear()
+        self._sort_col = None
+        self._sort_desc = False
         self._score_btn.setEnabled(True)
         self._clear_all_btn.setEnabled(True)
         self._summary_label.setText("")
         n = len(paths)
         self._frame_count_label.setText(f"{n} frame{'s' if n != 1 else ''} loaded")
-        self._table.setSortingEnabled(False)
         self._table.setRowCount(n)
         for row, path in enumerate(paths):
             ph = QPixmap(_THUMB_SIZE, _THUMB_SIZE)
@@ -533,13 +632,13 @@ class SubframeDialog(QDialog):
             self._table.setCellWidget(row, self._COL_THUMB, lbl)
             name_item = QTableWidgetItem(Path(path).name)
             name_item.setForeground(QColor(160, 160, 160))
+            name_item.setData(Qt.ItemDataRole.UserRole, path)
             self._table.setItem(row, self._COL_FILE, name_item)
             # Blank placeholders for metric columns
             for col in (self._COL_FWHM, self._COL_ECC, self._COL_SNR,
                         self._COL_BG, self._COL_STARS, self._COL_SCORE):
                 self._table.setItem(row, col, QTableWidgetItem("…"))
             self._table.setItem(row, self._COL_STATUS, QTableWidgetItem("Pending"))
-        self._table.setSortingEnabled(True)
 
     # ── Scoring ───────────────────────────────────────────────────────────────
 
@@ -570,13 +669,17 @@ class SubframeDialog(QDialog):
         ))
         self._worker.start()
 
-    def _on_frame_measured(self, row: int, metrics: dict):
-        """Update a single row with raw metrics as soon as that frame finishes."""
-        if row >= self._table.rowCount():
+    def _on_frame_measured(self, idx: int, metrics: dict):
+        """Update a single row with raw metrics as soon as that frame finishes.
+
+        The worker reports the ORIGINAL frame index; resolve it to whatever
+        table row currently shows that file.
+        """
+        if idx >= len(self._paths):
             return
-        # Temporarily disable sorting so row stays in place during update
-        sorting_was = self._table.isSortingEnabled()
-        self._table.setSortingEnabled(False)
+        row = self._row_for_path(self._paths[idx])
+        if row < 0:
+            return
 
         dim = QColor(180, 180, 180)
 
@@ -596,10 +699,13 @@ class SubframeDialog(QDialog):
         status_it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
         self._table.setItem(row, self._COL_STATUS, status_it)
 
-        self._table.setSortingEnabled(sorting_was)
-
-    def _on_thumbnail(self, row: int, pix: QPixmap):
-        if row >= self._table.rowCount():
+    def _on_thumbnail(self, path: str, qimg: QImage):
+        # QPixmap conversion must happen here on the GUI thread; the worker
+        # only ships thread-safe QImages, keyed by file path.
+        pix = QPixmap.fromImage(qimg)
+        self._thumb_cache[path] = pix
+        row = self._row_for_path(path)
+        if row < 0:
             return
         existing = self._table.cellWidget(row, self._COL_THUMB)
         if isinstance(existing, _ThumbLabel):
@@ -616,21 +722,7 @@ class SubframeDialog(QDialog):
         self._scores = scores
         self._progress.setVisible(False)
         self._score_btn.setEnabled(True)
-
-        filtered = self._apply_filter(scores)
-        accepted_paths = {s.file_path for s in filtered if s.accepted}
-        accepted_paths = self._apply_manual_overrides(accepted_paths)
-
-        self._table.setSortingEnabled(False)
-        self._table.setRowCount(len(scores))
-
-        for row, s in enumerate(scores):
-            accepted = s.file_path in accepted_paths
-            override = self._manual_overrides.get(s.file_path)
-            self._set_row_scored(row, s, accepted, override)
-
-        self._table.setSortingEnabled(True)
-        self._update_summary(scores, accepted_paths)
+        self._rebuild_table()
 
     def _set_row_scored(self, row: int, s: SubframeScore, accepted: bool, override=None):
         """Fill a row with final scores and colour it accept/reject."""
@@ -644,8 +736,9 @@ class SubframeDialog(QDialog):
             it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             return it
 
-        self._table.setItem(row, self._COL_FILE,
-                            _item(Path(s.file_path).name, numeric=False))
+        file_item = _item(Path(s.file_path).name, numeric=False)
+        file_item.setData(Qt.ItemDataRole.UserRole, s.file_path)
+        self._table.setItem(row, self._COL_FILE, file_item)
         self._table.item(row, self._COL_FILE).setTextAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         self._table.item(row, self._COL_FILE).setForeground(color)
@@ -670,9 +763,10 @@ class SubframeDialog(QDialog):
             widget.setStyleSheet(f"background: {'#1a3a1a' if accepted else '#3a1a1a'};")
 
     def _colour_rows(self, scores: list[SubframeScore], accepted_paths: set) -> None:
-        for row, s in enumerate(scores):
-            if row >= self._table.rowCount():
-                break
+        for s in scores:
+            row = self._row_for_path(s.file_path)
+            if row < 0:
+                continue
             accepted = s.file_path in accepted_paths
             override = self._manual_overrides.get(s.file_path)
             color = QColor(200, 255, 200) if accepted else QColor(255, 150, 150)
