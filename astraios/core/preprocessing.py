@@ -318,6 +318,14 @@ def run_preprocessing(
     calibrated_paths: list[Path] = []
 
     if calibrate:
+        # Calibrated pixels only exist on disk — without a destination they
+        # would be silently discarded and the raw paths stacked instead.
+        if output_dir:
+            cal_dir = output_dir / "calibrated"
+        else:
+            import tempfile
+            cal_dir = Path(tempfile.mkdtemp(prefix="astraios_calibrated_"))
+        cal_dir.mkdir(parents=True, exist_ok=True)
         progress(0.4, "Calibrating light frames...")
         for match_idx, match in enumerate(matches):
             for light_idx, lpath in enumerate(match.light_paths):
@@ -348,28 +356,54 @@ def run_preprocessing(
                         )
 
                     # Save calibrated frame
-                    if output_dir:
-                        cal_dir = output_dir / "calibrated"
-                        cal_dir.mkdir(parents=True, exist_ok=True)
-                        out_path = cal_dir / f"cal_{lpath.stem}.fits"
-                        save_fits(cal, out_path)
-                        calibrated_paths.append(out_path)
-                    else:
-                        calibrated_paths.append(lpath)
+                    out_path = cal_dir / f"cal_{lpath.stem}.fits"
+                    save_fits(cal, out_path)
+                    calibrated_paths.append(out_path)
 
                 except Exception as e:
                     log.warning("Failed to calibrate %s: %s", lpath.name, e)
                     errors.append(f"{lpath.name}: {e}")
 
-    # Step 2-3: Register and stack
+    # Step 2: Register. stack_from_paths expects ALREADY-ALIGNED frames, so
+    # skipping this step would silently stack unaligned frames (smeared stars
+    # on any dithered dataset).
+    stack_input = calibrated_paths if calibrate else list(light_paths)
+    aligned_paths: list[Path] = []
+    if register and stack_input:
+        progress(0.6, "Registering frames...")
+        try:
+            from astraios.core.stacking import align_from_paths
+
+            if output_dir:
+                align_dir = output_dir / "aligned"
+            else:
+                import tempfile
+                align_dir = Path(tempfile.mkdtemp(prefix="astraios_aligned_"))
+            align_dir.mkdir(parents=True, exist_ok=True)
+            aligned_paths = align_from_paths(
+                stack_input,
+                align_dir,
+                params=stacking_params,
+                progress=lambda f, m: progress(0.6 + 0.2 * f, m),
+            )
+            if aligned_paths:
+                stack_input = aligned_paths
+            else:
+                errors.append("Registration produced no frames; stacking unaligned input")
+        except Exception as e:
+            log.warning("Registration failed: %s", e)
+            errors.append(f"Registration failed: {e} — stacking unaligned input")
+
+    # Step 3: Stack
     stacked: ImageData | None = None
-    if stack and calibrated_paths:
-        progress(0.6, "Registering and stacking frames...")
+    if stack and stack_input:
+        progress(0.8, "Stacking frames...")
         try:
             result = stack_from_paths(
-                calibrated_paths if calibrate else light_paths,
+                stack_input,
                 params=stacking_params,
-                progress=lambda f, m: progress(0.6 + 0.35 * f, m),
+                progress=lambda f, m: progress(0.8 + 0.15 * f, m),
+                exact_normalization=True,
             )
             stacked = result.image
 
