@@ -55,33 +55,33 @@ def apply(
     device = dm.device if image.size >= MIN_PIXELS_GPU else torch.device("cpu")
     img = image.astype(np.float32)
 
-    if img.ndim == 3:
-        tensor = torch.from_numpy(img[None, :, :, :]).float().to(device)
-    else:
-        tensor = torch.from_numpy(img[None, None, :, :]).float().to(device)
-
     model = model.to(device)
     model.eval()
 
-    use_tiles = params.tile_size > 0 and max(tensor.shape[2:]) > params.tile_size
+    def _run_mono(chan_2d: np.ndarray) -> np.ndarray:
+        tensor = torch.from_numpy(chan_2d[None, None, :, :]).float().to(device)
+        use_tiles = params.tile_size > 0 and max(tensor.shape[2:]) > params.tile_size
+        with torch.no_grad():
+            if use_tiles:
+                output = _tiled_inference(model, tensor, params.tile_size, device)
+            else:
+                output = model(tensor)
+                if isinstance(output, (list, tuple)):
+                    output = output[0]
+        out = output[0, 0].cpu().numpy().astype(np.float32)
+        del tensor, output
+        return out
 
-    with torch.no_grad():
-        if use_tiles:
-            output = _tiled_inference(model, tensor, params.tile_size, device)
-        else:
-            output = model(tensor)
-            if isinstance(output, (list, tuple)):
-                output = output[0]
-
+    # The network is single-channel; a (1, C, H, W) color tensor crashed the
+    # first conv. Run each channel independently instead.
     if img.ndim == 3:
-        result = output[0].cpu().numpy().astype(np.float32)
+        result = np.stack([_run_mono(img[c]) for c in range(img.shape[0])])
     else:
-        result = output[0, 0].cpu().numpy().astype(np.float32)
+        result = _run_mono(img)
 
     if params.strength < 1.0:
         result = img * (1.0 - params.strength) + result * params.strength
 
-    del tensor, output
     if device.type == "cuda":
         torch.cuda.empty_cache()
 
@@ -132,7 +132,24 @@ def _load_model(model_name: str):
 def _build_and_load(state):
     model = _CosmicNet()
     try:
+        # Unwrap common checkpoint wrappers before matching keys.
+        if isinstance(state, dict):
+            for wrapper in ("state_dict", "model", "params_ema", "params"):
+                if wrapper in state and isinstance(state[wrapper], dict):
+                    state = state[wrapper]
+                    break
         missing, unexpected = model.load_state_dict(state, strict=False)
+        n_own = len(model.state_dict())
+        # strict=False silently returns an UNTRAINED network when no key
+        # matches (all keys unexpected / all params missing) — random weights
+        # would then produce garbage output with no error at all.
+        if len(missing) == n_own or (state and len(unexpected) == len(state)):
+            log.warning(
+                "Cosmic Clarity state dict shares no parameters with the "
+                "built-in architecture (%d missing, %d unexpected) — refusing "
+                "to run with random weights", len(missing), len(unexpected),
+            )
+            return None
         if missing:
             log.debug("Model missing keys: %d", len(missing))
         if unexpected:
@@ -195,7 +212,9 @@ def _tiled_inference(model, tensor, tile_size, device):
             pad_h = max(0, tile_size - (y2 - y1))
             pad_w = max(0, tile_size - (x2 - x1))
             if pad_h > 0 or pad_w > 0:
-                tile = F.pad(tile, (0, pad_w, 0, pad_h), mode="reflect")
+                # replicate, not reflect: reflect raises when the pad exceeds
+                # the tile dimension (narrow edge tiles).
+                tile = F.pad(tile, (0, pad_w, 0, pad_h), mode="replicate")
             out_tile = model(tile)[:, :, :y2 - y1, :x2 - x1]
             out[:, :, y1:y2, x1:x2] += out_tile
             count[:, :, y1:y2, x1:x2] += 1

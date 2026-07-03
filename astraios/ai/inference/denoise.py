@@ -172,12 +172,20 @@ def _jinvariant_channel(
     output = np.zeros((h, w), dtype=np.float32)
     weight = np.zeros((h, w), dtype=np.float32)
 
-    ys = list(range(0, h - tile_size + 1, tile_size - overlap))
-    if ys[-1] + tile_size < h:
-        ys.append(h - tile_size)
-    xs = list(range(0, w - tile_size + 1, tile_size - overlap))
-    if xs[-1] + tile_size < w:
-        xs.append(w - tile_size)
+    # A dimension can be smaller than tile_size (only one dim needs to exceed
+    # it to reach this path); range() is then empty and [-1] would crash.
+    if h <= tile_size:
+        ys = [0]
+    else:
+        ys = list(range(0, h - tile_size + 1, tile_size - overlap))
+        if ys[-1] + tile_size < h:
+            ys.append(h - tile_size)
+    if w <= tile_size:
+        xs = [0]
+    else:
+        xs = list(range(0, w - tile_size + 1, tile_size - overlap))
+        if xs[-1] + tile_size < w:
+            xs.append(w - tile_size)
 
     total_tiles = len(ys) * len(xs)
     tile_idx = 0
@@ -188,14 +196,15 @@ def _jinvariant_channel(
 
     for y0 in ys:
         for x0 in xs:
-            y1, x1 = y0 + tile_size, x0 + tile_size
+            y1, x1 = min(y0 + tile_size, h), min(x0 + tile_size, w)
             patch = data[y0:y1, x0:x1].copy()
             t = torch.from_numpy(patch).unsqueeze(0).unsqueeze(0).to(device)
             result_t = _jinvariant_tile(t, model, params.n_passes, params.mask_ratio)
             result_np = result_t.squeeze().cpu().numpy()
 
-            output[y0:y1, x0:x1] += result_np * win
-            weight[y0:y1, x0:x1] += win
+            pw = win[: y1 - y0, : x1 - x0]
+            output[y0:y1, x0:x1] += result_np * pw
+            weight[y0:y1, x0:x1] += pw
 
             tile_idx += 1
             progress(tile_idx / total_tiles,

@@ -131,11 +131,16 @@ def tiled_inference(
 
 
 def _create_blend_weight(tile_size: int, overlap: int) -> np.ndarray:
-    """Create a 2D cosine blend weight for tile overlap blending."""
+    """Create a 2D cosine blend weight for tile overlap blending.
+
+    The ramp is strictly positive: a ramp that reaches exactly 0 at the
+    tile edge left image-border pixels (covered by only one tile) with
+    weight 0, producing a black 1-pixel frame around the output.
+    """
     w = np.ones(tile_size, dtype=np.float32)
     if overlap > 0:
-        ramp = np.linspace(0, np.pi / 2, overlap, dtype=np.float32)
-        cos_ramp = np.sin(ramp) ** 2  # smooth 0->1 ramp
+        ramp = np.linspace(0, np.pi / 2, overlap + 1, dtype=np.float32)[1:]
+        cos_ramp = np.sin(ramp) ** 2  # smooth (0, 1] ramp, never exactly 0
         w[:overlap] = cos_ramp
         w[-overlap:] = cos_ramp[::-1]
     return np.outer(w, w)

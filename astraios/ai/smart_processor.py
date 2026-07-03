@@ -2520,7 +2520,12 @@ class SmartProcessor:
         # below the knee is left exactly as the main stretch produced it.
         if full_plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
             # Soft mask of the bright core, measured on the LINEAR data so the
-            # threshold isn't fooled by the non-linear stretch.
+            # threshold isn't fooled by the non-linear stretch. When the
+            # Stretch stage is disabled, pre_stretch was never bound — but
+            # ``working`` is then still linear, so it IS the right reference
+            # (previously this crashed with UnboundLocalError).
+            if plan.stretch_params is None:
+                pre_stretch = working
             p99 = float(np.percentile(pre_stretch, 99))
             core_linear = (pre_stretch > p99 * 0.3).astype(np.float32)
             if np.any(core_linear):

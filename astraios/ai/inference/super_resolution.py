@@ -226,7 +226,10 @@ def _tiled_inference(model, tensor, tile_size: int, device, scale: int):
             pad_h = max(0, tile_size - (y2 - y1))
             pad_w = max(0, tile_size - (x2 - x1))
             if pad_h > 0 or pad_w > 0:
-                tile = torch.nn.functional.pad(tile, (0, pad_w, 0, pad_h), mode="reflect")
+                # replicate, not reflect: reflect raises when the pad exceeds
+                # the tile dimension, which happens for narrow edge tiles
+                # (e.g. 1000px image, 512px tiles -> 232px edge tile).
+                tile = torch.nn.functional.pad(tile, (0, pad_w, 0, pad_h), mode="replicate")
 
             with torch.no_grad():
                 out_tile = model(tile)
