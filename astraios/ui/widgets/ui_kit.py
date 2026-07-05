@@ -295,15 +295,43 @@ def styled_check(label: str, checked: bool = False) -> QCheckBox:
 
 
 def field_row(label_text: str, widget: QWidget,
-              label_width: int = 110) -> QHBoxLayout:
-    """Return a QHBoxLayout with a fixed-width label on the left."""
+              label_width: int = 110, help_text: str | None = None) -> QHBoxLayout:
+    """Return a QHBoxLayout with a fixed-width label on the left.
+
+    With ``help_text``, a hover "?" dot explaining the setting is appended.
+    """
     row = QHBoxLayout()
     row.setSpacing(8)
     lbl = make_label(label_text, TEXT_SECONDARY, 12)
     lbl.setFixedWidth(label_width)
     row.addWidget(lbl)
     row.addWidget(widget)
+    if help_text:
+        row.addWidget(help_dot(help_text))
     return row
+
+
+def help_dot(text: str, parent=None) -> QLabel:
+    """A small circled "?" that explains a tool or setting on hover.
+
+    Used next to section titles and control labels so every tool can carry a
+    plain-language explanation without cluttering the panel. The tooltip is
+    rich text and wraps at a readable width.
+    """
+    dot = QLabel("?", parent)
+    dot.setFixedSize(14, 14)
+    dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    dot.setStyleSheet(
+        f"QLabel {{ color: {TEXT_SECONDARY}; background: {BG_PRIMARY};"
+        f" border: 1px solid {BORDER}; border-radius: 7px;"
+        " font-size: 9px; font-weight: 700; }"
+        f"QLabel:hover {{ color: #ffffff; background: {ACCENT}; border-color: {ACCENT}; }}"
+    )
+    # <qt> forces rich text so Qt word-wraps long explanations.
+    dot.setToolTip(f"<qt>{text}</qt>")
+    dot.setToolTipDuration(60000)
+    dot.setCursor(Qt.CursorShape.WhatsThisCursor)
+    return dot
 
 
 def btn_row(specs: list[tuple[str, bool]]) -> tuple[QHBoxLayout, list[QPushButton]]:
@@ -338,6 +366,7 @@ class CollapsibleSection(QWidget):
         self, title: str,
         accent: bool = False,
         default_open: bool | None = None,
+        help_text: str | None = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -382,6 +411,12 @@ class CollapsibleSection(QWidget):
             f"color: {TEXT_PRIMARY}; font-size: 12px; font-weight: 600; background-color: transparent; border: none;"
         )
         hdr_inner.addWidget(self._title_lbl)
+        self._help_dot: QLabel | None = None
+        if help_text:
+            hdr_inner.addSpacing(6)
+            self._help_dot = help_dot(help_text)
+            hdr_inner.addWidget(self._help_dot)
+            self._search_text += " " + help_text.lower()
         hdr_inner.addStretch()
 
         self._chevron = QLabel("▲" if default_open else "▼")
@@ -460,17 +495,22 @@ class CollapsibleSection(QWidget):
         min_val: float, max_val: float,
         step: float = 1.0, decimals: int = 0,
         default: float | None = None,
+        help_text: str | None = None,
     ) -> SliderRow:
         row = SliderRow(label, value, min_val, max_val, step, decimals, default)
+        if help_text:
+            row.setToolTip(f"<qt>{help_text}</qt>")
+            row.setToolTipDuration(60000)
         self.body.addWidget(row)
         return row
 
     def add_combo(
         self, label: str, options: list[str],
         current: str | None = None, lw: int = 110,
+        help_text: str | None = None,
     ) -> QComboBox:
         combo = styled_combo(options, current)
-        self.body.addLayout(field_row(label, combo, lw))
+        self.body.addLayout(field_row(label, combo, lw, help_text=help_text))
         return combo
 
     def add_spin(
@@ -478,13 +518,19 @@ class CollapsibleSection(QWidget):
         min_val: float, max_val: float, value: float,
         step: float = 1.0, decimals: int = 0,
         suffix: str = "", lw: int = 110,
+        help_text: str | None = None,
     ) -> QDoubleSpinBox | QSpinBox:
         spin = styled_spin(min_val, max_val, value, step, decimals, suffix)
-        self.body.addLayout(field_row(label, spin, lw))
+        self.body.addLayout(field_row(label, spin, lw, help_text=help_text))
         return spin
 
-    def add_check(self, label: str, checked: bool = False) -> QCheckBox:
-        return self.add_widget(styled_check(label, checked))
+    def add_check(self, label: str, checked: bool = False,
+                  help_text: str | None = None) -> QCheckBox:
+        check = styled_check(label, checked)
+        if help_text:
+            check.setToolTip(f"<qt>{help_text}</qt>")
+            check.setToolTipDuration(60000)
+        return self.add_widget(check)
 
     def add_run(
         self, label: str,
