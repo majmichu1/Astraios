@@ -133,6 +133,10 @@ class ToolsPanel(QWidget):
     request_auto_denoise     = pyqtSignal()
     run_frequency_separation = pyqtSignal()
     run_star_reduction       = pyqtSignal()
+    run_fx                   = pyqtSignal()
+    run_diffraction_spikes   = pyqtSignal()
+    run_sat_chroma           = pyqtSignal()
+    run_halo_reduction       = pyqtSignal()
     open_narrowband_dialog   = pyqtSignal()
     open_pixelmath_dialog    = pyqtSignal()
     run_split_channels       = pyqtSignal()
@@ -280,6 +284,7 @@ class ToolsPanel(QWidget):
         self._build_transform_tab()
         self._build_color_tab()
         self._build_detail_tab()
+        self._build_effects_tab()
         self._build_ai_tab()
         self._build_utility_tab()
 
@@ -864,6 +869,44 @@ class ToolsPanel(QWidget):
         ca.add_run("▶ Apply Color Adjust", self.run_color_adjust.emit)
         lay.addWidget(ca)
 
+        # Saturation / Chroma hue curves (ported from Seti Astro Suite Pro, GPL-3.0)
+        sat = CollapsibleSection(
+            "Saturation by Hue",
+            help_text="Boost or mute the saturation of each color "
+                      "independently: push the reds of an emission nebula "
+                      "without oversaturating stars, or tame just the "
+                      "greens. Each slider is a multiplier for that color "
+                      "family (1.0 = unchanged).",
+        )
+        self._satc_mode_combo = sat.add_combo(
+            "Color space", ["Saturation (HSV)", "Chroma (Lab)"],
+            help_text="HSV saturation is fast and punchy but can shift hues "
+                      "slightly. Lab chroma is perceptually cleaner and "
+                      "keeps hues stable; use it for careful color work.",
+        )
+        self._satc_band_sliders = {}
+        for band, hue, tip in [
+            ("Red", 0, "Emission nebulae (H-alpha), red stars."),
+            ("Yellow", 60, "Star cores, sodium regions."),
+            ("Green", 120, "Usually noise in astro images; often muted."),
+            ("Cyan", 180, "OIII regions, planetary nebula shells."),
+            ("Blue", 240, "Reflection nebulae, hot stars."),
+            ("Magenta", 300, "Mixed Ha+OIII edges, galaxy cores."),
+        ]:
+            self._satc_band_sliders[hue] = sat.add_slider(
+                band, 1.0, 0.0, 3.0, 0.05, 2,
+                help_text=f"Saturation multiplier for {band.lower()} tones. "
+                          f"{tip} 0 removes the color, 1 keeps it, "
+                          "3 triples it.",
+            )
+        self._satc_strength = sat.add_slider(
+            "Master strength", 1.0, 0.0, 3.0, 0.05, 2,
+            help_text="Global multiplier applied on top of all the band "
+                      "sliders. 1.0 = use band values as-is.",
+        )
+        sat.add_run("▶ Apply Saturation", self.run_sat_chroma.emit)
+        lay.addWidget(sat)
+
         # Color Calibration
         cc = CollapsibleSection("Color Calibration")
         cc.add_info("White balance using background reference or star colours.")
@@ -1148,7 +1191,247 @@ class ToolsPanel(QWidget):
         ca.add_run("▶ Correct CA", self.run_chromatic_aberration.emit)
         lay.addWidget(ca)
 
+        # Halo-B-Gon (ported from Seti Astro Suite Pro, GPL-3.0)
+        halo = CollapsibleSection(
+            "Halo Reduction (Halo-B-Gon)",
+            help_text="Shrinks the bright halos and glow rings around stars "
+                      "that stretching amplifies, without eating the star "
+                      "cores. Run it on stretched images; enable the linear "
+                      "option only for unstretched data.",
+        )
+        self._halo_level_combo = halo.add_combo(
+            "Strength", ["Extra Low", "Low", "Medium", "High"], current="Low",
+            help_text="How aggressively halos are darkened. Start Low; "
+                      "High can dim faint nebulosity near bright stars.",
+        )
+        self._halo_linear_check = halo.add_check(
+            "Linear (unstretched) data",
+            help_text="Tick when the image has NOT been stretched yet. The "
+                      "tool then boosts the data internally to find halos.",
+        )
+        halo.add_run("▶ Reduce Halos", self.run_halo_reduction.emit)
+        lay.addWidget(halo)
+
         self._tabs.addTab(scrollable_tab(lay), "◎  Detail")
+
+    # ── TAB: Effects ──────────────────────────────────────
+    def _build_effects_tab(self):
+        lay = QVBoxLayout()
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(6)
+
+        # FX Tool (ported from Seti Astro Suite Pro, GPL-3.0)
+        fx = CollapsibleSection(
+            "FX Tool", accent=True,
+            help_text="Artistic finishing effects: Orton glow, soft focus, "
+                      "bloom, vignette, film grain, and split toning. Pick an "
+                      "effect, tune its sliders, apply. Only the sliders for "
+                      "the chosen effect are shown.",
+        )
+        self._fx_effect_combo = fx.add_combo(
+            "Effect",
+            ["Orton Glow", "Soft Focus", "Bloom", "Vignette", "Film Grain", "Split Tone"],
+            help_text="Orton Glow: dreamy bright glow. Soft Focus: gentle "
+                      "blur overlay. Bloom: glow only around highlights. "
+                      "Vignette: darkened corners. Film Grain: analog "
+                      "texture. Split Tone: tint shadows and highlights "
+                      "different colors.",
+        )
+        self._fx_blur_radius = fx.add_slider(
+            "Glow radius", 15.0, 1.0, 100.0, 1.0, 0,
+            help_text="Size of the glow/blur in pixels. Bigger = softer, "
+                      "dreamier halo.",
+        )
+        self._fx_opacity = fx.add_slider(
+            "Opacity", 0.5, 0.0, 1.0, 0.01, 2,
+            help_text="How strongly the effect is mixed into the image. "
+                      "0 = off, 1 = full effect.",
+        )
+        self._fx_glow_brightness = fx.add_slider(
+            "Glow brightness", 1.4, 0.5, 3.0, 0.05, 2,
+            help_text="Brightens the glow layer before blending. Higher = "
+                      "more luminous glow.",
+        )
+        # In a hideable container so the label disappears with the combo
+        # when another effect is selected.
+        self._fx_blend_combo = styled_combo(["Screen", "Soft Light", "Lighten"])
+        self._fx_blend_row = QWidget()
+        self._fx_blend_row.setLayout(field_row(
+            "Blend mode", self._fx_blend_combo, 110,
+            help_text="Screen is brightest and hazy, Soft Light is gentler "
+                      "and protects shadows, Lighten shifts color the least.",
+        ))
+        fx.add_widget(self._fx_blend_row)
+        self._fx_highlight_protect = fx.add_slider(
+            "Highlight protect", 0.5, 0.0, 1.0, 0.01, 2,
+            help_text="Fades the glow near already-bright areas so star "
+                      "cores and galaxy cores don't blow out.",
+        )
+        self._fx_luma_recovery = fx.add_slider(
+            "Luma recovery", 0.7, 0.0, 1.0, 0.01, 2,
+            help_text="Pulls overall brightness back toward the original "
+                      "after a Screen blend, preventing a washed-out look.",
+        )
+        self._fx_bloom_threshold = fx.add_slider(
+            "Bloom threshold", 0.7, 0.0, 1.0, 0.01, 2,
+            help_text="Only pixels brighter than this get the bloom glow. "
+                      "Lower = more of the image blooms.",
+        )
+        self._fx_bloom_brightness = fx.add_slider(
+            "Bloom brightness", 1.5, 0.5, 3.0, 0.05, 2,
+            help_text="Brightness boost of the isolated highlights before "
+                      "they are blended back.",
+        )
+        self._fx_vignette_amount = fx.add_slider(
+            "Vignette amount", 0.4, 0.0, 1.0, 0.01, 2,
+            help_text="How dark the corners get. 0 = none, 1 = black "
+                      "corners.",
+        )
+        self._fx_vignette_radius = fx.add_slider(
+            "Vignette radius", 0.7, 0.1, 1.5, 0.01, 2,
+            help_text="Distance from center where darkening starts. Smaller "
+                      "= vignette reaches further into the frame.",
+        )
+        self._fx_vignette_softness = fx.add_slider(
+            "Vignette softness", 0.5, 0.05, 1.0, 0.01, 2,
+            help_text="Softness of the transition into the dark corners.",
+        )
+        self._fx_grain_intensity = fx.add_slider(
+            "Grain intensity", 0.1, 0.0, 1.0, 0.01, 2,
+            help_text="Strength of the film grain texture.",
+        )
+        self._fx_grain_size = fx.add_slider(
+            "Grain size", 1.0, 0.0, 8.0, 0.5, 1,
+            help_text="Clump size of the grain. 0 is the finest grain; "
+                      "higher values look like faster, chunkier film stock.",
+        )
+        self._fx_grain_mono = fx.add_check(
+            "Monochrome grain", True,
+            help_text="Ticked: the same grain on all channels (classic "
+                      "black-and-white film look). Unticked: colored grain.",
+        )
+        self._fx_shadow_hue = fx.add_slider(
+            "Shadow hue", 220.0, 0.0, 360.0, 1.0, 0,
+            help_text="Tint color for the dark areas, as a hue angle "
+                      "(0 red, 120 green, 220 blue...).",
+        )
+        self._fx_highlight_hue = fx.add_slider(
+            "Highlight hue", 40.0, 0.0, 360.0, 1.0, 0,
+            help_text="Tint color for the bright areas. Classic teal-orange "
+                      "is shadows 220, highlights 40.",
+        )
+        self._fx_tone_balance = fx.add_slider(
+            "Tone balance", 0.0, -1.0, 1.0, 0.01, 2,
+            help_text="Shifts the split point: negative tints more of the "
+                      "image as shadows, positive as highlights.",
+        )
+        self._fx_tone_strength = fx.add_slider(
+            "Tone strength", 0.3, 0.0, 1.0, 0.01, 2,
+            help_text="Overall strength of the split-tone tint.",
+        )
+        fx.add_run("▶ Apply FX", self.run_fx.emit)
+        lay.addWidget(fx)
+        self._fx_rows_by_effect = {
+            "Orton Glow": [self._fx_blur_radius, self._fx_opacity,
+                           self._fx_glow_brightness, self._fx_blend_row,
+                           self._fx_highlight_protect, self._fx_luma_recovery],
+            "Soft Focus": [self._fx_blur_radius, self._fx_opacity],
+            "Bloom": [self._fx_blur_radius, self._fx_opacity,
+                      self._fx_bloom_threshold, self._fx_bloom_brightness,
+                      self._fx_luma_recovery],
+            "Vignette": [self._fx_vignette_amount, self._fx_vignette_radius,
+                         self._fx_vignette_softness],
+            "Film Grain": [self._fx_grain_intensity, self._fx_grain_size,
+                           self._fx_grain_mono],
+            "Split Tone": [self._fx_shadow_hue, self._fx_highlight_hue,
+                           self._fx_tone_balance, self._fx_tone_strength],
+        }
+        self._fx_effect_combo.currentTextChanged.connect(self._update_fx_rows)
+        self._update_fx_rows()
+
+        # Diffraction Spikes (ported from Seti Astro Suite Pro, GPL-3.0)
+        sp = CollapsibleSection(
+            "Diffraction Spikes",
+            help_text="Adds synthetic diffraction spikes to the brightest "
+                      "stars, like a Newtonian's spider vanes or a JWST "
+                      "look. Stars are detected automatically; you choose "
+                      "how many get spikes and how they look.",
+        )
+        self._spike_amount = sp.add_slider(
+            "Stars with spikes", 10.0, 1.0, 100.0, 1.0, 0,
+            help_text="Percentage of the brightest detected stars that "
+                      "receive spikes. Keep it low: real optics only spike "
+                      "the bright ones.",
+        )
+        self._spike_quantity = sp.add_spin(
+            "Spikes per star", 2, 12, 4,
+            help_text="Number of primary spikes. 4 = Newtonian cross, "
+                      "6 = JWST style.",
+        )
+        self._spike_length = sp.add_slider(
+            "Length", 1.0, 0.1, 5.0, 0.05, 2,
+            help_text="Base spike length, scaled by each star's size.",
+        )
+        self._spike_angle = sp.add_slider(
+            "Angle", 0.0, 0.0, 180.0, 1.0, 0,
+            help_text="Rotates the whole spike pattern, in degrees.",
+        )
+        self._spike_intensity = sp.add_slider(
+            "Intensity", 0.8, 0.0, 1.0, 0.01, 2,
+            help_text="Opacity of the primary spikes.",
+        )
+        self._spike_width = sp.add_slider(
+            "Width", 1.0, 0.2, 4.0, 0.05, 2,
+            help_text="Thickness of the spikes.",
+        )
+        self._spike_sharpness = sp.add_slider(
+            "Sharpness", 1.0, 0.2, 4.0, 0.05, 2,
+            help_text="How quickly a spike fades along its length. Higher "
+                      "= shorter bright core with a long faint tail.",
+        )
+        sp.add_divider()
+        self._spike_secondary_intensity = sp.add_slider(
+            "Secondary intensity", 0.0, 0.0, 1.0, 0.01, 2,
+            help_text="Opacity of a second, offset spike set (0 disables "
+                      "it). Adds the thin cross JWST images show.",
+        )
+        self._spike_secondary_length = sp.add_slider(
+            "Secondary length", 0.5, 0.1, 3.0, 0.05, 2,
+            help_text="Length of the secondary spikes relative to the star.",
+        )
+        self._spike_secondary_offset = sp.add_slider(
+            "Secondary offset", 45.0, 0.0, 180.0, 1.0, 0,
+            help_text="Angle between the primary and secondary spike sets.",
+        )
+        self._spike_flare_intensity = sp.add_slider(
+            "Soft flare", 0.3, 0.0, 1.0, 0.01, 2,
+            help_text="A soft round glow under the spikes that sells the "
+                      "effect. 0 disables it.",
+        )
+        self._spike_halo_check = sp.add_check(
+            "Diffraction halo ring",
+            help_text="Adds a colored diffraction ring around spiked stars.",
+        )
+        self._spike_rainbow_check = sp.add_check(
+            "Rainbow spikes",
+            help_text="Overlays subtle chromatic (rainbow) structure along "
+                      "the primary spikes, like real diffraction.",
+        )
+        sp.add_run("▶ Render Spikes", self.run_diffraction_spikes.emit)
+        lay.addWidget(sp)
+
+        lay.addStretch()
+        self._tabs.addTab(scrollable_tab(lay), "✧  Effects")
+
+    def _update_fx_rows(self):
+        """Show only the sliders that belong to the selected FX effect."""
+        current = self._fx_effect_combo.currentText()
+        all_rows = set()
+        for rows in self._fx_rows_by_effect.values():
+            all_rows.update(rows)
+        visible = set(self._fx_rows_by_effect.get(current, []))
+        for row in all_rows:
+            row.setVisible(row in visible)
 
     # ── TAB 8: AI Tools ───────────────────────────────────
     def _build_ai_tab(self):
@@ -1285,6 +1568,96 @@ class ToolsPanel(QWidget):
         lay.addWidget(train)
 
         self._tabs.addTab(scrollable_tab(lay), "✦  AI Tools")
+
+    def get_fx_params(self):
+        from astraios.core.fx_effects import BlendMode, FXEffect, FXParams
+
+        effect_map = {
+            "Orton Glow": FXEffect.ORTON_GLOW, "Soft Focus": FXEffect.SOFT_FOCUS,
+            "Bloom": FXEffect.BLOOM, "Vignette": FXEffect.VIGNETTE,
+            "Film Grain": FXEffect.FILM_GRAIN, "Split Tone": FXEffect.SPLIT_TONE,
+        }
+        blend_map = {
+            "Screen": BlendMode.SCREEN, "Soft Light": BlendMode.SOFT_LIGHT,
+            "Lighten": BlendMode.LIGHTEN,
+        }
+        return FXParams(
+            effect=effect_map.get(self._fx_effect_combo.currentText(),
+                                  FXEffect.ORTON_GLOW),
+            blur_radius=float(self._fx_blur_radius.value()),
+            opacity=float(self._fx_opacity.value()),
+            glow_brightness=float(self._fx_glow_brightness.value()),
+            blend_mode=blend_map.get(self._fx_blend_combo.currentText(),
+                                     BlendMode.SCREEN),
+            highlight_protect=float(self._fx_highlight_protect.value()),
+            luma_recovery=float(self._fx_luma_recovery.value()),
+            bloom_threshold=float(self._fx_bloom_threshold.value()),
+            bloom_brightness=float(self._fx_bloom_brightness.value()),
+            vignette_amount=float(self._fx_vignette_amount.value()),
+            vignette_radius=float(self._fx_vignette_radius.value()),
+            vignette_softness=float(self._fx_vignette_softness.value()),
+            grain_intensity=float(self._fx_grain_intensity.value()),
+            grain_size=float(self._fx_grain_size.value()),
+            grain_mono=self._fx_grain_mono.isChecked(),
+            shadow_hue=float(self._fx_shadow_hue.value()),
+            highlight_hue=float(self._fx_highlight_hue.value()),
+            tone_balance=float(self._fx_tone_balance.value()),
+            tone_strength=float(self._fx_tone_strength.value()),
+        )
+
+    def get_diffraction_spike_params(self):
+        from astraios.core.diffraction_spikes import DiffractionSpikeParams
+
+        return DiffractionSpikeParams(
+            star_amount=float(self._spike_amount.value()),
+            quantity=int(self._spike_quantity.value()),
+            length=float(self._spike_length.value()),
+            angle=float(self._spike_angle.value()),
+            intensity=float(self._spike_intensity.value()),
+            spike_width=float(self._spike_width.value()),
+            sharpness=float(self._spike_sharpness.value()),
+            secondary_intensity=float(self._spike_secondary_intensity.value()),
+            secondary_length=float(self._spike_secondary_length.value()),
+            secondary_offset=float(self._spike_secondary_offset.value()),
+            soft_flare_intensity=float(self._spike_flare_intensity.value()),
+            enable_halo=self._spike_halo_check.isChecked(),
+            enable_rainbow=self._spike_rainbow_check.isChecked(),
+        )
+
+    def get_sat_chroma_params(self):
+        from astraios.core.sat_chroma import SatChromaMode, SatChromaParams
+
+        mode = (SatChromaMode.CHROMA_LAB
+                if "Lab" in self._satc_mode_combo.currentText()
+                else SatChromaMode.SATURATION_HSV)
+        # Band sliders become curve control points; duplicate the 0-degree
+        # value at 360 so the curve wraps cleanly.
+        points = [(float(h), float(s.value()))
+                  for h, s in sorted(self._satc_band_sliders.items())]
+        points.append((360.0, points[0][1]))
+        return SatChromaParams(
+            mode=mode,
+            curve_points=points,
+            strength=float(self._satc_strength.value()),
+        )
+
+    def get_halo_reduction_params(self):
+        from astraios.core.halo_reduction import (
+            HaloReductionLevel,
+            HaloReductionParams,
+        )
+
+        level_map = {
+            "Extra Low": HaloReductionLevel.EXTRA_LOW,
+            "Low": HaloReductionLevel.LOW,
+            "Medium": HaloReductionLevel.MEDIUM,
+            "High": HaloReductionLevel.HIGH,
+        }
+        return HaloReductionParams(
+            reduction_level=level_map.get(self._halo_level_combo.currentText(),
+                                          HaloReductionLevel.LOW),
+            is_linear=self._halo_linear_check.isChecked(),
+        )
 
     def _show_training_guide(self):
         """Explain how to train a personal denoise model (button was dead)."""

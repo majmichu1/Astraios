@@ -344,6 +344,35 @@ def _register_default_tools():
     register_tool("ai_sharpen", _ai_sharpen_tool)
     register_tool("starnet", _starnet_tool)
 
+    # ── Tools ported from Seti Astro Suite Pro (GPL-3.0) ──────────────────
+
+    def _fx_tool(data, **kw):
+        from astraios.core.fx_effects import FXParams, apply_fx
+        return apply_fx(data, params=_p(FXParams, kw))
+
+    def _spikes_tool(data, **kw):
+        from astraios.core.diffraction_spikes import (
+            DiffractionSpikeParams,
+            render_spikes,
+        )
+        return render_spikes(data, params=_p(DiffractionSpikeParams, kw))
+
+    def _sat_chroma_tool(data, **kw):
+        from astraios.core.sat_chroma import SatChromaParams, apply_sat_chroma
+        # curve_points arrive as lists of lists after a JSON round-trip
+        if "curve_points" in kw and kw["curve_points"]:
+            kw["curve_points"] = [tuple(p) for p in kw["curve_points"]]
+        return apply_sat_chroma(data, params=_p(SatChromaParams, kw))
+
+    def _halo_tool(data, **kw):
+        from astraios.core.halo_reduction import HaloReductionParams, reduce_halos
+        return reduce_halos(data, params=_p(HaloReductionParams, kw))
+
+    register_tool("fx", _fx_tool)
+    register_tool("diffraction_spikes", _spikes_tool)
+    register_tool("sat_chroma", _sat_chroma_tool)
+    register_tool("halo_reduction", _halo_tool)
+
 
 def apply_pipeline_to_image(
     data: np.ndarray,

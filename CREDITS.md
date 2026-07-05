@@ -39,6 +39,22 @@ Astraios is built on the shoulders of many excellent open source projects.
 - **Noise2Self**: Self-supervised denoising architecture. See the original paper:
   *Krull et al., "Noise2Void — Learning Denoising from Single Noisy Images", CVPR 2019.*
 
+## Seti Astro Suite Pro (Franklin Marek)
+
+Several Astraios tools are ported and adapted from
+[Seti Astro Suite Pro](https://github.com/setiastro/setiastrosuitepro),
+Copyright Franklin Marek, licensed under GPL v3 (the same license as
+Astraios). Each ported module carries an attribution header naming its
+origin. Ported tools include the FX effects (Orton glow, star glow, soft
+focus, split tone, film grain), diffraction spikes, saturation and chroma
+hue curves, Halo-B-Gon halo reduction, WaveScale HDR, WaveScale Dark
+Enhance, texture clarity, selective color and luminance, and pedestal
+tools. The implementations were adapted to Astraios conventions
+(channels-first float32 data, GPU execution through the device manager
+with CPU fallbacks) while preserving the original processing math.
+Sincere thanks to Franklin Marek for publishing this work under a
+license that allows the astrophotography community to build on it.
+
 ## StarNet v2
 
 StarNet v2 is licensed under GPL v3. When integrated, it will be:

@@ -1230,6 +1230,10 @@ class MainWindow(QMainWindow):
         tp.run_statistical_stretch.connect(self._on_run_statistical_stretch)
         tp.run_star_stretch.connect(self._on_run_star_stretch)
         tp.run_star_reduction.connect(self._on_run_star_reduction)
+        tp.run_fx.connect(self._on_run_fx)
+        tp.run_diffraction_spikes.connect(self._on_run_diffraction_spikes)
+        tp.run_sat_chroma.connect(self._on_run_sat_chroma)
+        tp.run_halo_reduction.connect(self._on_run_halo_reduction)
         tp.open_narrowband_dialog.connect(self._show_narrowband_dialog)
         tp.open_pixelmath_dialog.connect(self._show_pixelmath_dialog)
         tp.run_split_channels.connect(self._on_run_split_channels)
@@ -5014,6 +5018,109 @@ class MainWindow(QMainWindow):
                 self._project.add_history(
                     "Star Reduction", {"amount": _p.amount, "iterations": _p.iterations}
                 )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_fx(self):
+        if self._current_image is None:
+            return
+        params = self._tools_panel.get_fx_params()
+        self._log_panel.log(f"Applying FX ({params.effect.name.replace('_', ' ').title()})...",
+                            "info")
+        _p = params
+
+        def _work(data, progress=None):
+            from astraios.core.fx_effects import apply_fx
+            return apply_fx(data, params=_p, mask=self._active_mask, progress=progress)
+
+        def _done(result):
+            self._update_current_image(
+                result, f"FX applied: {_p.effect.name.replace('_', ' ').title()}",
+                tool="fx", tool_params=self._step_params(_p),
+            )
+            if self._project:
+                self._project.add_history("FX", {"effect": _p.effect.name})
+            self._macro_recorder.record_step("fx", self._step_params(_p))
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_diffraction_spikes(self):
+        if self._current_image is None:
+            return
+        params = self._tools_panel.get_diffraction_spike_params()
+        self._log_panel.log("Rendering diffraction spikes...", "info")
+        _p = params
+
+        def _work(data, progress=None):
+            from astraios.core.diffraction_spikes import render_spikes
+            return render_spikes(data, params=_p, mask=self._active_mask, progress=progress)
+
+        def _done(result):
+            self._update_current_image(
+                result, "Diffraction spikes rendered",
+                tool="diffraction_spikes", tool_params=self._step_params(_p),
+            )
+            if self._project:
+                self._project.add_history(
+                    "Diffraction Spikes",
+                    {"quantity": _p.quantity, "star_amount": _p.star_amount},
+                )
+            self._macro_recorder.record_step("diffraction_spikes", self._step_params(_p))
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_sat_chroma(self):
+        if self._current_image is None:
+            return
+        if self._current_image.data.ndim != 3:
+            self._log_panel.log("Saturation by hue requires a color image", "warning")
+            return
+        params = self._tools_panel.get_sat_chroma_params()
+        self._log_panel.log("Applying per-hue saturation...", "info")
+        _p = params
+
+        def _work(data, progress=None):
+            from astraios.core.sat_chroma import apply_sat_chroma
+            return apply_sat_chroma(data, params=_p, mask=self._active_mask,
+                                    progress=progress)
+
+        def _done(result):
+            self._update_current_image(
+                result, "Saturation by hue applied",
+                tool="sat_chroma", tool_params=self._step_params(_p),
+            )
+            if self._project:
+                self._project.add_history("Saturation by Hue", {"mode": _p.mode.name})
+            self._macro_recorder.record_step("sat_chroma", self._step_params(_p))
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    @pyqtSlot()
+    def _on_run_halo_reduction(self):
+        if self._current_image is None:
+            return
+        params = self._tools_panel.get_halo_reduction_params()
+        self._log_panel.log("Reducing star halos (Halo-B-Gon)...", "info")
+        _p = params
+
+        def _work(data, progress=None):
+            from astraios.core.halo_reduction import reduce_halos
+            return reduce_halos(data, params=_p, mask=self._active_mask,
+                                progress=progress)
+
+        def _done(result):
+            self._update_current_image(
+                result, "Halo reduction complete",
+                tool="halo_reduction", tool_params=self._step_params(_p),
+            )
+            if self._project:
+                self._project.add_history(
+                    "Halo Reduction", {"level": int(_p.reduction_level)}
+                )
+            self._macro_recorder.record_step("halo_reduction", self._step_params(_p))
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
