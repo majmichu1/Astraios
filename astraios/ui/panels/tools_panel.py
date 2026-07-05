@@ -173,6 +173,7 @@ class ToolsPanel(QWidget):
     run_continuum_subtraction= pyqtSignal()
     toggle_sample_mode       = pyqtSignal(bool)
     clear_bg_samples         = pyqtSignal()
+    blemish_mode_toggled     = pyqtSignal(bool)
     add_bg_grid              = pyqtSignal(int, int, int)
     toggle_wcs_overlay       = pyqtSignal(bool)
     run_background_neutralization = pyqtSignal()
@@ -2388,6 +2389,41 @@ class ToolsPanel(QWidget):
         txc.add_run("▶ Apply Texture and Clarity", self.run_texture_clarity.emit)
         lay.addWidget(txc)
 
+        # Blemish Blaster (ported from Seti Astro Suite Pro, GPL-3.0)
+        blm = CollapsibleSection(
+            "Blemish Blaster",
+            help_text="Heals a small circular blemish -- a satellite trail "
+                      "nick, hot pixel cluster, or plane streak -- by "
+                      "sampling neighbor patches around the click point and "
+                      "blending in whichever ones best match the "
+                      "surrounding background, feathered at the edge of "
+                      "the brush.",
+        )
+        blm.add_info("Click blemishes on the image to heal them locally.")
+        self._blemish_radius = blm.add_spin(
+            "Radius (px)", 1, 900, 12,
+            help_text="Brush radius in pixels.",
+        )
+        self._blemish_feather = blm.add_slider(
+            "Feather", 0.5, 0.0, 1.0, 0.05, 2,
+            help_text="Edge softness. 0 = hard-edged disc; 1 = the "
+                      "correction fades in smoothly all the way from the "
+                      "brush edge to its center.",
+        )
+        self._blemish_opacity = blm.add_slider(
+            "Opacity", 1.0, 0.0, 1.0, 0.05, 2,
+            help_text="Blend strength of the healed value over the "
+                      "original. 1.0 fully replaces; lower values "
+                      "partially blend the healed patch back with the "
+                      "original pixels.",
+        )
+        self._blemish_toggle_btn = RunBtn("Heal on click", flat=True)
+        self._blemish_toggle_btn.setCheckable(True)
+        self._blemish_toggle_btn.toggled.connect(self.blemish_mode_toggled.emit)
+        blm.add_widget(self._blemish_toggle_btn)
+        blm.add_info("Tick, then click blemishes on the image. Untick when done.")
+        lay.addWidget(blm)
+
         self._tabs.addTab(scrollable_tab(lay), "◎  Detail")
 
     # ── TAB: Effects ──────────────────────────────────────
@@ -2965,6 +3001,15 @@ class ToolsPanel(QWidget):
             clarity_amount=float(self._txc_clarity_amount.value()),
             clarity_radius=float(self._txc_clarity_radius.value()),
             mask_strength=float(self._txc_mask_strength.value()),
+        )
+
+    def get_blemish_params(self):
+        from astraios.core.blemish import BlemishParams
+
+        return BlemishParams(
+            radius=int(self._blemish_radius.value()),
+            feather=float(self._blemish_feather.value()),
+            opacity=float(self._blemish_opacity.value()),
         )
 
     _SELC_FAMILY_ARCS = {

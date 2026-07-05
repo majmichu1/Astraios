@@ -409,6 +409,11 @@ class MainWindow(QMainWindow):
         # Dynamic background extraction samples (image-space coords)
         self._bg_samples: list[tuple[float, float]] = []
 
+        # Blemish Blaster "heal on click" mode — mutually exclusive with the
+        # background-sample picking mode above (both reuse the canvas's
+        # sample_placed/sample_removed click signal).
+        self._blemish_mode: bool = False
+
         # WCS overlay data (image-space x, y, magnitude)
         self._wcs_overlay_stars: list[tuple[float, float, float]] = []
         self._constellation_segments: list[list[tuple[float, float]]] = []
@@ -732,6 +737,10 @@ class MainWindow(QMainWindow):
         nb_act.triggered.connect(self._show_narrowband_dialog)
         tools_menu.addAction(nb_act)
 
+        nb_star_color_act = QAction("NB &Star Color...", self)
+        nb_star_color_act.triggered.connect(self._show_nb_star_color_dialog)
+        tools_menu.addAction(nb_star_color_act)
+
         blend_act = QAction("Image &Blend...", self)
         blend_act.triggered.connect(self._show_blend_dialog)
         tools_menu.addAction(blend_act)
@@ -759,6 +768,10 @@ class MainWindow(QMainWindow):
         mosaic_act = QAction("&Mosaic Stitching...", self)
         mosaic_act.triggered.connect(self._show_mosaic_dialog)
         tools_menu.addAction(mosaic_act)
+
+        isophote_act = QAction("&Isophote Analysis...", self)
+        isophote_act.triggered.connect(self._show_isophote_dialog)
+        tools_menu.addAction(isophote_act)
 
         tools_menu.addSeparator()
 
@@ -1326,6 +1339,7 @@ class MainWindow(QMainWindow):
         tp.toggle_sample_mode.connect(self._on_toggle_sample_mode)
         tp.clear_bg_samples.connect(self._on_clear_bg_samples)
         tp.add_bg_grid.connect(self._on_add_bg_grid)
+        tp.blemish_mode_toggled.connect(self._on_toggle_blemish_mode)
         tp.toggle_wcs_overlay.connect(self._on_toggle_wcs_overlay)
         tp.toggle_dso_overlay.connect(self._on_toggle_dso_overlay)
         tp.toggle_constellation_overlay.connect(self._on_toggle_constellation_overlay)
@@ -3977,18 +3991,35 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _on_toggle_sample_mode(self, enabled: bool):
+        # Mutually exclusive with Blemish Blaster's "heal on click" mode —
+        # both reuse the canvas's sample_placed/sample_removed click signal.
+        if enabled and self._blemish_mode:
+            self._tools_panel._blemish_toggle_btn.setChecked(False)
         self._canvas.set_sample_mode(enabled)
         if not enabled:
             self._canvas.set_sample_points(self._bg_samples)
 
+    @pyqtSlot(bool)
+    def _on_toggle_blemish_mode(self, enabled: bool):
+        self._blemish_mode = enabled
+        # Mutually exclusive with background-sample picking (see above).
+        if enabled and self._tools_panel._btn_place_samples.isChecked():
+            self._tools_panel._btn_place_samples.setChecked(False)
+        self._canvas.set_sample_mode(enabled)
+
     @pyqtSlot(float, float)
     def _on_sample_placed(self, x: float, y: float):
+        if self._blemish_mode:
+            self._apply_blemish_heal(x, y)
+            return
         self._bg_samples.append((x, y))
         self._canvas.set_sample_points(self._bg_samples)
         self._tools_panel.set_bg_sample_count(len(self._bg_samples))
 
     @pyqtSlot(float, float)
     def _on_sample_removed(self, x: float, y: float):
+        if self._blemish_mode:
+            return  # no "remove" concept for a heal that's already applied
         if not self._bg_samples:
             return
         import math as _math
@@ -4005,6 +4036,29 @@ class MainWindow(QMainWindow):
         self._bg_samples.clear()
         self._canvas.clear_sample_points()
         self._tools_panel.set_bg_sample_count(0)
+
+    def _apply_blemish_heal(self, x: float, y: float):
+        """Heal a single blemish at full-resolution image coordinates (x, y).
+
+        Runs synchronously (heal_spot is a small, local, CPU-only op — no
+        worker thread needed) and records an undoable, display-only history
+        step: coordinates are specific to this image, so it must never be
+        replayed as a macro/graph step.
+        """
+        if self._current_image is None:
+            return
+        from astraios.core.blemish import heal_spot
+
+        params = self._tools_panel.get_blemish_params()
+        try:
+            result = heal_spot(self._current_image.data, x, y, params)
+        except Exception as exc:
+            log.exception("Blemish heal failed")
+            self._log_panel.log(f"Blemish heal failed: {exc}", "error")
+            return
+        self._update_current_image(
+            result, "Blemish healed", tool="", tool_params=None, undo_desc="Blemish heal",
+        )
 
     @pyqtSlot(int, int, int)
     def _on_add_bg_grid(self, rows: int, cols: int, box_size: int):
@@ -5082,6 +5136,31 @@ class MainWindow(QMainWindow):
         dialog.result_ready.connect(
             lambda result: self._update_current_image(result, "Signature applied")
         )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_nb_star_color_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.nb_star_color_dialog import NBStarColorDialog
+
+        dialog = NBStarColorDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "NB star color applied")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_isophote_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.isophote_dialog import IsophoteDialog
+
+        dialog = IsophoteDialog(self._current_image.data, self)
+        dialog.show_model_requested.connect(self._display_preview_only)
+        dialog.show_residual_requested.connect(self._display_preview_only)
         dialog.exec()
         dialog.deleteLater()
 
