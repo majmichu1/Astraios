@@ -137,6 +137,12 @@ class ToolsPanel(QWidget):
     run_diffraction_spikes   = pyqtSignal()
     run_sat_chroma           = pyqtSignal()
     run_halo_reduction       = pyqtSignal()
+    run_wavescale_hdr        = pyqtSignal()
+    run_wavescale_dark       = pyqtSignal()
+    run_texture_clarity      = pyqtSignal()
+    run_selective_color      = pyqtSignal()
+    run_selective_luma       = pyqtSignal()
+    run_pedestal             = pyqtSignal()
     open_narrowband_dialog   = pyqtSignal()
     open_pixelmath_dialog    = pyqtSignal()
     run_split_channels       = pyqtSignal()
@@ -370,6 +376,38 @@ class ToolsPanel(QWidget):
         )
         deb.add_run("▶ Apply Debayer", self.run_debayer.emit)
         lay.addWidget(deb)
+
+        # Pedestal (ported from Seti Astro Suite Pro, GPL-3.0)
+        ped = CollapsibleSection(
+            "Pedestal",
+            help_text="Adds or removes a constant offset from the whole "
+                      "image. Add a small pedestal before operations that "
+                      "dislike negative pixels; remove one to restore the "
+                      "true black level afterwards.",
+        )
+        self._ped_mode_combo = ped.add_combo(
+            "Mode", ["Add", "Remove"],
+            help_text="Add raises every pixel by the amount. Remove "
+                      "subtracts the measured (or given) offset back out.",
+        )
+        self._ped_amount = ped.add_spin(
+            "Amount", 0.0, 0.5, 0.0, 0.001, 4,
+            help_text="Offset to add, in the 0-1 image scale. Typical "
+                      "values are 0.001 to 0.01. In Remove mode, leave at 0 "
+                      "to auto-detect the offset from the darkest pixels.",
+        )
+        self._ped_per_channel = ped.add_check(
+            "Per channel", True,
+            help_text="Ticked: each color channel is measured and treated "
+                      "separately. Unticked: one global value for all.",
+        )
+        self._ped_clip = ped.add_check(
+            "Clip to 0-1", True,
+            help_text="Keeps the result inside the valid range. Untick "
+                      "only if a following tool expects negative pixels.",
+        )
+        ped.add_run("▶ Apply Pedestal", self.run_pedestal.emit)
+        lay.addWidget(ped)
 
         self._tabs.addTab(scrollable_tab(lay), "⬡  Pre-Process")
 
@@ -907,6 +945,117 @@ class ToolsPanel(QWidget):
         sat.add_run("▶ Apply Saturation", self.run_sat_chroma.emit)
         lay.addWidget(sat)
 
+        # Selective Color (ported from Seti Astro Suite Pro, GPL-3.0)
+        selc = CollapsibleSection(
+            "Selective Color",
+            help_text="Adjust ONE color family without touching the rest: "
+                      "pick the family, then shift its color balance, "
+                      "brightness, and saturation. Like Photoshop's "
+                      "Selective Color, tuned for astro images.",
+        )
+        self._selc_family_combo = selc.add_combo(
+            "Color family",
+            ["Reds", "Yellows", "Greens", "Cyans", "Blues", "Magentas"],
+            help_text="Which colors are selected for adjustment. Reds "
+                      "covers H-alpha nebulosity, Cyans covers OIII, Blues "
+                      "covers reflection nebulae.",
+        )
+        self._selc_smooth = selc.add_slider(
+            "Edge feather", 10.0, 0.0, 60.0, 1.0, 0,
+            help_text="How softly the selection fades at the edge of the "
+                      "color family, in hue degrees. Higher avoids hard "
+                      "color seams.",
+        )
+        self._selc_intensity = selc.add_slider(
+            "Intensity", 1.0, 0.0, 2.0, 0.05, 2,
+            help_text="Master strength of all adjustments below.",
+        )
+        selc.add_divider()
+        self._selc_adjust = {}
+        for name, tip in [
+            ("cyan", "Shift the selected colors toward cyan (+) or red (-)."),
+            ("magenta", "Shift toward magenta (+) or green (-)."),
+            ("yellow", "Shift toward yellow (+) or blue (-)."),
+            ("red", "Add (+) or remove (-) red."),
+            ("green", "Add (+) or remove (-) green."),
+            ("blue", "Add (+) or remove (-) blue."),
+            ("luminance", "Brighten (+) or darken (-) the selected colors."),
+            ("chroma", "Increase (+) or mute (-) the colorfulness of the "
+                       "selection without changing its brightness."),
+            ("contrast", "Add (+) or reduce (-) contrast inside the "
+                         "selection."),
+        ]:
+            self._selc_adjust[name] = selc.add_slider(
+                name.capitalize(), 0.0, -1.0, 1.0, 0.01, 2, help_text=tip,
+            )
+        selc.add_divider()
+        self._selc_min_chroma = selc.add_slider(
+            "Ignore gray below", 0.05, 0.0, 0.5, 0.01, 2,
+            help_text="Pixels less colorful than this are never selected, "
+                      "protecting the gray background from color shifts.",
+        )
+        self._selc_edge_blur = selc.add_slider(
+            "Mask blur", 0.0, 0.0, 20.0, 0.5, 1,
+            help_text="Blurs the selection mask by this many pixels for "
+                      "seamless transitions.",
+        )
+        selc.add_run("▶ Apply Selective Color", self.run_selective_color.emit)
+        lay.addWidget(selc)
+
+        # Selective Luminance (ported from Seti Astro Suite Pro, GPL-3.0)
+        sell = CollapsibleSection(
+            "Selective Luminance",
+            help_text="Adjust only a brightness band: color-correct just "
+                      "the shadows, add contrast to just the midtones, or "
+                      "desaturate only the highlights.",
+        )
+        self._sell_range_combo = sell.add_combo(
+            "Range", ["Shadows", "Midtones", "Highlights", "Custom"],
+            help_text="Which brightness band is selected. Custom uses the "
+                      "Low/High values below.",
+        )
+        self._sell_lo = sell.add_slider(
+            "Low", 0.0, 0.0, 1.0, 0.01, 2,
+            help_text="Lower edge of the custom brightness band (0 = "
+                      "black).",
+        )
+        self._sell_hi = sell.add_slider(
+            "High", 0.25, 0.0, 1.0, 0.01, 2,
+            help_text="Upper edge of the custom brightness band (1 = "
+                      "white).",
+        )
+        self._sell_smooth = sell.add_slider(
+            "Edge feather", 0.05, 0.0, 0.5, 0.01, 2,
+            help_text="How softly the selection fades at the band edges.",
+        )
+        self._sell_intensity = sell.add_slider(
+            "Intensity", 1.0, 0.0, 2.0, 0.05, 2,
+            help_text="Master strength of all adjustments below.",
+        )
+        sell.add_divider()
+        self._sell_adjust = {}
+        for name, tip in [
+            ("cyan", "Shift the selected tones toward cyan (+) or red (-)."),
+            ("magenta", "Shift toward magenta (+) or green (-)."),
+            ("yellow", "Shift toward yellow (+) or blue (-)."),
+            ("red", "Add (+) or remove (-) red."),
+            ("green", "Add (+) or remove (-) green."),
+            ("blue", "Add (+) or remove (-) blue."),
+            ("luminance", "Brighten (+) or darken (-) the selected band."),
+            ("chroma", "Increase (+) or mute (-) colorfulness in the band."),
+            ("contrast", "Add (+) or reduce (-) contrast inside the band."),
+        ]:
+            self._sell_adjust[name] = sell.add_slider(
+                name.capitalize(), 0.0, -1.0, 1.0, 0.01, 2, help_text=tip,
+            )
+        self._sell_edge_blur = sell.add_slider(
+            "Mask blur", 5.0, 0.0, 20.0, 0.5, 1,
+            help_text="Blurs the selection mask by this many pixels so the "
+                      "band transition is invisible.",
+        )
+        sell.add_run("▶ Apply Selective Luminance", self.run_selective_luma.emit)
+        lay.addWidget(sell)
+
         # Color Calibration
         cc = CollapsibleSection("Color Calibration")
         cc.add_info("White balance using background reference or star colours.")
@@ -1211,6 +1360,111 @@ class ToolsPanel(QWidget):
         )
         halo.add_run("▶ Reduce Halos", self.run_halo_reduction.emit)
         lay.addWidget(halo)
+
+        # WaveScale HDR (ported from Seti Astro Suite Pro, GPL-3.0)
+        wshdr = CollapsibleSection(
+            "WaveScale HDR",
+            help_text="Recovers detail inside bright cores (galaxy centers, "
+                      "the Orion Trapezium) on already-stretched images by "
+                      "boosting local contrast at several wavelet scales "
+                      "while taming the overall highlight brightness.",
+        )
+        self._wshdr_scales = wshdr.add_spin(
+            "Scales", 2, 10, 5,
+            help_text="How many detail sizes are processed. More scales "
+                      "reach larger structures but take longer.",
+        )
+        self._wshdr_compression = wshdr.add_slider(
+            "Strength", 1.5, 0.1, 5.0, 0.05, 2,
+            help_text="Local contrast boost inside the bright regions. "
+                      "Higher digs out more core detail.",
+        )
+        self._wshdr_mask_gamma = wshdr.add_slider(
+            "Focus", 5.0, 0.1, 10.0, 0.1, 1,
+            help_text="Concentrates the effect on only the brightest areas. "
+                      "Higher = tighter around the core; lower spreads the "
+                      "effect into midtones.",
+        )
+        self._wshdr_decay = wshdr.add_slider(
+            "Scale falloff", 0.5, 0.1, 1.0, 0.05, 2,
+            help_text="How quickly the boost fades from fine to coarse "
+                      "scales. Lower keeps it on fine detail only.",
+        )
+        wshdr.add_run("▶ Apply WaveScale HDR", self.run_wavescale_hdr.emit)
+        lay.addWidget(wshdr)
+
+        # WaveScale Dark Enhance (ported from Seti Astro Suite Pro, GPL-3.0)
+        wsde = CollapsibleSection(
+            "WaveScale Dark Enhance",
+            help_text="Deepens and reveals faint dark structure: dust "
+                      "lanes, dark nebulae, galaxy arm shadows. The "
+                      "opposite of HDR: it works on the darkest parts of "
+                      "the image.",
+        )
+        self._wsde_scales = wsde.add_spin(
+            "Scales", 2, 10, 6,
+            help_text="How many detail sizes are analyzed for dark "
+                      "structure.",
+        )
+        self._wsde_boost = wsde.add_slider(
+            "Boost", 5.0, 0.1, 10.0, 0.1, 1,
+            help_text="Strength of the dark-detail enhancement. 1.0 does "
+                      "nothing; higher makes dust lanes more pronounced.",
+        )
+        self._wsde_mask_gamma = wsde.add_slider(
+            "Focus", 1.0, 0.1, 10.0, 0.1, 1,
+            help_text="Concentrates the effect on only the faintest dips. "
+                      "Raise it if midtones start darkening.",
+        )
+        self._wsde_iterations = wsde.add_spin(
+            "Iterations", 1, 10, 2,
+            help_text="Number of enhancement passes. Each pass re-measures "
+                      "what is dark. More passes = stronger but slower.",
+        )
+        self._wsde_decay = wsde.add_slider(
+            "Scale falloff", 0.5, 0.1, 1.0, 0.05, 2,
+            help_text="How quickly the boost fades toward coarse scales. "
+                      "The finest scale is always skipped to avoid boosting "
+                      "noise.",
+        )
+        wsde.add_run("▶ Enhance Dark Structure", self.run_wavescale_dark.emit)
+        lay.addWidget(wsde)
+
+        # Texture & Clarity (ported from Seti Astro Suite Pro, GPL-3.0)
+        txc = CollapsibleSection(
+            "Texture and Clarity",
+            help_text="Two midtone punch controls in one: Texture sharpens "
+                      "fine surface detail, Clarity adds larger local "
+                      "contrast, both without touching star cores or "
+                      "shadows as hard as a normal sharpen. Negative values "
+                      "smooth instead.",
+        )
+        self._txc_texture_amount = txc.add_slider(
+            "Texture", 0.0, -1.0, 1.0, 0.01, 2,
+            help_text="Fine-detail strength. Positive crispens surface "
+                      "texture; negative gives a silky smoothing.",
+        )
+        self._txc_texture_radius = txc.add_slider(
+            "Texture radius", 1.0, 0.1, 10.0, 0.1, 1,
+            help_text="Size of the detail treated as texture, in pixels.",
+        )
+        self._txc_clarity_amount = txc.add_slider(
+            "Clarity", 0.0, -1.0, 1.0, 0.01, 2,
+            help_text="Local contrast strength at a larger scale. Positive "
+                      "adds punch; negative gives a soft, dreamy look.",
+        )
+        self._txc_clarity_radius = txc.add_slider(
+            "Clarity radius", 3.0, 0.1, 10.0, 0.1, 1,
+            help_text="Size of the local contrast neighborhood, in pixels.",
+        )
+        self._txc_mask_strength = txc.add_slider(
+            "Midtone protection", 1.0, 0.0, 1.0, 0.05, 2,
+            help_text="1 = classic behavior (effect confined to midtones, "
+                      "shadows and highlights protected). 0 = apply "
+                      "everywhere.",
+        )
+        txc.add_run("▶ Apply Texture and Clarity", self.run_texture_clarity.emit)
+        lay.addWidget(txc)
 
         self._tabs.addTab(scrollable_tab(lay), "◎  Detail")
 
@@ -1657,6 +1911,98 @@ class ToolsPanel(QWidget):
             reduction_level=level_map.get(self._halo_level_combo.currentText(),
                                           HaloReductionLevel.LOW),
             is_linear=self._halo_linear_check.isChecked(),
+        )
+
+    def get_wavescale_hdr_params(self):
+        from astraios.core.wavescale_hdr import WaveScaleHDRParams
+
+        return WaveScaleHDRParams(
+            n_scales=int(self._wshdr_scales.value()),
+            compression_factor=float(self._wshdr_compression.value()),
+            mask_gamma=float(self._wshdr_mask_gamma.value()),
+            decay_rate=float(self._wshdr_decay.value()),
+        )
+
+    def get_wavescale_dark_params(self):
+        from astraios.core.wavescale_dark_enhance import WaveScaleDarkEnhanceParams
+
+        return WaveScaleDarkEnhanceParams(
+            n_scales=int(self._wsde_scales.value()),
+            boost_factor=float(self._wsde_boost.value()),
+            mask_gamma=float(self._wsde_mask_gamma.value()),
+            iterations=int(self._wsde_iterations.value()),
+            decay_rate=float(self._wsde_decay.value()),
+        )
+
+    def get_texture_clarity_params(self):
+        from astraios.core.texture_clarity import TextureClarityParams
+
+        return TextureClarityParams(
+            texture_amount=float(self._txc_texture_amount.value()),
+            texture_radius=float(self._txc_texture_radius.value()),
+            clarity_amount=float(self._txc_clarity_amount.value()),
+            clarity_radius=float(self._txc_clarity_radius.value()),
+            mask_strength=float(self._txc_mask_strength.value()),
+        )
+
+    _SELC_FAMILY_ARCS = {
+        "Reds": [(330.0, 30.0)],
+        "Yellows": [(30.0, 90.0)],
+        "Greens": [(90.0, 150.0)],
+        "Cyans": [(150.0, 210.0)],
+        "Blues": [(210.0, 270.0)],
+        "Magentas": [(270.0, 330.0)],
+    }
+
+    def get_selective_color_params(self):
+        from astraios.core.selective_adjust import SelectiveColorParams
+
+        adj = {k: float(s.value()) for k, s in self._selc_adjust.items()}
+        return SelectiveColorParams(
+            hue_ranges=self._SELC_FAMILY_ARCS.get(
+                self._selc_family_combo.currentText(), [(330.0, 30.0)]
+            ),
+            smooth_deg=float(self._selc_smooth.value()),
+            intensity=float(self._selc_intensity.value()),
+            min_chroma=float(self._selc_min_chroma.value()),
+            edge_blur=float(self._selc_edge_blur.value()),
+            **adj,
+        )
+
+    def get_selective_luma_params(self):
+        from astraios.core.selective_adjust import SelectiveLumaParams
+
+        ranges = {
+            "Shadows": (0.0, 0.25),
+            "Midtones": (0.25, 0.75),
+            "Highlights": (0.75, 1.0),
+        }
+        choice = self._sell_range_combo.currentText()
+        if choice == "Custom":
+            lo, hi = float(self._sell_lo.value()), float(self._sell_hi.value())
+        else:
+            lo, hi = ranges.get(choice, (0.0, 0.25))
+        adj = {k: float(s.value()) for k, s in self._sell_adjust.items()}
+        return SelectiveLumaParams(
+            lo=lo, hi=hi,
+            smooth=float(self._sell_smooth.value()),
+            intensity=float(self._sell_intensity.value()),
+            edge_blur=float(self._sell_edge_blur.value()),
+            **adj,
+        )
+
+    def get_pedestal_params(self):
+        from astraios.core.pedestal import PedestalParams
+
+        mode = "remove" if self._ped_mode_combo.currentText() == "Remove" else "add"
+        amount = float(self._ped_amount.value())
+        return PedestalParams(
+            mode=mode,
+            per_channel=self._ped_per_channel.isChecked(),
+            amount=amount,
+            # In Remove mode, 0 means auto-detect (core expects None for that)
+            remove_amount=(amount if mode == "remove" and amount > 0 else None),
+            clip=self._ped_clip.isChecked(),
         )
 
     def _show_training_guide(self):

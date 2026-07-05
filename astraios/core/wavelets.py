@@ -29,7 +29,9 @@ def _noop_progress(f: float, m: str) -> None:
 _B3_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float32) / 16.0
 
 
-_MAX_WAVELET_SCALES = 8
+# 10 accommodates the WaveScale tools (ported ranges go to 10); beyond that
+# the dilated kernels outgrow any realistic frame.
+_MAX_WAVELET_SCALES = 10
 
 
 def _atrous_kernel_2d(scale: int) -> np.ndarray:
@@ -87,14 +89,15 @@ def wavelet_decompose(
     n_scales : int
         Number of wavelet detail scales (capped at _MAX_WAVELET_SCALES).
 
-    n_scales = min(n_scales, _MAX_WAVELET_SCALES)
-
     Returns
     -------
     list[ndarray]
         List of (n_scales + 1) arrays: detail scales [0..n_scales-1] and
         the residual (smooth) at index n_scales.
     """
+    # The cap used to sit INSIDE the docstring as dead text, so the
+    # documented limit was never applied.
+    n_scales = min(n_scales, _MAX_WAVELET_SCALES)
     dm = get_device_manager()
     device = dm.device
 

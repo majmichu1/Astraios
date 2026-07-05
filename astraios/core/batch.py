@@ -373,6 +373,42 @@ def _register_default_tools():
     register_tool("sat_chroma", _sat_chroma_tool)
     register_tool("halo_reduction", _halo_tool)
 
+    def _wavescale_hdr_tool(data, **kw):
+        from astraios.core.wavescale_hdr import WaveScaleHDRParams, apply_wavescale_hdr
+        return apply_wavescale_hdr(data, params=_p(WaveScaleHDRParams, kw))
+
+    def _wavescale_dark_tool(data, **kw):
+        from astraios.core.wavescale_dark_enhance import (
+            WaveScaleDarkEnhanceParams,
+            apply_dark_enhance,
+        )
+        return apply_dark_enhance(data, params=_p(WaveScaleDarkEnhanceParams, kw))
+
+    def _texture_clarity_tool(data, **kw):
+        from astraios.core.texture_clarity import TextureClarityParams, apply_texture_clarity
+        return apply_texture_clarity(data, params=_p(TextureClarityParams, kw))
+
+    def _selective_color_tool(data, **kw):
+        from astraios.core.selective_adjust import SelectiveColorParams, apply_selective_color
+        if "hue_ranges" in kw and kw["hue_ranges"]:
+            kw["hue_ranges"] = [tuple(r) for r in kw["hue_ranges"]]
+        return apply_selective_color(data, params=_p(SelectiveColorParams, kw))
+
+    def _selective_luma_tool(data, **kw):
+        from astraios.core.selective_adjust import SelectiveLumaParams, apply_selective_luma
+        return apply_selective_luma(data, params=_p(SelectiveLumaParams, kw))
+
+    def _pedestal_tool(data, **kw):
+        from astraios.core.pedestal import PedestalParams, apply_pedestal
+        return apply_pedestal(data, params=_p(PedestalParams, kw))
+
+    register_tool("wavescale_hdr", _wavescale_hdr_tool)
+    register_tool("wavescale_dark_enhance", _wavescale_dark_tool)
+    register_tool("texture_clarity", _texture_clarity_tool)
+    register_tool("selective_color", _selective_color_tool)
+    register_tool("selective_luma", _selective_luma_tool)
+    register_tool("pedestal", _pedestal_tool)
+
 
 def apply_pipeline_to_image(
     data: np.ndarray,

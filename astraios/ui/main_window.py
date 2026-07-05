@@ -1234,6 +1234,36 @@ class MainWindow(QMainWindow):
         tp.run_diffraction_spikes.connect(self._on_run_diffraction_spikes)
         tp.run_sat_chroma.connect(self._on_run_sat_chroma)
         tp.run_halo_reduction.connect(self._on_run_halo_reduction)
+        tp.run_wavescale_hdr.connect(
+            lambda: self._run_simple_tool(
+                "wavescale_hdr", "WaveScale HDR",
+                "astraios.core.wavescale_hdr", "apply_wavescale_hdr",
+                self._tools_panel.get_wavescale_hdr_params))
+        tp.run_wavescale_dark.connect(
+            lambda: self._run_simple_tool(
+                "wavescale_dark_enhance", "WaveScale Dark Enhance",
+                "astraios.core.wavescale_dark_enhance", "apply_dark_enhance",
+                self._tools_panel.get_wavescale_dark_params))
+        tp.run_texture_clarity.connect(
+            lambda: self._run_simple_tool(
+                "texture_clarity", "Texture and Clarity",
+                "astraios.core.texture_clarity", "apply_texture_clarity",
+                self._tools_panel.get_texture_clarity_params))
+        tp.run_selective_color.connect(
+            lambda: self._run_simple_tool(
+                "selective_color", "Selective Color",
+                "astraios.core.selective_adjust", "apply_selective_color",
+                self._tools_panel.get_selective_color_params, color_only=True))
+        tp.run_selective_luma.connect(
+            lambda: self._run_simple_tool(
+                "selective_luma", "Selective Luminance",
+                "astraios.core.selective_adjust", "apply_selective_luma",
+                self._tools_panel.get_selective_luma_params, color_only=True))
+        tp.run_pedestal.connect(
+            lambda: self._run_simple_tool(
+                "pedestal", "Pedestal",
+                "astraios.core.pedestal", "apply_pedestal",
+                self._tools_panel.get_pedestal_params))
         tp.open_narrowband_dialog.connect(self._show_narrowband_dialog)
         tp.open_pixelmath_dialog.connect(self._show_pixelmath_dialog)
         tp.run_split_channels.connect(self._on_run_split_channels)
@@ -5018,6 +5048,41 @@ class MainWindow(QMainWindow):
                 self._project.add_history(
                     "Star Reduction", {"amount": _p.amount, "iterations": _p.iterations}
                 )
+
+        self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    def _run_simple_tool(self, tool_name: str, display: str, module: str,
+                         func_name: str, params_getter, color_only: bool = False):
+        """Run a standard-pattern tool: func(data, params, mask, progress).
+
+        One generic path for tools following the uniform core convention —
+        captures the params that actually ran, records a replayable history
+        step, and honors the active mask.
+        """
+        if self._current_image is None:
+            return
+        if color_only and self._current_image.data.ndim != 3:
+            self._log_panel.log(f"{display} requires a color image", "warning")
+            return
+        import importlib
+        func = getattr(importlib.import_module(module), func_name)
+        _p = params_getter()
+        self._log_panel.log(f"Running {display}...", "info")
+
+        def _work(data, progress=None):
+            kwargs = {"params": _p, "mask": self._active_mask}
+            if progress is not None:
+                kwargs["progress"] = progress
+            return func(data, **kwargs)
+
+        def _done(result):
+            self._update_current_image(
+                result, f"{display} complete",
+                tool=tool_name, tool_params=self._step_params(_p),
+            )
+            if self._project:
+                self._project.add_history(display, {})
+            self._macro_recorder.record_step(tool_name, self._step_params(_p))
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
