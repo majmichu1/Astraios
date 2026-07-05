@@ -740,6 +740,14 @@ class MainWindow(QMainWindow):
         hdr_act.triggered.connect(self._show_hdr_dialog)
         tools_menu.addAction(hdr_act)
 
+        fly_act = QAction("Nebula &Flythrough Video...", self)
+        fly_act.triggered.connect(self._show_flythrough_dialog)
+        tools_menu.addAction(fly_act)
+
+        sig_act = QAction("&Signature / Watermark...", self)
+        sig_act.triggered.connect(self._show_signature_dialog)
+        tools_menu.addAction(sig_act)
+
         create_mask = QAction("Create &Mask...", self)
         create_mask.triggered.connect(self._show_mask_dialog)
         tools_menu.addAction(create_mask)
@@ -5050,6 +5058,32 @@ class MainWindow(QMainWindow):
                 )
 
         self._start_worker(_work, self._current_image.data, on_done=_done)
+
+    def _show_flythrough_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.flythrough_dialog import FlythroughDialog
+
+        dialog = FlythroughDialog(
+            self._current_image.data, self,
+            stars_layer=self._extracted_stars,
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_signature_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.signature_dialog import SignatureDialog
+
+        dialog = SignatureDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Signature applied")
+        )
+        dialog.exec()
+        dialog.deleteLater()
 
     def _run_simple_tool(self, tool_name: str, display: str, module: str,
                          func_name: str, params_getter, color_only: bool = False):
