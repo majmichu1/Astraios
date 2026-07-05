@@ -112,6 +112,7 @@ class ToolsPanel(QWidget):
     run_calibration          = pyqtSignal()
     run_stacking             = pyqtSignal()
     run_alignment            = pyqtSignal()
+    run_multiframe_deconv    = pyqtSignal()
     run_stretch              = pyqtSignal()
     run_statistical_stretch  = pyqtSignal()
     run_background           = pyqtSignal()
@@ -629,6 +630,96 @@ class ToolsPanel(QWidget):
         )
         integ.add_run("▶ Stack Images", self.run_stacking.emit)
         lay.addWidget(integ)
+
+        # Multi-Frame Deconvolution
+        mfd = CollapsibleSection(
+            "Multi-Frame Deconvolution",
+            help_text="Jointly deconvolves every REGISTERED (aligned) frame "
+                      "against one shared sharp image, instead of stacking "
+                      "first and sharpening after — frames with a tighter PSF "
+                      "or a cleaner background pull harder on the result, "
+                      "typically resolving finer detail than stack-then-"
+                      "sharpen. An alternative or complement to Integration; "
+                      "needs at least 2 aligned frames and no plate solve.",
+        )
+        mfd.add_info("Joint Richardson-Lucy deconvolution across all aligned frames.")
+        self._mfd_iterations_spin = mfd.add_spin(
+            "Iterations", 1, 200, 20, 1,
+            help_text="Maximum number of joint Richardson-Lucy iterations to "
+                      "run. More iterations sharpen further but risk ringing "
+                      "and take longer; Early stop below usually cuts this "
+                      "short automatically.",
+        )
+        self._mfd_min_iterations_spin = mfd.add_spin(
+            "Min iterations", 1, 50, 3, 1,
+            help_text="Minimum iterations to run before Early stop is allowed "
+                      "to trigger, so the solve doesn't quit before it has "
+                      "made meaningful progress.",
+        )
+        self._mfd_rho_combo = mfd.add_combo(
+            "Residual loss", ["Huber (robust)", "L2 (classic)"],
+            help_text="How pixel residuals are weighted each iteration. Huber "
+                      "(robust) downweights outliers — satellite trails, hot "
+                      "pixels, residual noise — so they don't drag the solve "
+                      "around; L2 (classic) is the textbook Richardson-Lucy "
+                      "update with no outlier protection.",
+        )
+        self._mfd_color_mode_combo = mfd.add_combo(
+            "Color mode", ["Luma (fast)", "Per-channel"],
+            help_text="Luma (fast) deconvolves a single shared-luminance "
+                      "plane — quicker, no per-channel color shift. "
+                      "Per-channel solves R, G, and B independently with the "
+                      "same per-frame PSF — slower, but corrects any "
+                      "per-channel blur difference (e.g. atmospheric "
+                      "dispersion).",
+        )
+        self._mfd_seed_mode_combo = mfd.add_combo(
+            "Seed image", ["Robust (sigma-clip)", "Median", "Mean", "Integrated (current image)"],
+            help_text="How the initial estimate is built before iterating. "
+                      "Robust (sigma-clip) rejects outliers across frames "
+                      "first — the safest default. Median and Mean are "
+                      "simpler combines. Integrated (current image) starts "
+                      "from whatever image is currently displayed (e.g. an "
+                      "existing stack) instead of recombining the aligned "
+                      "frames.",
+        )
+        self._mfd_kappa_spin = mfd.add_slider(
+            "Kappa", 2.0, 1.0, 10.0, 0.1, 1,
+            help_text="Clamps the per-pixel multiplicative update each "
+                      "iteration to [1/kappa, kappa], limiting overshoot and "
+                      "ringing. Lower is more conservative; higher lets the "
+                      "solve move faster per iteration.",
+        )
+        self._mfd_relaxation_spin = mfd.add_slider(
+            "Relaxation", 0.7, 0.1, 1.0, 0.05, 2,
+            help_text="Damping factor blending each iteration's raw update "
+                      "into the estimate. 1.0 takes the full step every "
+                      "iteration (fastest, more prone to ringing); lower "
+                      "values damp the update for a smoother, more stable "
+                      "convergence.",
+        )
+        self._mfd_early_stop_check = mfd.add_check(
+            "Early stop", True,
+            help_text="Stops iterating once the per-iteration update size and "
+                      "relative change both plateau, instead of always "
+                      "running the full iteration count.",
+        )
+        self._mfd_super_res_combo = mfd.add_combo(
+            "Super-resolution", ["1x (native)", "2x", "3x"],
+            help_text="Drizzle-like output upsampling factor. 1x solves at "
+                      "native resolution. 2x/3x reconstruct a finer output "
+                      "grid from the same frames — sharper if your optics "
+                      "undersample the stars, but slower and more VRAM-"
+                      "hungry.",
+        )
+        self._mfd_low_vram_check = mfd.add_check(
+            "Low VRAM mode",
+            help_text="Releases the GPU memory cache after every frame "
+                      "instead of only between iterations — slower, but keeps "
+                      "peak VRAM use lower on constrained GPUs.",
+        )
+        mfd.add_run("▶ Run Multi-Frame Deconvolution", self.run_multiframe_deconv.emit)
+        lay.addWidget(mfd)
 
         # Drizzle
         drz = CollapsibleSection(
@@ -1723,11 +1814,13 @@ class ToolsPanel(QWidget):
         )
         pcc.add_info("Plate-solve + Gaia DR3 star catalog white balance.")
         self._pcc_solver_combo = pcc.add_combo(
-            "Solver", ["Auto", "ASTAP", "Astrometry.net"],
+            "Solver", ["Auto", "GAIA (offline)", "ASTAP", "Astrometry.net"],
             help_text="Which plate-solving engine identifies the field. Auto "
                       "tries the available solvers in order; ASTAP and "
                       "Astrometry.net are external tools that must be "
-                      "installed separately.",
+                      "installed separately. GAIA (offline) solves without "
+                      "an internet connection once a local Gaia catalog band "
+                      "has been downloaded (Tools -> GAIA Catalog Manager).",
         )
         self._pcc_ra_spin  = pcc.add_spin(
             "RA hint (°)",  0.0, 360.0, 0.0, 0.001, 3,
@@ -3414,6 +3507,32 @@ class ToolsPanel(QWidget):
             kappa_high=kappa,
         )
 
+    def get_multiframe_deconv_params(self):
+        from astraios.core.multiframe_deconv import MultiFrameDeconvParams
+
+        rho_map = {"Huber (robust)": "huber", "L2 (classic)": "l2"}
+        color_map = {"Luma (fast)": "luma", "Per-channel": "perchannel"}
+        seed_map = {
+            "Robust (sigma-clip)": "robust",
+            "Median": "median",
+            "Mean": "mean",
+            "Integrated (current image)": "integrated",
+        }
+        sr_map = {"1x (native)": 1, "2x": 2, "3x": 3}
+
+        return MultiFrameDeconvParams(
+            iterations=int(self._mfd_iterations_spin.value()),
+            min_iterations=int(self._mfd_min_iterations_spin.value()),
+            rho=rho_map.get(self._mfd_rho_combo.currentText(), "huber"),
+            color_mode=color_map.get(self._mfd_color_mode_combo.currentText(), "luma"),
+            seed_mode=seed_map.get(self._mfd_seed_mode_combo.currentText(), "robust"),
+            kappa=float(self._mfd_kappa_spin.value()),
+            relaxation=float(self._mfd_relaxation_spin.value()),
+            early_stop=self._mfd_early_stop_check.isChecked(),
+            super_resolution=sr_map.get(self._mfd_super_res_combo.currentText(), 1),
+            low_vram=self._mfd_low_vram_check.isChecked(),
+        )
+
     def set_ref_frame_max(self, n: int):
         """Cap the 'Specific frame #' input at the loaded frame count.
 
@@ -3918,7 +4037,12 @@ class ToolsPanel(QWidget):
         )
 
     def get_pcc_params(self) -> dict:
-        solver_map = {"Auto": "auto", "ASTAP": "astap", "Astrometry.net": "astrometry_net"}
+        solver_map = {
+            "Auto": "auto",
+            "GAIA (offline)": "gaia",
+            "ASTAP": "astap",
+            "Astrometry.net": "astrometry_net",
+        }
         ra = float(self._pcc_ra_spin.value())
         dec = float(self._pcc_dec_spin.value())
         return {

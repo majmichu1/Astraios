@@ -204,6 +204,42 @@ def _score_and_stack_worker(
     )
 
 
+def _multiframe_deconv_worker(paths, params, seed_image=None, mask=None, progress=None):
+    """Worker-thread wrapper: load registered frames from disk, one at a time,
+    then jointly deconvolve them.
+
+    Loading happens here (off the GUI thread) rather than in the caller, the
+    same memory-conscious approach ``_load_and_stack_work`` uses for stacking.
+    """
+    from astraios.core.image_io import load_image
+    from astraios.core.multiframe_deconv import multiframe_deconvolve
+
+    def _prog(frac, msg):
+        if progress:
+            progress(frac, msg)
+
+    frames = []
+    total = len(paths)
+    for i, p in enumerate(paths):
+        img = load_image(p)
+        if img is not None:
+            frames.append(img.data if hasattr(img, "data") else img)
+        _prog((i + 1) / total * 0.05, f"Loading {Path(p).name}")
+
+    if len(frames) < 2:
+        raise RuntimeError(
+            f"Only {len(frames)} of {total} frame(s) could be loaded — need at least 2"
+        )
+
+    if params.seed_mode == "integrated" and seed_image is not None:
+        params.seed_image = seed_image
+
+    def _mfd_prog(frac, msg):
+        _prog(0.05 + frac * 0.95, msg)
+
+    return multiframe_deconvolve(frames, params=params, mask=mask, progress=_mfd_prog)
+
+
 class _ProcessingCancelled(BaseException):
     """Raised inside the worker thread when the user cancels an operation."""
 
@@ -726,6 +762,10 @@ class MainWindow(QMainWindow):
         const_act.triggered.connect(self._on_toggle_constellation_overlay)
         tools_menu.addAction(const_act)
 
+        gaia_catalog_act = QAction("&GAIA Catalog Manager...", self)
+        gaia_catalog_act.triggered.connect(self._show_gaia_catalog_dialog)
+        tools_menu.addAction(gaia_catalog_act)
+
         tools_menu.addSeparator()
 
         pm_act = QAction("&Pixel Math...", self)
@@ -1226,6 +1266,7 @@ class MainWindow(QMainWindow):
         tp.run_calibration.connect(self._on_run_calibration)
         tp.run_stacking.connect(self._on_run_stacking)
         tp.run_alignment.connect(self._on_run_alignment)
+        tp.run_multiframe_deconv.connect(self._on_run_multiframe_deconv)
         tp.run_stretch.connect(self._on_run_stretch)
         tp.run_background.connect(self._on_run_background)
         tp.stretch_params_changed.connect(self._on_stretch_preview)
@@ -1937,14 +1978,41 @@ class MainWindow(QMainWindow):
         settings = QSettings("Astraios", "Astraios")
         raw = settings.value("platesolver/astrometry_api_key", "")
         api_key = raw.strip() or None
+        raw_gaia_dir = settings.value("gaia/catalog_dir", "")
+        gaia_catalog_dir = raw_gaia_dir.strip() or None
 
         image = self._current_image.data
-        params = {"ra_hint": None, "dec_hint": None, "scale_hint": None}
+        # Derive solve hints from the FITS header so the offline GAIA backend
+        # (which is hint-based) can fire. Previously a hints dict was built
+        # but never passed, so every solve ran blind.
+        header = self._current_image.header or {}
+        ra_hint = dec_hint = scale_hint = None
+        try:
+            if header.get("RA") is not None and header.get("DEC") is not None:
+                ra_hint = float(header["RA"])
+                dec_hint = float(header["DEC"])
+            elif header.get("OBJCTRA") and header.get("OBJCTDEC"):
+                from astropy.coordinates import Angle
+                ra_hint = Angle(str(header["OBJCTRA"]), unit="hourangle").degree
+                dec_hint = Angle(str(header["OBJCTDEC"]), unit="deg").degree
+        except Exception:
+            log.debug("Could not parse RA/Dec hints from header", exc_info=True)
+        try:
+            focal = header.get("FOCALLEN") or header.get("FOCAL")
+            pixsz = header.get("XPIXSZ") or header.get("PIXSIZE1")
+            if focal and pixsz and float(focal) > 0:
+                scale_hint = 206.265 * float(pixsz) / float(focal)
+        except Exception:
+            log.debug("Could not derive scale hint from header", exc_info=True)
 
         def _solve_work(img, progress=None):
-            from astraios.core.plate_solve import plate_solve_auto, PlateSolveParams
-            p = PlateSolveParams()
-            result = plate_solve_auto(img, p, api_key=api_key, progress=progress)
+            from astraios.core.plate_solve import PlateSolveParams, plate_solve_auto
+            p = PlateSolveParams(
+                ra_hint=ra_hint, dec_hint=dec_hint, scale_hint=scale_hint
+            )
+            result = plate_solve_auto(
+                img, p, api_key=api_key, progress=progress, catalog_dir=gaia_catalog_dir
+            )
             return result
 
         def _on_solve_done(result):
@@ -3332,6 +3400,71 @@ class MainWindow(QMainWindow):
             except Exception as exc:
                 log.warning("Could not auto-save integrated image: %s", exc)
                 self._log_panel.log(f"Auto-save failed: {exc}", "warning")
+
+    @pyqtSlot()
+    def _on_run_multiframe_deconv(self):
+        """Jointly deconvolve the registered/aligned frames into one sharp image.
+
+        Collects aligned frame paths the same way _on_run_stacking does
+        (subframe-selected paths first, else _aligned_paths, else project
+        ALIGNED frames), loads them off the GUI thread, and displays the
+        deconvolved result without saving to disk.
+        """
+        if self._subframe_selected_paths:
+            aligned_paths = [Path(p) for p in self._subframe_selected_paths]
+        else:
+            aligned_paths = getattr(self, "_aligned_paths", [])
+
+        if not aligned_paths and self._project:
+            aligned_paths = [
+                e.path for e in self._project.frames_by_type(FrameType.ALIGNED)
+                if e.path.exists()
+            ]
+
+        if len(aligned_paths) < 2:
+            self._log_panel.log(
+                "Multi-frame deconvolution needs at least 2 registered "
+                "(aligned) frames — run Registration first.", "warning",
+            )
+            return
+
+        params = self._tools_panel.get_multiframe_deconv_params()
+        seed_image = None
+        if params.seed_mode == "integrated":
+            if self._current_image is not None:
+                seed_image = self._current_image.data
+            else:
+                self._log_panel.log(
+                    "Seed image = 'Integrated (current image)' but no image is "
+                    "loaded — falling back to a robust sigma-clipped seed.", "warning",
+                )
+                params.seed_mode = "robust"
+
+        self._log_panel.log(
+            f"Running multi-frame deconvolution on {len(aligned_paths)} aligned frames…",
+            "info",
+        )
+        self._start_worker(
+            _multiframe_deconv_worker,
+            [str(p) for p in aligned_paths],
+            params,
+            seed_image=seed_image,
+            mask=self._active_mask,
+            on_done=self._on_multiframe_deconv_done,
+        )
+
+    @pyqtSlot(object)
+    def _on_multiframe_deconv_done(self, result):
+        self._update_current_image(result, "Multi-frame deconvolution complete")
+        try:
+            import gc as _gc
+            _gc.collect()
+            get_device_manager().empty_cache()
+        except Exception:
+            log.debug("GPU cache flush failed")
+        self._log_panel.log("Multi-frame deconvolution complete", "success")
+        if self._project:
+            self._project.add_history("Multi-Frame Deconvolution", {})
 
     # ── Multi-session stacking ────────────────────────────────────────────────
 
@@ -4782,14 +4915,17 @@ class MainWindow(QMainWindow):
         params = self._tools_panel.get_pcc_params()
         self._log_panel.log("Starting Photometric Color Calibration (PCC)...", "info")
 
-        # Get astrometry.net key from QSettings
+        # Get astrometry.net key + Gaia catalog dir from QSettings
         from PyQt6.QtCore import QSettings
         settings = QSettings("Astraios", "Astraios")
         api_key = settings.value("platesolver/astrometry_api_key", "")
         api_key = api_key.strip() or None
+        gaia_catalog_dir = settings.value("gaia/catalog_dir", "")
+        gaia_catalog_dir = gaia_catalog_dir.strip() or None
 
         image_data = self._current_image.data
         file_path = self._current_image.file_path
+        header = dict(self._current_image.header or {})
         ra_hint = params.get("ra_hint")
         dec_hint = params.get("dec_hint")
         solver = params.get("solver", "auto")
@@ -4797,6 +4933,82 @@ class MainWindow(QMainWindow):
         def _pcc_work(data, progress=None):
             import tempfile
             from pathlib import Path as _Path
+
+            if solver == "gaia":
+                # The offline Gaia solver takes the array directly and needs a
+                # pixel-scale hint (not just RA/Dec) — derive it from the FITS
+                # header's focal length + pixel size, the same formula
+                # astraios.core.equipment.EquipmentProfile uses.
+                from astraios.core.color_calibration import (
+                    ColorCalibrationParams,
+                    photometric_color_calibrate,
+                )
+                from astraios.core.star_catalog import query_gaia_dr3
+
+                wcs = None
+                if ra_hint is None or dec_hint is None:
+                    log.warning("GAIA offline solve requires RA/Dec hints")
+                else:
+                    focal = header.get("FOCALLEN") or header.get("FOCAL")
+                    pixsz = header.get("XPIXSZ") or header.get("PIXSIZE1")
+                    scale_hint = None
+                    if focal and pixsz:
+                        try:
+                            scale_hint = 206.265 * float(pixsz) / float(focal)
+                        except (TypeError, ValueError, ZeroDivisionError):
+                            scale_hint = None
+                    if not scale_hint:
+                        log.warning(
+                            "GAIA offline solve needs a known pixel scale "
+                            "(FOCALLEN + XPIXSZ in the FITS header) — none found"
+                        )
+                    else:
+                        if progress:
+                            progress(0.1, "Solving against local Gaia catalog…")
+                        try:
+                            from astraios.core.gaia_solver import GaiaSolveParams
+                            from astraios.core.gaia_solver import (
+                                plate_solve_gaia as _gaia_plate_solve,
+                            )
+                            wcs = _gaia_plate_solve(
+                                data, ra_hint, dec_hint, scale_hint,
+                                GaiaSolveParams(
+                                    catalog_dir=_Path(gaia_catalog_dir)
+                                    if gaia_catalog_dir else None
+                                ),
+                            )
+                        except Exception as exc:
+                            log.warning("GAIA offline solve failed: %s", exc)
+                            wcs = None
+                if wcs:
+                    wcs = normalise_wcs_dict(wcs)
+
+                if progress:
+                    progress(0.5, "Querying Gaia DR3 catalog...")
+                catalog_stars = []
+                effective_ra = ra_hint or (wcs.get("ra") if wcs else None)
+                effective_dec = dec_hint or (wcs.get("dec") if wcs else None)
+                if effective_ra is not None and effective_dec is not None:
+                    catalog_stars = query_gaia_dr3(effective_ra, effective_dec, radius_deg=0.5)
+                    log.info("Gaia DR3: %d stars retrieved", len(catalog_stars))
+
+                if progress:
+                    progress(0.75, "Computing color correction...")
+                if wcs is None and not catalog_stars:
+                    log.warning(
+                        "No plate solution and no catalog — falling back to "
+                        "statistical calibration"
+                    )
+                    result = color_calibrate(data, ColorCalibrationParams())
+                else:
+                    result = photometric_color_calibrate(
+                        data,
+                        catalog_stars=catalog_stars if catalog_stars else None,
+                        wcs=wcs,
+                    )
+                if progress:
+                    progress(1.0, "Done")
+                return result, wcs, catalog_stars
 
             from astraios.core.color_calibration import (
                 ColorCalibrationParams,
@@ -5149,6 +5361,13 @@ class MainWindow(QMainWindow):
         dialog.result_ready.connect(
             lambda result: self._update_current_image(result, "NB star color applied")
         )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_gaia_catalog_dialog(self):
+        from astraios.ui.dialogs.gaia_catalog_dialog import GaiaCatalogDialog
+
+        dialog = GaiaCatalogDialog(self)
         dialog.exec()
         dialog.deleteLater()
 

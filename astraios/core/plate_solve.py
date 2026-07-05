@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -198,6 +199,72 @@ def plate_solve_astap(
     return _result_from_solver_dict(d, image)
 
 
+#: Human-readable labels for the solver backends this module dispatches to,
+#: for UI solver-choice combos that want a name -> label mapping.
+SOLVER_LABELS: dict[str, str] = {
+    "auto": "Auto",
+    "gaia": "GAIA (offline)",
+    "astap": "ASTAP",
+    "astrometry_net": "Astrometry.net",
+}
+
+
+def _gaia_catalog_ready(catalog_dir: Path | str | None = None) -> bool:
+    """Cheap check for whether any local Gaia catalog band is installed.
+
+    Used to gate the offline Gaia attempt in :func:`plate_solve_auto` without
+    the cost of opening every SQLite file — a missing/empty catalog directory
+    must leave ``plate_solve_auto``'s behavior identical to before this
+    backend existed.
+    """
+    try:
+        from astraios.core.gaia_catalog import installed_files
+
+        return bool(installed_files(catalog_dir))
+    except Exception:  # noqa: BLE001 - never let a presence check crash the solve
+        return False
+
+
+def plate_solve_gaia_offline(
+    image: np.ndarray,
+    params: PlateSolveParams | None = None,
+    catalog_dir: Path | str | None = None,
+    progress=None,
+) -> PlateSolveResult:
+    """Offline plate-solve against a local Gaia DR3 catalog (no internet).
+
+    Thin adapter over :func:`astraios.core.gaia_solver.plate_solve_gaia` —
+    requires at least one Gaia catalog band downloaded locally (see
+    :mod:`astraios.core.gaia_catalog`) *and* an approximate RA/Dec/pixel-scale
+    hint (``params.ra_hint`` / ``dec_hint`` / ``scale_hint``); this solver
+    refines a seed, it does not blind-solve. Never raises for expected
+    failure modes (missing catalog, no hint, no match) — returns
+    ``PlateSolveResult(success=False)`` instead, so callers can fall through
+    to another backend.
+    """
+    if params is None:
+        params = PlateSolveParams()
+    if params.ra_hint is None or params.dec_hint is None or not params.scale_hint:
+        return PlateSolveResult(success=False)
+
+    if progress:
+        progress(0.1, "Solving against local Gaia catalog…")
+
+    try:
+        from astraios.core.gaia_solver import GaiaSolveParams
+        from astraios.core.gaia_solver import plate_solve_gaia as _gaia_solve
+
+        gp = GaiaSolveParams(catalog_dir=Path(catalog_dir) if catalog_dir else None)
+        d = _gaia_solve(image, params.ra_hint, params.dec_hint, params.scale_hint, gp)
+    except Exception as exc:  # noqa: BLE001 - fall through to other backends on any failure
+        log.warning("Gaia offline solve raised, falling through: %s", exc)
+        d = None
+
+    if progress:
+        progress(1.0, "Gaia offline solve complete" if d else "Gaia offline solve failed")
+    return _result_from_solver_dict(d, image)
+
+
 def _parse_wcs_header(header: dict, image: np.ndarray) -> PlateSolveResult:
     """Extract RA/Dec/scale/rotation from a solved WCS FITS header."""
     ra = float(header.get("CRVAL1", 0.0))
@@ -277,8 +344,31 @@ def plate_solve_auto(
     params: PlateSolveParams | None = None,
     api_key: str | None = None,
     progress=None,
+    catalog_dir: Path | str | None = None,
 ) -> PlateSolveResult:
-    """Try ASTAP first, fall back to astrometry.net if ASTAP not available."""
+    """Try local Gaia (offline) first, then ASTAP, then astrometry.net.
+
+    The Gaia attempt only fires when both a local catalog is installed
+    (cheap presence check, see :func:`_gaia_catalog_ready`) and an RA/Dec/
+    scale hint is available in ``params`` — with no catalog installed (the
+    default, out-of-the-box state) this is a no-op and behavior is identical
+    to before this backend existed. On :class:`~astraios.core.gaia_catalog.GaiaCatalogNotFoundError`
+    or any other solve failure, falls through to ASTAP/astrometry.net exactly
+    as before.
+    """
+    if (
+        params is not None
+        and params.ra_hint is not None
+        and params.dec_hint is not None
+        and params.scale_hint
+        and _gaia_catalog_ready(catalog_dir)
+    ):
+        log.info("Using local Gaia catalog for plate solving")
+        result = plate_solve_gaia_offline(image, params, catalog_dir=catalog_dir, progress=progress)
+        if result.success:
+            return result
+        log.info("Gaia offline solve failed or found no match, trying ASTAP…")
+
     import shutil
     astap = shutil.which("astap_cli") or shutil.which("astap")
     if astap:
