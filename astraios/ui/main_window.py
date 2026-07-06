@@ -796,6 +796,10 @@ class MainWindow(QMainWindow):
         add_stars_act.triggered.connect(self._show_add_stars_dialog)
         tools_menu.addAction(add_stars_act)
 
+        sfcc_act = QAction("&SFCC (Spectral Flux Color Calibration)...", self)
+        sfcc_act.triggered.connect(self._show_sfcc_dialog)
+        tools_menu.addAction(sfcc_act)
+
         nb_normalize_act = QAction("Narrowband &Normalization...", self)
         nb_normalize_act.triggered.connect(self._show_nb_normalization_dialog)
         tools_menu.addAction(nb_normalize_act)
@@ -899,6 +903,28 @@ class MainWindow(QMainWindow):
         acv_export_act = QAction("Export Curves (.ac&v)...", self)
         acv_export_act.triggered.connect(self._show_acv_export_dialog)
         tools_menu.addAction(acv_export_act)
+
+        tools_menu.addSeparator()
+
+        serviewer_act = QAction("SER &Viewer...", self)
+        serviewer_act.triggered.connect(self._show_ser_viewer_dialog)
+        tools_menu.addAction(serviewer_act)
+
+        derotate_act = QAction("Planetary De-&rotation...", self)
+        derotate_act.triggered.connect(self._show_derotate_dialog)
+        tools_menu.addAction(derotate_act)
+
+        planet_proj_act = QAction("Planet Pro&jection...", self)
+        planet_proj_act.triggered.connect(self._show_planet_projection_dialog)
+        tools_menu.addAction(planet_proj_act)
+
+        field_rotation_act = QAction("Alt/Az Field &Rotation...", self)
+        field_rotation_act.triggered.connect(self._show_field_rotation_dialog)
+        tools_menu.addAction(field_rotation_act)
+
+        minor_body_act = QAction("&Minor Body Catalog...", self)
+        minor_body_act.triggered.connect(self._show_minor_body_dialog)
+        tools_menu.addAction(minor_body_act)
 
         tools_menu.addSeparator()
 
@@ -5804,6 +5830,70 @@ class MainWindow(QMainWindow):
         from astraios.ui.dialogs.snr_dialog import SNRDialog
 
         dialog = SNRDialog(self._current_image.data, self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_sfcc_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        if self._current_image.data.ndim != 3 or self._current_image.data.shape[0] != 3:
+            self._log_panel.log("SFCC requires a 3-channel RGB image", "warning")
+            return
+        from astraios.ui.dialogs.sfcc_dialog import SFCCDialog
+
+        wcs_header = self._finder_chart_wcs_header()
+        dialog = SFCCDialog(self._current_image.data, self, wcs_header=wcs_header)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "SFCC applied")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_ser_viewer_dialog(self):
+        from astraios.ui.dialogs.ser_viewer_dialog import SERViewerDialog
+
+        dialog = SERViewerDialog(self)
+        # A raw SER frame is a fresh image, handled like a stacked result.
+        dialog.frame_selected.connect(self._on_ser_stacked)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_derotate_dialog(self):
+        from astraios.ui.dialogs.derotate_dialog import DerotateDialog
+
+        dialog = DerotateDialog(self)
+        dialog.result_ready.connect(self._on_ser_stacked)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_planet_projection_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.planet_projection_dialog import PlanetProjectionDialog
+
+        dialog = PlanetProjectionDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Planet projection applied", geometric=True
+            )
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_field_rotation_dialog(self):
+        from astraios.ui.dialogs.field_rotation_dialog import FieldRotationDialog
+
+        dialog = FieldRotationDialog(self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_minor_body_dialog(self):
+        from astraios.ui.dialogs.minor_body_dialog import MinorBodyDialog
+
+        wcs_header = self._finder_chart_wcs_header()
+        dialog = MinorBodyDialog(self, wcs_header=wcs_header)
         dialog.exec()
         dialog.deleteLater()
 
