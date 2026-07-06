@@ -458,6 +458,9 @@ class MainWindow(QMainWindow):
         # Python console dock (lazy init)
         self._python_console_dock = None
 
+        # Layers dock (lazy init)
+        self._layers_dock = None
+
         # Multi-session stacking
         self._ms_sessions: list = []  # list of SessionGroup objects
 
@@ -860,6 +863,12 @@ class MainWindow(QMainWindow):
         console_act = QAction("Python &Console", self)
         console_act.triggered.connect(self._on_open_python_console)
         tools_menu.addAction(console_act)
+
+        tools_menu.addSeparator()
+
+        layers_act = QAction("&Layers...", self)
+        layers_act.triggered.connect(self._on_open_layers_dock)
+        tools_menu.addAction(layers_act)
 
         # ── Help menu ─────────────────────────────────────────────────────────
         help_menu = menu.addMenu("&Help")
@@ -4420,6 +4429,47 @@ class MainWindow(QMainWindow):
         # Preview-only render: routing this through _display_image replaced
         # the working image with the previewed pixels.
         self._display_preview_only(arr, "Console preview")
+
+    # ── Layers dock ──────────────────────────────────────────────────────────
+
+    @pyqtSlot()
+    def _on_open_layers_dock(self):
+        from PyQt6.QtWidgets import QDockWidget
+
+        from astraios.ui.widgets.layers_dock import LayersPanel
+
+        if self._layers_dock is None:
+            panel = LayersPanel()
+            panel.composite_changed.connect(self._on_layers_composite_changed)
+            panel.flattened.connect(self._on_layers_flattened)
+            dock = QDockWidget("Layers", self)
+            dock.setWidget(panel)
+            dock.setMinimumWidth(320)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+            self._layers_dock = dock
+
+        self._layers_dock.show()
+        self._layers_dock.raise_()
+        # Hand the panel the working image so "Add From Current Image" works.
+        panel = self._layers_dock.widget()
+        if panel is not None:
+            panel.set_current_image(
+                self._current_image.data if self._current_image is not None else None
+            )
+
+    @pyqtSlot(object)
+    def _on_layers_composite_changed(self, arr):
+        import numpy as _np
+        if not isinstance(arr, _np.ndarray):
+            return
+        self._display_preview_only(arr, "Layers preview")
+
+    @pyqtSlot(object)
+    def _on_layers_flattened(self, arr):
+        import numpy as _np
+        if not isinstance(arr, _np.ndarray):
+            return
+        self._update_current_image(arr, "Layers flattened")
 
     @pyqtSlot()
     def _on_open_star_mask(self):

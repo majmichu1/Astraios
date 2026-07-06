@@ -48,8 +48,9 @@ Astraios). Each ported module carries an attribution header naming its
 origin. Ported tools include the FX effects (Orton glow, star glow, soft
 focus, split tone, film grain), diffraction spikes, saturation and chroma
 hue curves, Halo-B-Gon halo reduction, WaveScale HDR, WaveScale Dark
-Enhance, texture clarity, selective color and luminance, and pedestal
-tools. The implementations were adapted to Astraios conventions
+Enhance, texture clarity, selective color and luminance, pedestal
+tools, and the Layers system (blend modes and layer stack compositing).
+The implementations were adapted to Astraios conventions
 (channels-first float32 data, GPU execution through the device manager
 with CPU fallbacks) while preserving the original processing math.
 Sincere thanks to Franklin Marek for publishing this work under a
