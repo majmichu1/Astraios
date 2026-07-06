@@ -880,6 +880,28 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
+        image_peeker_act = QAction("&Image Peeker...", self)
+        image_peeker_act.triggered.connect(self._show_image_peeker_dialog)
+        tools_menu.addAction(image_peeker_act)
+
+        batch_convert_act = QAction("Batch &Convert...", self)
+        batch_convert_act.triggered.connect(self._show_batch_convert_dialog)
+        tools_menu.addAction(batch_convert_act)
+
+        batch_rename_act = QAction("Batch &Rename...", self)
+        batch_rename_act.triggered.connect(self._show_batch_rename_dialog)
+        tools_menu.addAction(batch_rename_act)
+
+        astrobin_export_act = QAction("Astro&Bin Exporter...", self)
+        astrobin_export_act.triggered.connect(self._show_astrobin_export_dialog)
+        tools_menu.addAction(astrobin_export_act)
+
+        acv_export_act = QAction("Export Curves (.ac&v)...", self)
+        acv_export_act.triggered.connect(self._show_acv_export_dialog)
+        tools_menu.addAction(acv_export_act)
+
+        tools_menu.addSeparator()
+
         ez_act = QAction("&EZ Script Suite...", self)
         ez_act.triggered.connect(self._show_ez_script_dialog)
         tools_menu.addAction(ez_act)
@@ -5658,6 +5680,66 @@ class MainWindow(QMainWindow):
         dialog.preview_requested.connect(
             lambda diff: self._display_preview_only(diff, "Transient difference")
         )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_image_peeker_dialog(self):
+        from astraios.ui.dialogs.image_peeker_dialog import ImagePeekerDialog
+
+        preloaded: list[str] = []
+        if self._project:
+            preloaded = [
+                str(e.path) for e in self._project.frames_by_type(FrameType.LIGHT)
+                if e.path.exists()
+            ]
+        dialog = ImagePeekerDialog(parent=self, paths=preloaded or None)
+        dialog.open_requested.connect(lambda path: self._load_frame(str(path)))
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_batch_convert_dialog(self):
+        from astraios.ui.dialogs.batch_convert_dialog import BatchConvertDialog
+
+        dialog = BatchConvertDialog(self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_batch_rename_dialog(self):
+        from astraios.ui.dialogs.batch_rename_dialog import BatchRenameDialog
+
+        dialog = BatchRenameDialog(self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_astrobin_export_dialog(self):
+        light_paths: list = []
+        if self._project:
+            light_paths = [
+                e.path for e in self._project.frames_by_type(FrameType.LIGHT)
+                if e.path.exists()
+            ]
+        if not light_paths:
+            self._log_panel.log(
+                "AstroBin Exporter needs light frames in the project.", "warning",
+            )
+            return
+        from astraios.ui.dialogs.astrobin_export_dialog import AstroBinExportDialog
+
+        dialog = AstroBinExportDialog(self, light_paths)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_acv_export_dialog(self):
+        params = self._tools_panel.get_curves_params()
+        curves = [
+            ("Composite", list(params.master.points)),
+            ("Red", list(params.red.points)),
+            ("Green", list(params.green.points)),
+            ("Blue", list(params.blue.points)),
+        ]
+        from astraios.ui.dialogs.acv_export_dialog import ACVExportDialog
+
+        dialog = ACVExportDialog(curves, self)
         dialog.exec()
         dialog.deleteLater()
 
