@@ -731,6 +731,10 @@ class MainWindow(QMainWindow):
         batch_act.triggered.connect(self._show_batch_dialog)
         tools_menu.addAction(batch_act)
 
+        ser_act = QAction("SER &Planetary Stacker...", self)
+        ser_act.triggered.connect(self._show_ser_stacker_dialog)
+        tools_menu.addAction(ser_act)
+
         subframe_act = QAction("Su&bframe Selector...", self)
         subframe_act.triggered.connect(self._on_open_subframe_selector)
         tools_menu.addAction(subframe_act)
@@ -5395,6 +5399,33 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         dialog.deleteLater()
+
+    def _show_ser_stacker_dialog(self):
+        # No current image needed: this loads a .ser video from disk.
+        from astraios.ui.dialogs.ser_stacker_dialog import SERStackerDialog
+
+        dialog = SERStackerDialog(self)
+        dialog.result_ready.connect(
+            lambda result: self._on_ser_stacked(result)
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _on_ser_stacked(self, result):
+        # The stacked image is a fresh frame: reset edit state like a load.
+        from astraios.core.image_io import ImageData
+
+        image = ImageData(data=result, header={})
+        self._undo_stack.configure_for_image(result.nbytes)
+        self._update_undo_actions()
+        self._display_image(image)
+        self._dirty = False
+        self._active_mask = None
+        self._extracted_stars = None
+        self._processing_graph = None
+        self._log_panel.log(
+            f"SER stack complete: {result.shape[-1]}x{result.shape[-2]}", "success"
+        )
 
     def _show_signature_dialog(self):
         if self._current_image is None:
