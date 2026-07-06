@@ -784,6 +784,14 @@ class MainWindow(QMainWindow):
         nb_star_color_act.triggered.connect(self._show_nb_star_color_dialog)
         tools_menu.addAction(nb_star_color_act)
 
+        nb_normalize_act = QAction("Narrowband &Normalization...", self)
+        nb_normalize_act.triggered.connect(self._show_nb_normalization_dialog)
+        tools_menu.addAction(nb_normalize_act)
+
+        luminance_recombine_act = QAction("Luminance Recombine (&LRGB)...", self)
+        luminance_recombine_act.triggered.connect(self._show_luminance_recombine_dialog)
+        tools_menu.addAction(luminance_recombine_act)
+
         blend_act = QAction("Image &Blend...", self)
         blend_act.triggered.connect(self._show_blend_dialog)
         tools_menu.addAction(blend_act)
@@ -5410,6 +5418,34 @@ class MainWindow(QMainWindow):
         dialog = NBStarColorDialog(self._current_image.data, self)
         dialog.result_ready.connect(
             lambda result: self._update_current_image(result, "NB star color applied")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_luminance_recombine_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        if self._current_image.data.ndim != 3 or self._current_image.data.shape[0] != 3:
+            self._log_panel.log("Luminance Recombine requires a color (RGB) image", "warning")
+            return
+        from astraios.ui.dialogs.luminance_recombine_dialog import LuminanceRecombineDialog
+
+        dialog = LuminanceRecombineDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Luminance recombined")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_nb_normalization_dialog(self):
+        from astraios.ui.dialogs.nb_normalization_dialog import NBNormalizationDialog
+
+        dialog = NBNormalizationDialog(self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Narrowband normalized", geometric=True
+            )
         )
         dialog.exec()
         dialog.deleteLater()

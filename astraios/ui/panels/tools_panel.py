@@ -10,8 +10,10 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QListWidget,
+    QMessageBox,
     QTabWidget,
     QTextEdit,
     QToolButton,
@@ -58,7 +60,7 @@ from astraios.ui.widgets.ui_kit import (
     BG_TERTIARY, BLUE, BORDER, FONT_MONO, ORANGE, RED,
     TEXT_PRIMARY, TEXT_SECONDARY,
     CollapsibleSection, InfoLabel, RunBtn, SliderRow,
-    divider, field_row, make_label, scrollable_tab,
+    divider, field_row, help_dot, make_label, scrollable_tab,
     styled_check, styled_combo, styled_spin,
 )
 
@@ -1139,6 +1141,29 @@ class ToolsPanel(QWidget):
             else self.preview_cancelled.emit()
         )
         sst2.add_run("▶ Apply Statistical Stretch", self.run_statistical_stretch.emit)
+
+        # Presets — save/recall named parameter sets for this tool.
+        from astraios.core.tool_presets import list_presets
+
+        preset_row = QHBoxLayout()
+        self._statstretch_preset_combo = styled_combo(list_presets("statistical_stretch"))
+        preset_row.addWidget(self._statstretch_preset_combo, 1)
+        save_preset_btn = RunBtn("Save", accent=False, flat=True)
+        load_preset_btn = RunBtn("Load", accent=False, flat=True)
+        delete_preset_btn = RunBtn("Delete", accent=False, flat=True)
+        preset_row.addWidget(save_preset_btn)
+        preset_row.addWidget(load_preset_btn)
+        preset_row.addWidget(delete_preset_btn)
+        preset_row.addWidget(help_dot(
+            "Save the current Statistical Stretch settings under a name, or "
+            "recall/delete a previously-saved one. Presets are stored in "
+            "~/.astraios/presets/ and are shared across projects."
+        ))
+        sst2.add_layout(preset_row)
+        save_preset_btn.clicked.connect(self._save_statistical_stretch_preset)
+        load_preset_btn.clicked.connect(self._load_statistical_stretch_preset)
+        delete_preset_btn.clicked.connect(self._delete_statistical_stretch_preset)
+
         lay.addWidget(sst2)
 
         # Arcsinh (NEW)
@@ -3774,6 +3799,70 @@ class ToolsPanel(QWidget):
             shadow_clip=self._statstretch_shadow.value(),
             linked=self._statstretch_linked.isChecked(),
         )
+
+    def set_statistical_stretch_params(self, d: dict) -> None:
+        """Push a params dict (e.g. from a loaded preset) back into the widgets.
+
+        Unknown keys are ignored so a preset saved by a future/older version
+        of `StatisticalStretchParams` still loads whatever it recognizes.
+        """
+        if "target_median" in d:
+            self._statstretch_target.setValue(float(d["target_median"]))
+        if "shadow_clip" in d:
+            self._statstretch_shadow.setValue(float(d["shadow_clip"]))
+        if "linked" in d:
+            self._statstretch_linked.setChecked(bool(d["linked"]))
+
+    def _refresh_statstretch_preset_combo(self, select: str | None = None) -> None:
+        from astraios.core.tool_presets import list_presets
+
+        self._statstretch_preset_combo.blockSignals(True)
+        self._statstretch_preset_combo.clear()
+        self._statstretch_preset_combo.addItems(list_presets("statistical_stretch"))
+        self._statstretch_preset_combo.blockSignals(False)
+        if select is not None:
+            idx = self._statstretch_preset_combo.findText(select)
+            if idx >= 0:
+                self._statstretch_preset_combo.setCurrentIndex(idx)
+
+    def _save_statistical_stretch_preset(self) -> None:
+        import dataclasses
+
+        from astraios.core.tool_presets import save_preset
+
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        name = name.strip()
+        if not ok or not name:
+            return
+        params = dataclasses.asdict(self.get_statistical_stretch_params())
+        try:
+            save_preset("statistical_stretch", name, params)
+        except (OSError, ValueError) as exc:
+            QMessageBox.warning(self, "Save Preset Failed", str(exc))
+            return
+        self._refresh_statstretch_preset_combo(select=name)
+
+    def _load_statistical_stretch_preset(self) -> None:
+        from astraios.core.tool_presets import load_preset
+
+        name = self._statstretch_preset_combo.currentText()
+        if not name:
+            return
+        try:
+            params = load_preset("statistical_stretch", name)
+        except KeyError as exc:
+            QMessageBox.warning(self, "Load Preset Failed", str(exc))
+            return
+        self.set_statistical_stretch_params(params)
+
+    def _delete_statistical_stretch_preset(self) -> None:
+        from astraios.core.tool_presets import delete_preset
+
+        name = self._statstretch_preset_combo.currentText()
+        if not name:
+            return
+        delete_preset("statistical_stretch", name)
+        self._refresh_statstretch_preset_combo()
 
     def get_star_reduction_params(self) -> StarReductionParams:
         from astraios.core.morphology import StructuringElement

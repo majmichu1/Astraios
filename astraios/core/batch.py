@@ -409,6 +409,22 @@ def _register_default_tools():
     register_tool("selective_luma", _selective_luma_tool)
     register_tool("pedestal", _pedestal_tool)
 
+    # NOTE: astraios.core.luminance_recombine.recombine_luminance and
+    # astraios.core.narrowband_normalization.normalize_narrowband are
+    # intentionally NOT registered here. Every tool in this registry follows
+    # the single-image contract `func(data, **params) -> data` (see
+    # `apply_pipeline_to_image` above), so history/macro replay can feed it
+    # the previous step's output and nothing else. recombine_luminance needs
+    # a *second* full image (the separately-processed luma frame) and
+    # normalize_narrowband needs *three* (Ha/OIII/SII) -- neither fits that
+    # contract, and there is no side-image slot in `step.params` (a JSON dict
+    # of scalars) to smuggle them through. Faking a registration that ignores
+    # those extra images, or that tries to stash an ndarray in `step.params`,
+    # would silently produce wrong results on replay. Both tools are exposed
+    # only as Tools-menu dialogs (see `main_window._show_luminance_recombine_dialog`
+    # / `_show_nb_normalization_dialog`) until the pipeline/step format gains
+    # a multi-input step type.
+
 
 def apply_pipeline_to_image(
     data: np.ndarray,
