@@ -820,6 +820,18 @@ class MainWindow(QMainWindow):
         linfit_act.triggered.connect(self._show_linear_fit_dialog)
         tools_menu.addAction(linfit_act)
 
+        image_combine_act = QAction("Image Com&bine (A + B)...", self)
+        image_combine_act.triggered.connect(self._show_image_combine_dialog)
+        tools_menu.addAction(image_combine_act)
+
+        copy_astrometry_act = QAction("Copy &Astrometry...", self)
+        copy_astrometry_act.triggered.connect(self._show_copy_astrometry_dialog)
+        tools_menu.addAction(copy_astrometry_act)
+
+        dither_analysis_act = QAction("&Dither Analysis...", self)
+        dither_analysis_act.triggered.connect(self._show_dither_analysis_dialog)
+        tools_menu.addAction(dither_analysis_act)
+
         create_mask = QAction("Create &Mask...", self)
         create_mask.triggered.connect(self._show_mask_dialog)
         tools_menu.addAction(create_mask)
@@ -5458,6 +5470,59 @@ class MainWindow(QMainWindow):
         dialog.result_ready.connect(
             lambda result: self._update_current_image(result, "Linear fit applied")
         )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_image_combine_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.image_combine_dialog import ImageCombineDialog
+
+        dialog = ImageCombineDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Images combined")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_copy_astrometry_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.copy_astrometry_dialog import CopyAstrometryDialog
+
+        dialog = CopyAstrometryDialog(self._current_image, self)
+        dialog.applied.connect(self._on_astrometry_applied)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _on_astrometry_applied(self):
+        self._dirty = True
+        self._log_panel.log("Astrometric solution copied onto the current image", "success")
+
+    def _show_dither_analysis_dialog(self):
+        if self._subframe_selected_paths:
+            aligned_paths = [Path(p) for p in self._subframe_selected_paths]
+        else:
+            aligned_paths = getattr(self, "_aligned_paths", [])
+
+        if not aligned_paths and self._project:
+            aligned_paths = [
+                e.path for e in self._project.frames_by_type(FrameType.ALIGNED)
+                if e.path.exists()
+            ]
+
+        if len(aligned_paths) < 3:
+            self._log_panel.log(
+                "Dither Analysis needs at least 3 registered (aligned) "
+                "frames — run Registration first.", "warning",
+            )
+            return
+
+        from astraios.ui.dialogs.dither_analysis_dialog import DitherAnalysisDialog
+
+        dialog = DitherAnalysisDialog(self, aligned_paths)
         dialog.exec()
         dialog.deleteLater()
 
