@@ -37,12 +37,13 @@ def _noop_progress(f: float, m: str) -> None:
     pass
 
 
-# Canvases at or above this pixel count use the GPU for compositing (when
-# available).
-# TODO(benchmark): first GPU-vs-CPU measurements were taken while the GPU was
-# loaded with an LLM and are unreliable — re-measure on an idle GPU before
-# deciding the final dispatch (see ROADMAP).
-GPU_PIXEL_THRESHOLD = 4_000_000  # roughly 2000x2000
+# Canvases at or above this pixel count would use the GPU for compositing, but
+# it is set out of reach because spikes are CPU-bound: rendering does many
+# small per-star tile blits, and per-op kernel-launch overhead outweighs the
+# GPU's throughput. Confirmed on an idle RTX 5060 (3000x3000, 400 stars):
+# CPU 688ms vs GPU 1133ms. The GPU path is kept (and tested) in case a future
+# rewrite batches all stars into a single draw.
+GPU_PIXEL_THRESHOLD = 10_000_000_000
 
 
 @dataclass
