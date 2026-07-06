@@ -812,6 +812,14 @@ class MainWindow(QMainWindow):
         sig_act.triggered.connect(self._show_signature_dialog)
         tools_menu.addAction(sig_act)
 
+        continuum_act = QAction("&Continuum Subtraction...", self)
+        continuum_act.triggered.connect(self._show_continuum_subtract_dialog)
+        tools_menu.addAction(continuum_act)
+
+        linfit_act = QAction("&Linear Fit...", self)
+        linfit_act.triggered.connect(self._show_linear_fit_dialog)
+        tools_menu.addAction(linfit_act)
+
         create_mask = QAction("Create &Mask...", self)
         create_mask.triggered.connect(self._show_mask_dialog)
         tools_menu.addAction(create_mask)
@@ -5426,6 +5434,32 @@ class MainWindow(QMainWindow):
         self._log_panel.log(
             f"SER stack complete: {result.shape[-1]}x{result.shape[-2]}", "success"
         )
+
+    def _show_continuum_subtract_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.continuum_subtract_dialog import ContinuumSubtractDialog
+
+        dialog = ContinuumSubtractDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Continuum subtracted")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_linear_fit_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.linear_fit_dialog import LinearFitDialog
+
+        dialog = LinearFitDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Linear fit applied")
+        )
+        dialog.exec()
+        dialog.deleteLater()
 
     def _show_signature_dialog(self):
         if self._current_image is None:
