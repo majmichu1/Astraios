@@ -19,6 +19,7 @@ class DSOEntry:
     dec_deg: float
     size_arcmin: float
     type_code: str
+    magnitude: float | None = None
 
 
 # ── Catalog ────────────────────────────────────────────────────────────────────
@@ -125,10 +126,51 @@ _RAW = [
 ]
 # fmt: on
 
+# Approximate integrated visual (V) magnitudes, cross-referenced by name from the
+# Seti Astro Suite Pro celestial_catalog.csv (Copyright Franklin Marek,
+# GPL-3.0-or-later, https://github.com/setiastro/setiastrosuitepro). Many diffuse
+# emission nebulae / supernova remnants have no well-established integrated visual
+# magnitude in standard catalogs and are intentionally omitted here — DSOEntry.
+# magnitude is ``None`` for those, and callers (e.g. sky_plan.py) should treat
+# ``None`` as "unknown" rather than excluding the object from magnitude-limited
+# results.
+# fmt: off
+_MAGNITUDES: dict[str, float] = {
+    "M1": 8.4, "M2": 6.5, "M3": 6.2, "M4": 5.6, "M5": 5.6, "M6": 5.3, "M7": 4.1,
+    "M8": 6.0, "M11": 6.3, "M13": 5.8, "M15": 6.2, "M16": 6.4, "M17": 7.0,
+    "M20": 9.0, "M22": 5.1, "M27": 7.4, "M31": 3.4, "M32": 8.1, "M33": 5.7,
+    "M42": 4.0, "M43": 9.0, "M44": 3.7, "M45": 1.6, "M51": 8.4, "M57": 8.8,
+    "M63": 8.6, "M64": 8.5, "M74": 9.4, "M78": 8.3, "M81": 6.9, "M82": 8.4,
+    "M83": 7.6, "M92": 6.4, "M97": 9.9, "M101": 7.9, "M104": 8.0, "M106": 8.4,
+    "M108": 10.0, "M109": 9.8, "M110": 8.5,
+    "NGC 224": 3.5, "NGC 869": 4.0, "NGC 884": 4.0, "NGC 1502": 5.7,
+    "NGC 1976": 4.0, "NGC 2070": 8.2, "NGC 2244": 4.8, "NGC 2264": 3.9,
+    "NGC 2392": 10.0, "NGC 2403": 8.4, "NGC 2682": 6.9, "NGC 3031": 6.9,
+    "NGC 3034": 8.4, "NGC 3628": 9.5, "NGC 4038": 10.7, "NGC 4565": 9.6,
+    "NGC 4631": 9.3, "NGC 5128": 7.0, "NGC 5194": 8.4, "NGC 5457": 7.7,
+    "NGC 6514": 6.3, "NGC 6523": 5.8, "NGC 6611": 6.0, "NGC 6618": 6.0,
+    "NGC 6720": 9.0, "NGC 7009": 8.0, "NGC 7331": 9.5, "NGC 7380": 7.2,
+    "NGC 7789": 6.7, "IC 1805": 6.5, "IC 1848": 6.5, "IC 5146": 7.2,
+}
+# fmt: on
+
 _CATALOG: list[DSOEntry] = [
-    DSOEntry(name=r[0], ra_deg=r[1], dec_deg=r[2], size_arcmin=r[3], type_code=r[4])
+    DSOEntry(
+        name=r[0], ra_deg=r[1], dec_deg=r[2], size_arcmin=r[3], type_code=r[4],
+        magnitude=_MAGNITUDES.get(r[0]),
+    )
     for r in _RAW
 ]
+
+
+def all_entries() -> list[DSOEntry]:
+    """Return every catalog entry (Messier + bright NGC/IC/Sharpless).
+
+    Returns a shallow copy of the internal list — callers may filter or sort it
+    freely without mutating the shared catalog. Used by ``astraios.core.sky_plan``
+    as the object source for observation planning.
+    """
+    return list(_CATALOG)
 
 
 def query_dso_in_field(

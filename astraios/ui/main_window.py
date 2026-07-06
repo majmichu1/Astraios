@@ -926,6 +926,14 @@ class MainWindow(QMainWindow):
         minor_body_act.triggered.connect(self._show_minor_body_dialog)
         tools_menu.addAction(minor_body_act)
 
+        annotate_act = QAction("What's In My &Image...", self)
+        annotate_act.triggered.connect(self._show_image_annotate_dialog)
+        tools_menu.addAction(annotate_act)
+
+        sky_plan_act = QAction("What's &In My Sky...", self)
+        sky_plan_act.triggered.connect(self._show_sky_plan_dialog)
+        tools_menu.addAction(sky_plan_act)
+
         tools_menu.addSeparator()
 
         ez_act = QAction("&EZ Script Suite...", self)
@@ -5894,6 +5902,39 @@ class MainWindow(QMainWindow):
 
         wcs_header = self._finder_chart_wcs_header()
         dialog = MinorBodyDialog(self, wcs_header=wcs_header)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_image_annotate_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        wcs_header = self._finder_chart_wcs_header()
+        if wcs_header is None:
+            self._log_panel.log(
+                "What's In My Image needs a WCS solution — plate solve first.", "warning"
+            )
+            return
+        from astraios.ui.dialogs.image_annotate_dialog import ImageAnnotateDialog
+
+        dialog = ImageAnnotateDialog(self._current_image.data, self, wcs_header)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Image annotated (What's In My Image)", geometric=True
+            )
+        )
+        dialog.marker_requested.connect(
+            lambda x, y, name: self._log_panel.log(
+                f"Identified: {name} at ({x:.1f}, {y:.1f})", "info"
+            )
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_sky_plan_dialog(self):
+        from astraios.ui.dialogs.sky_plan_dialog import SkyPlanDialog
+
+        dialog = SkyPlanDialog(self)
         dialog.exec()
         dialog.deleteLater()
 
