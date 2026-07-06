@@ -59,6 +59,10 @@ Where Astraios actually stands apart: everything runs on the GPU, the GPU instal
 - **Multi-Session Stacking** -- Combine data from multiple nights with per-session adaptive weighting
 - **Subframe Selector** -- Automatic frame scoring by FWHM, eccentricity, SNR, background, and star count
 - **Debayer** -- RGGB, BGGR, GRBG, GBRG with VNG and other methods; auto-detection from FITS headers
+- **SER Planetary Stacker** -- Lucky-imaging stacking of SER planetary, lunar, and solar videos: per-frame sharpness ranking, keep-best selection, alignment, and average / median / sigma-clip integration, streaming from disk
+- **Multi-Frame Deconvolution** -- Jointly deconvolve all registered frames with per-frame PSFs for a sharper result than single-frame deconvolution on the stack
+- **Dither Analysis** -- Measure dither spread, coverage, nearest-neighbour spacing, and walking-noise across a registered frame set
+- **Pedestal** -- Add or remove a constant offset (per channel or global) around operations that dislike negative pixels
 
 ### AI and Advanced Denoising
 Models download on first use; nothing runs in the cloud.
@@ -80,6 +84,9 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **Local Contrast Enhancement** -- GPU-accelerated CLAHE
 - **Unsharp Mask** -- Standard and advanced masking
 - **Median Filter** -- Impulse noise removal
+- **WaveScale HDR** -- Wavelet-based recovery of detail inside bright cores of stretched images
+- **WaveScale Dark Enhance** -- Multiscale deepening of faint dark structure (dust lanes, dark nebulae)
+- **Texture and Clarity** -- Midtone-protected fine-detail and local-contrast punch, with smoothing at negative settings
 
 ### Color and Calibration
 - **Photometric Color Calibration (PCC)** -- Plate solve then match against Gaia DR3
@@ -89,6 +96,10 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **Color Calibration** -- Statistical and catalog-based correction
 - **SCNR** -- Green noise reduction for narrowband and OSC images
 - **Color Adjustment** -- Saturation, hue shift, vibrance
+- **Saturation by Hue** -- Per-colour-family saturation curves in HSV or perceptual Lab chroma
+- **Selective Color** -- Adjust one colour family only (CMY/RGB shifts, luminance, chroma, contrast) with feathered selection
+- **Selective Luminance** -- The same adjustments confined to a shadows / midtones / highlights band
+- **Linear Fit** -- Match one image's levels onto a reference by a robust sigma-clipped slope and offset fit
 - **Curves** -- Per-channel curve editor with histogram overlay
 - **Histogram Transform** -- Black point, midtone, white point with live preview
 - **Generalized Hyperbolic Stretch (GHS)** -- Non-linear stretch preserving color
@@ -100,6 +111,9 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **LRGB Combine** -- Luminance-weighted RGB merging
 - **Channel Combine** -- Custom channel mapping dialog
 - **Continuum Subtraction** -- Remove broadband contamination from narrowband filters
+- **Narrowband Normalization** -- Balance Ha / OIII / SII channels before palette combination (SHO / HSO / HOS / HOO)
+- **NB Star Color** -- Replace the unnatural star colours of narrowband palettes with real RGB star colour
+- **Luminance Recombine** -- LRGB finish by linear luminance scaling that preserves hue and chroma
 - **HDR Composition** -- Multi-exposure blending using Mertens fusion
 
 ### Corrections and Utilities
@@ -113,16 +127,30 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **Morphology** -- Dilate, erode, open, close for star masks
 - **PSF Measurement** -- Interactive FWHM, ellipticity, and angle from detected stars
 - **Statistics** -- Per-channel min, max, mean, median, std, MAD, SNR, linearity detection, clipping detection
+- **Halo Reduction** -- Suppress the bright halos and glow rings around stars that stretching amplifies
+- **Blemish Blaster and Clone Stamp** -- Click-to-heal dust motes and blemishes on the canvas; copy pixels between regions
+- **Isophote Analysis** -- Fit elliptical isophotes to a galaxy (ellipticity, position angle, intensity profile) with model and residual and CSV export
+- **Image Combine** -- Two-image pixel arithmetic (add, subtract, average, multiply, divide, screen, overlay, difference, min, max) with per-input weights
+- **Copy Astrometry** -- Transfer a plate-solve (WCS) solution from one image's header to another
 
 ### Plate Solving and Annotation
-- **Plate Solve** -- ASTAP and astrometry.net with auto-fallback and API key management
+- **Plate Solve** -- Offline local Gaia DR3 solving, plus ASTAP and astrometry.net, with auto-fallback and API key management
+- **Gaia Catalog Manager** -- Download the local Gaia catalog bands (or reuse an existing Seti Astro Suite Pro catalog folder) for solving without internet
 - **WCS Overlay** -- Catalog star positions drawn on the image
 - **DSO Annotation** -- Automatic deep-sky object labels from solved coordinates
 - **Constellation Overlay** -- Constellation lines rendered from WCS solution
 
+### Effects and Finishing
+- **Layers** -- Photoshop-style layer stack with 18 blend modes, per-layer opacity, visibility, and masks, with a live composite preview and flatten
+- **FX Tool** -- Orton glow, soft focus, bloom, vignette, film grain, and split toning
+- **Diffraction Spikes** -- Synthetic spikes on the brightest stars (Newtonian, JWST-style, secondary sets, halos)
+- **Nebula Flythrough** -- Render a cinematic zoom-into-the-image MP4, with star-parallax depth
+- **Signature / Watermark** -- Text or logo signing with position, scale, rotation, and opacity
+
 ### Workflow and UI
 - **Modern Dark Theme** -- Clean dark interface, designed for long nights
-- **Processing Graph** -- Non-destructive DAG that records every operation; auto-refreshing history dialog
+- **Processing History** -- Non-destructive, replayable history that records every operation; view, toggle, reorder, re-edit, and export as a macro
+- **Hover Help** -- Every tool and setting carries a plain-language explanation on hover, so full power stays approachable
 - **EZ Script Suite** -- One-click processing presets (OSC Quick Processing, Narrowband, Deep Sky Minimal, Luminance, Full Processing with ABE, Starless Processing)
 - **4-Panel Layout** -- Project tree / Canvas + Histogram / Tools / Log
 - **Split Before/After Preview** -- Draggable divider with live preview on every tool
@@ -143,7 +171,7 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 ## Run from Source (Developers)
 
 ### Prerequisites
-- Python 3.11–3.14
+- Python 3.11-3.14
 - [Poetry](https://python-poetry.org/) (dependency management)
 
 ```bash
@@ -212,5 +240,6 @@ Licensed under the **GNU General Public License v3.0** (GPL-3.0), required becau
 - **Astropy**: FITS I/O and astronomical calculations
 - **Noise2Self**: self-supervised denoising foundation
 - **StarNet**: star removal network architecture
+- **[Seti Astro Suite Pro](https://github.com/setiastro/setiastrosuitepro)** (Franklin Marek, GPL-3.0): several tools are ported and adapted from its source under the shared GPL license, with attribution in each module and in CREDITS.md
 - **uv**: the fast Python installer that powers the one-click installers
 - All the open-source astronomical software that inspired this project
