@@ -850,6 +850,24 @@ class MainWindow(QMainWindow):
 
         tools_menu.addSeparator()
 
+        finder_chart_act = QAction("&Finder Chart...", self)
+        finder_chart_act.triggered.connect(self._show_finder_chart_dialog)
+        tools_menu.addAction(finder_chart_act)
+
+        magnitude_act = QAction("&Measure Magnitudes...", self)
+        magnitude_act.triggered.connect(self._show_magnitude_tool_dialog)
+        tools_menu.addAction(magnitude_act)
+
+        exoplanet_act = QAction("&Exoplanet Transit...", self)
+        exoplanet_act.triggered.connect(self._show_exoplanet_dialog)
+        tools_menu.addAction(exoplanet_act)
+
+        transient_act = QAction("&Transient Hunter (SN / Asteroid)...", self)
+        transient_act.triggered.connect(self._show_transient_hunter_dialog)
+        tools_menu.addAction(transient_act)
+
+        tools_menu.addSeparator()
+
         ez_act = QAction("&EZ Script Suite...", self)
         ez_act.triggered.connect(self._show_ez_script_dialog)
         tools_menu.addAction(ez_act)
@@ -5523,6 +5541,111 @@ class MainWindow(QMainWindow):
         from astraios.ui.dialogs.dither_analysis_dialog import DitherAnalysisDialog
 
         dialog = DitherAnalysisDialog(self, aligned_paths)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _finder_chart_wcs_header(self):
+        """Build a FITS-header-like WCS dict for FinderChartDialog.
+
+        Prefers the current image's own header (an already-solved FITS
+        loaded from disk); falls back to synthesizing a minimal
+        TAN-projection header from the in-app plate-solve result
+        (self._current_wcs), which stores ra_center/dec_center/scale/
+        rotation rather than FITS keywords. Returns None if neither source
+        has a usable solution.
+        """
+        from astraios.core.copy_astrometry import wcs_keywords_present
+
+        header = self._current_image.header or {}
+        if wcs_keywords_present(header):
+            return dict(header)
+
+        wcs = self._current_wcs or {}
+        if wcs.get("ra_center") is None or wcs.get("dec_center") is None:
+            return None
+        h = self._current_image.data.shape[-2]
+        w = self._current_image.data.shape[-1]
+        return {
+            "CTYPE1": "RA---TAN", "CTYPE2": "DEC--TAN",
+            "CUNIT1": "deg", "CUNIT2": "deg",
+            "CRVAL1": float(wcs["ra_center"]), "CRVAL2": float(wcs["dec_center"]),
+            "CRPIX1": float(wcs.get("crpix1", w / 2.0)),
+            "CRPIX2": float(wcs.get("crpix2", h / 2.0)),
+            "CD1_1": float(wcs.get("cd11", 1.0)), "CD1_2": float(wcs.get("cd12", 0.0)),
+            "CD2_1": float(wcs.get("cd21", 0.0)), "CD2_2": float(wcs.get("cd22", 1.0)),
+        }
+
+    def _show_finder_chart_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        wcs_header = self._finder_chart_wcs_header()
+        if wcs_header is None:
+            self._log_panel.log(
+                "Finder Chart needs a WCS solution — plate solve first.", "warning"
+            )
+            return
+        from astraios.ui.dialogs.finder_chart_dialog import FinderChartDialog
+
+        dialog = FinderChartDialog(self._current_image.data, wcs_header, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Finder chart rendered", geometric=True
+            )
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_magnitude_tool_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.magnitude_tool_dialog import MagnitudeToolDialog
+
+        dialog = MagnitudeToolDialog(self._current_image.data, self)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_exoplanet_dialog(self):
+        if self._subframe_selected_paths:
+            aligned_paths = [Path(p) for p in self._subframe_selected_paths]
+        else:
+            aligned_paths = getattr(self, "_aligned_paths", [])
+
+        if not aligned_paths and self._project:
+            aligned_paths = [
+                e.path for e in self._project.frames_by_type(FrameType.ALIGNED)
+                if e.path.exists()
+            ]
+
+        if len(aligned_paths) < 3:
+            self._log_panel.log(
+                "Exoplanet Transit needs at least 3 registered (aligned) "
+                "frames — run Registration first.", "warning",
+            )
+            return
+        if len(aligned_paths) < 10:
+            self._log_panel.log(
+                f"Only {len(aligned_paths)} frames available; ~10+ are "
+                "recommended for a reliable transit light curve.", "warning",
+            )
+
+        from astraios.ui.dialogs.exoplanet_dialog import ExoplanetDialog
+
+        dialog = ExoplanetDialog(self, aligned_paths)
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_transient_hunter_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.transient_hunter_dialog import TransientHunterDialog
+
+        dialog = TransientHunterDialog(self._current_image.data, self)
+        dialog.preview_requested.connect(
+            lambda diff: self._display_preview_only(diff, "Transient difference")
+        )
         dialog.exec()
         dialog.deleteLater()
 
