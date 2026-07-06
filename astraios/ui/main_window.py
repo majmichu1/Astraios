@@ -788,6 +788,14 @@ class MainWindow(QMainWindow):
         nb_star_color_act.triggered.connect(self._show_nb_star_color_dialog)
         tools_menu.addAction(nb_star_color_act)
 
+        palette_picker_act = QAction("&Perfect Palette Picker...", self)
+        palette_picker_act.triggered.connect(self._show_palette_picker_dialog)
+        tools_menu.addAction(palette_picker_act)
+
+        add_stars_act = QAction("&Add Stars...", self)
+        add_stars_act.triggered.connect(self._show_add_stars_dialog)
+        tools_menu.addAction(add_stars_act)
+
         nb_normalize_act = QAction("Narrowband &Normalization...", self)
         nb_normalize_act.triggered.connect(self._show_nb_normalization_dialog)
         tools_menu.addAction(nb_normalize_act)
@@ -857,6 +865,10 @@ class MainWindow(QMainWindow):
         magnitude_act = QAction("&Measure Magnitudes...", self)
         magnitude_act.triggered.connect(self._show_magnitude_tool_dialog)
         tools_menu.addAction(magnitude_act)
+
+        snr_act = QAction("Measure S&NR...", self)
+        snr_act.triggered.connect(self._show_snr_dialog)
+        tools_menu.addAction(snr_act)
 
         exoplanet_act = QAction("&Exoplanet Transit...", self)
         exoplanet_act.triggered.connect(self._show_exoplanet_dialog)
@@ -5672,6 +5684,44 @@ class MainWindow(QMainWindow):
         dialog.result_ready.connect(
             lambda result: self._update_current_image(result, "NB star color applied")
         )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_palette_picker_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.palette_picker_dialog import PalettePickerDialog
+
+        dialog = PalettePickerDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Perfect Palette Picker applied"
+            )
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_add_stars_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.add_stars_dialog import AddStarsDialog
+
+        dialog = AddStarsDialog(self._current_image.data, self)
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(result, "Stars added")
+        )
+        dialog.exec()
+        dialog.deleteLater()
+
+    def _show_snr_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.snr_dialog import SNRDialog
+
+        dialog = SNRDialog(self._current_image.data, self)
         dialog.exec()
         dialog.deleteLater()
 
