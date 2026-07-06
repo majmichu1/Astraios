@@ -334,6 +334,54 @@ def help_dot(text: str, parent=None) -> QLabel:
     return dot
 
 
+def param_help(
+    summary: str,
+    *,
+    how: str | None = None,
+    higher: str | None = None,
+    lower: str | None = None,
+    default: str | None = None,
+    tip: str | None = None,
+) -> str:
+    """Build a structured, teaching-style help string for a setting.
+
+    The point is that a user should understand a control without having to
+    experiment: what it does, how it works, and crucially what turning it
+    *up* versus *down* actually changes. The result is rich text meant to be
+    handed straight to :func:`help_dot` or any ``help_text=`` argument::
+
+        sec.add_spin("Hot pixel sigma", ..., help_text=param_help(
+            "Removes hot pixels — lone dots far brighter than their surroundings.",
+            how="A pixel is flagged when it exceeds the local median by this "
+                "many standard deviations.",
+            higher="Stricter — only extreme outliers are corrected, so real "
+                   "stars are safe but faint hot pixels may remain.",
+            lower="More aggressive — catches subtler hot pixels but can start "
+                  "eating faint stars and detail.",
+            default="Around 3-5 works for most cameras.",
+        ))
+
+    Only ``summary`` is required; omit any part that does not apply (e.g. a
+    checkbox has no higher/lower). The ``<qt>`` wrapper is added by
+    ``help_dot``/tooltip setters, so this returns the inner rich text only.
+    """
+    parts: list[str] = [f"<b>{summary}</b>"]
+    if how:
+        parts.append(how)
+    hl: list[str] = []
+    if higher:
+        hl.append(f"<b>Higher →</b> {higher}")
+    if lower:
+        hl.append(f"<b>Lower →</b> {lower}")
+    if hl:
+        parts.append("<br>".join(hl))
+    if default:
+        parts.append(f"<i>{default}</i>")
+    if tip:
+        parts.append(tip)
+    return "<br><br>".join(parts)
+
+
 def btn_row(specs: list[tuple[str, bool]]) -> tuple[QHBoxLayout, list[QPushButton]]:
     """Return (layout, [buttons]) for a row of equal-width buttons.
     specs: [(label, is_flat), ...]

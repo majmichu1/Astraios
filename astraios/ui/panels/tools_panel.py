@@ -60,7 +60,7 @@ from astraios.ui.widgets.ui_kit import (
     BG_TERTIARY, BLUE, BORDER, FONT_MONO, ORANGE, RED,
     TEXT_PRIMARY, TEXT_SECONDARY,
     CollapsibleSection, InfoLabel, RunBtn, SliderRow,
-    divider, field_row, help_dot, make_label, scrollable_tab,
+    divider, field_row, help_dot, make_label, param_help, scrollable_tab,
     styled_check, styled_combo, styled_spin,
 )
 
@@ -387,20 +387,44 @@ class ToolsPanel(QWidget):
         cos.add_info("Detect and remove hot, cold, and dead pixels.")
         self._hot_sigma = cos.add_slider(
             "Hot sigma", 5.0, 1.0, 20.0, 0.5, 1,
-            help_text="How many times brighter than its neighbors a pixel must be "
-                      "to be flagged as hot. Lower catches more pixels (more "
-                      "aggressive); higher flags only the most obvious defects.",
+            help_text=param_help(
+                "Threshold for detecting hot pixels — lone dots stuck much "
+                "brighter than their surroundings.",
+                how="Each pixel is compared to its local neighborhood; it is "
+                    "flagged as hot when it sits this many standard deviations "
+                    "above the local median.",
+                higher="Stricter — only the most obvious hot pixels are "
+                       "corrected, so stars and detail are never touched, but "
+                       "faint hot pixels can slip through.",
+                lower="More aggressive — catches subtle hot pixels too, but "
+                      "risks clipping the cores of real stars.",
+                default="5 is a safe default; drop toward 3 if hot pixels "
+                        "remain, raise toward 8 if stars look nibbled.",
+            ),
         )
         self._cold_sigma = cos.add_slider(
             "Cold sigma", 5.0, 1.0, 20.0, 0.5, 1,
-            help_text="How many times darker than its neighbors a pixel must be "
-                      "to be flagged as cold. Lower catches more pixels; higher "
-                      "flags only the most obvious defects.",
+            help_text=param_help(
+                "Threshold for detecting cold pixels — dots stuck much darker "
+                "than their surroundings.",
+                how="A pixel is flagged as cold when it sits this many standard "
+                    "deviations below the local median.",
+                higher="Stricter — only the darkest defects are repaired, "
+                       "leaving faint dark speckles in place.",
+                lower="More aggressive — removes subtle dark pixels too, but "
+                      "can flatten fine dark structure and dust lanes.",
+                default="5 is a safe default.",
+            ),
         )
         self._dead_pixel_check = cos.add_check(
             "Detect dead pixels (value=0)", True,
-            help_text="Also flags any pixel whose value is exactly zero as dead "
-                      "and repairs it with the local median.",
+            help_text=param_help(
+                "Also repairs dead pixels — sensor pixels stuck at exactly zero.",
+                how="Any pixel whose value is exactly 0 is flagged and replaced "
+                    "with the local median, independent of the sigma sliders.",
+                tip="Safe to leave on; genuine black sky is almost never exactly "
+                    "zero after calibration.",
+            ),
         )
         cos.add_run("▶ Apply Cosmetic Correction", self.run_cosmetic.emit)
         lay.addWidget(cos)
