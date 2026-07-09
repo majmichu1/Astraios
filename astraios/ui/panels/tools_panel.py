@@ -892,16 +892,21 @@ class ToolsPanel(QWidget):
         bg.add_info("Remove light pollution gradients.")
         self._bg_grid_spin  = bg.add_spin(
             "Grid size", 4, 32, 8,
-            help_text="Number of sample points along each axis of the sampling "
-                      "grid (NxN). More points can follow finer gradient shapes "
-                      "but risk sampling into nebulosity.",
+            help_text=param_help(
+                "Number of sample points along each axis of the grid (NxN).",
+                higher="Follows finer gradient shapes — but risks sampling into "
+                       "nebulosity and removing real signal.",
+                lower="A coarser fit that stays clear of the target.",
+            ),
         )
         self._bg_order_spin = bg.add_spin(
             "Poly order", 1, 6, 3,
-            help_text="Degree of the polynomial surface fit to the samples. "
-                      "Higher orders follow more complex gradients but risk "
-                      "eating into the target signal if pushed too high; start "
-                      "at 2-3.",
+            help_text=param_help(
+                "Degree of the polynomial surface fit to the samples.",
+                higher="Follows more complex gradients, but can eat into the "
+                       "target signal if pushed too high.",
+                lower="A smoother, safer surface; start at 2-3.",
+            ),
         )
 
         # auto-grid row
@@ -919,14 +924,23 @@ class ToolsPanel(QWidget):
 
         self._bg_box_size_spin = bg.add_spin(
             "Box size (px)", 8, 256, 64, 8,
-            help_text="Size, in pixels, of the measurement box placed at each "
-                      "auto-grid sample point.",
+            help_text=param_help(
+                "Size, in pixels, of the measurement box at each auto-grid "
+                "sample point.",
+                higher="Averages over a larger area — steadier estimate, but "
+                       "blurs small-scale gradient changes.",
+                lower="More local, but noisier per sample.",
+            ),
         )
         self._bg_tolerance = bg.add_slider(
             "Tolerance (σ)", 2.5, 1.0, 5.0, 0.5, 1,
-            help_text="How far a sample point's measured value may be from the "
-                      "local median, in noise-sigma, before it is rejected as "
-                      "contaminated by a star or nebulosity.",
+            help_text=param_help(
+                "How far a sample may sit from the local median (in noise-sigma) "
+                "before it is rejected as star/nebula-contaminated.",
+                higher="More tolerant — keeps more samples, but risks including "
+                       "contaminated ones.",
+                lower="Stricter rejection; keeps only clean background samples.",
+            ),
         )
         btn_grid = bg.add_run(
             "⊞ Add Auto-Grid Samples",
@@ -961,8 +975,12 @@ class ToolsPanel(QWidget):
         abe.add_info("Background extraction using polynomial or RBF surface fitting.")
         self._abe_grid_spin   = abe.add_spin(
             "Grid size", 5, 30, 10,
-            help_text="Number of sample points per axis. More points follow "
-                      "finer gradient detail but risk landing on target signal.",
+            help_text=param_help(
+                "Number of sample points per axis.",
+                higher="Follows finer gradient detail, but risks landing samples "
+                       "on target signal.",
+                lower="A coarser, safer fit.",
+            ),
         )
         self._abe_model_combo = abe.add_combo(
             "Model", ["Polynomial (recommended)", "RBF"],
@@ -974,10 +992,13 @@ class ToolsPanel(QWidget):
         )
         self._abe_degree_spin = abe.add_spin(
             "Poly degree", 1, 5, 2,
-            help_text="Degree of the polynomial surface. Higher can follow "
-                      "stronger gradients but risks eating into faint "
-                      "nebulosity; start low and raise it only if a gradient "
+            help_text=param_help(
+                "Degree of the polynomial surface.",
+                higher="Follows stronger gradients, but risks eating into faint "
+                       "nebulosity.",
+                lower="A gentler surface; start low, raise only if a gradient "
                       "remains.",
+            ),
         )
         self._abe_kernel_combo = abe.add_combo(
             "RBF kernel", ["Thin Plate Spline", "Multiquadric", "Gaussian"],
@@ -1012,21 +1033,32 @@ class ToolsPanel(QWidget):
         )
         self._bn_percentile = bn.add_slider(
             "Percentile", 2.0, 0.5, 10.0, 0.5, 1,
-            help_text="The darkest X% of pixels used to estimate the sky "
-                      "background level per channel. Lower samples only the "
-                      "very darkest sky — safer on frames with a lot of "
+            help_text=param_help(
+                "The darkest X% of pixels used to estimate the sky level per "
+                "channel.",
+                higher="Samples more of the sky — fine on clean frames, but can "
+                       "pull in faint signal.",
+                lower="Uses only the very darkest sky — safer with lots of "
                       "extended nebulosity.",
+            ),
         )
         self._bn_amount     = bn.add_slider(
             "Amount", 1.0, 0.0, 1.0, 0.05, 2,
-            help_text="Blend strength of the correction. 1.0 applies the full "
-                      "measured shift; lower values apply it partially.",
+            help_text=param_help(
+                "Blend strength of the neutralization.",
+                higher="1.0 applies the full measured shift.",
+                lower="Applies the shift partially.",
+            ),
         )
         self._bn_protect    = bn.add_slider(
             "Protect bright", 0.5, 0.0, 1.0, 0.05, 2,
-            help_text="Ignores pixels brighter than this fraction of the "
-                      "image's peak value when measuring the background, so "
-                      "bright nebulosity or stars don't skew the sky estimate.",
+            help_text=param_help(
+                "Pixels brighter than this fraction of peak are ignored when "
+                "measuring the background.",
+                higher="Protects more — keeps bright nebulosity/stars out of the "
+                       "sky estimate.",
+                lower="Includes more pixels, which can skew the estimate.",
+            ),
         )
         bn.add_run("▶ Apply Background Neutralization",
                    self.run_background_neutralization.emit)
@@ -1045,15 +1077,21 @@ class ToolsPanel(QWidget):
         vig.add_info("Remove optical vignetting toward image edges.")
         self._vignette_amount = vig.add_slider(
             "Amount", 0.3, 0.0, 1.0, 0.05, 2,
-            help_text="Strength of the correction. Higher brightens the "
-                      "corners more; too high can overcorrect and brighten them "
-                      "past the center brightness.",
+            help_text=param_help(
+                "Strength of the vignette correction.",
+                higher="Brightens the corners more — too high overcorrects, "
+                       "making corners brighter than the center.",
+                lower="A subtle lift of the corners.",
+            ),
         )
         self._vignette_radius = vig.add_slider(
             "Radius", 0.8, 0.3, 1.0, 0.05, 2,
-            help_text="How far from the center the vignetting model extends, "
-                      "as a fraction of the frame. Smaller assumes the "
-                      "darkening starts closer to the center.",
+            help_text=param_help(
+                "How far from center the vignette model reaches, as a fraction "
+                "of the frame.",
+                higher="Assumes the darkening starts further out (near corners).",
+                lower="Assumes darkening begins closer to the center.",
+            ),
         )
         vig.add_run("▶ Correct Vignette", self.run_vignette_correction.emit)
         lay.addWidget(vig)
@@ -1068,9 +1106,12 @@ class ToolsPanel(QWidget):
         band.add_info("Remove horizontal/vertical banding from CMOS sensors.")
         self._banding_amount = band.add_slider(
             "Amount", 1.0, 0.1, 3.0, 0.1, 1,
-            help_text="Strength of the correction. Higher removes more "
-                      "banding but can also flatten very faint real signal "
-                      "that happens to run along the same direction.",
+            help_text=param_help(
+                "Strength of the banding correction.",
+                higher="Removes more banding — but can flatten faint real signal "
+                       "running along the same direction.",
+                lower="A gentler correction that only touches obvious stripes.",
+            ),
         )
         self._banding_dir_combo = band.add_combo(
             "Direction", ["Horizontal", "Vertical", "Both"],
