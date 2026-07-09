@@ -2183,9 +2183,12 @@ class ToolsPanel(QWidget):
         )
         self._bg_grain_strength = bgg.add_slider(
             "Strength", 0.5, 0.0, 1.0, 0.05, 2,
-            help_text="How strongly the background grain is smoothed. Higher "
-                      "smooths more but can look plasticky if the background "
-                      "has real faint structure.",
+            help_text=param_help(
+                "How strongly the dark-sky background grain is smoothed.",
+                higher="Smooths more — but can look plasticky if the background "
+                       "holds real faint structure.",
+                lower="A gentler clean-up that leaves more of the natural grain.",
+            ),
         )
         bgg.add_run("▶ Reduce Background Grain", self.run_background_grain.emit)
         lay.addWidget(bgg)
@@ -2203,8 +2206,12 @@ class ToolsPanel(QWidget):
         sr.add_info("Reduce star halos to reveal faint nebula details.")
         self._star_reduction_amount = sr.add_slider(
             "Amount (%)", 50, 0, 100, 1, 0,
-            help_text="How much the stars are shrunk. Higher reduces each "
-                      "star's size further.",
+            help_text=param_help(
+                "How much the stars are shrunk.",
+                higher="Reduces each star's size further, revealing more nebula "
+                       "— but overdoing it looks unnatural and can pit stars.",
+                lower="A subtle shrink that keeps stars looking natural.",
+            ),
         )
         self._star_reduction_kernel = sr.add_combo(
             "Kernel", ["Elliptical", "Circular", "Square", "Diamond"],
@@ -2215,8 +2222,12 @@ class ToolsPanel(QWidget):
         )
         self._star_reduction_iters = sr.add_slider(
             "Iterations", 2, 1, 10, 1, 0,
-            help_text="Number of erosion passes. More passes shrink stars "
-                      "further but take longer and can distort star shapes.",
+            help_text=param_help(
+                "Number of erosion passes used to shrink stars.",
+                higher="Shrinks stars further, but takes longer and can distort "
+                       "star shapes.",
+                lower="Fewer, gentler passes that preserve round stars.",
+            ),
         )
         self._star_reduction_protect = sr.add_check(
             "Protect core", True,
@@ -2242,19 +2253,26 @@ class ToolsPanel(QWidget):
         wav.add_info("Multi-scale sharpening with per-layer control.")
         self._wavelet_layers = wav.add_slider(
             "Layers", 5, 2, 8, 1, 0,
-            help_text="How many wavelet scales the image is decomposed into. "
-                      "More layers reach larger structures but take longer.",
+            help_text=param_help(
+                "How many wavelet scales the image is split into.",
+                higher="Reaches larger structures (whole nebula arms), but takes "
+                       "longer.",
+                lower="Only the finest scales — faster, detail-focused.",
+            ),
         )
         self._wavelet_layer_sliders: list[SliderRow] = []
         defaults = [0.3, 0.3, 0.0, 0.0, 0.0]
         for i in range(5):
             s = wav.add_slider(
                 f"Layer {i+1}", defaults[i], 0.0, 2.0, 0.1, 1,
-                help_text="Gain for this wavelet scale's detail. 0 removes "
-                          "that scale entirely, 1 leaves it unchanged, above "
-                          "1 boosts/sharpens it. Lower layer numbers are "
-                          "finer detail (and noise); higher numbers are "
-                          "coarser structure.",
+                help_text=param_help(
+                    f"Gain for wavelet scale {i+1} "
+                    f"({'finest detail and noise' if i == 0 else 'coarser structure'}).",
+                    higher="Above 1 boosts/sharpens this scale — great for detail, "
+                           "but amplifies noise on the finest layers.",
+                    lower="Below 1 suppresses this scale; 0 removes it entirely, "
+                          "1 leaves it unchanged.",
+                ),
             )
             self._wavelet_layer_sliders.append(s)
         self._wav_preview_check = wav.add_check("Show before/after preview")
@@ -2293,16 +2311,22 @@ class ToolsPanel(QWidget):
         )
         self._fs_sigma = fs.add_slider(
             "Split radius", 5.0, 1.0, 50.0, 1.0, 1,
-            help_text="Blur radius, in pixels, that defines the low-frequency "
-                      "structure layer. Larger separates off coarser "
-                      "structure, leaving more into the fine-detail layer; "
-                      "smaller keeps more in the structure layer.",
+            help_text=param_help(
+                "Blur radius (px) that divides structure from detail.",
+                higher="Pushes more into the fine-detail layer, leaving only "
+                       "coarse structure/color in the low layer.",
+                lower="Keeps more in the structure layer; only the very finest "
+                      "detail is separated off.",
+            ),
         )
         self._fs_hf_boost = fs.add_slider(
             "Detail boost", 1.0, 0.0, 3.0, 0.05, 2,
-            help_text="Multiplies the fine-detail layer before recombining. "
-                      "Above 1 sharpens detail, below 1 softens it, 1 leaves "
-                      "it unchanged.",
+            help_text=param_help(
+                "Multiplies the fine-detail layer before recombining.",
+                higher="Above 1 sharpens detail (and noise); strong values look "
+                       "crunchy.",
+                lower="Below 1 softens detail; 1 leaves it unchanged.",
+            ),
         )
         self._fs_lf_smooth = fs.add_slider(
             "Smooth structure", 0.0, 0.0, 30.0, 1.0, 1,
