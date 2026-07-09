@@ -1621,8 +1621,12 @@ class ToolsPanel(QWidget):
         )
         self._scnr_amount = scnr.add_slider(
             "Amount", 0.5, 0.0, 1.0, 0.01, 2,
-            help_text="How much of the correction is applied. 0 leaves the "
-                      "image unchanged, 1 applies the full neutralization.",
+            help_text=param_help(
+                "How much of the green-cast removal is applied.",
+                higher="Toward 1 fully neutralizes the cast — can leave the "
+                       "image slightly magenta if overdone.",
+                lower="A partial correction; 0 leaves the image unchanged.",
+            ),
         )
         self._scnr_preview_check = scnr.add_check("Show before/after preview")
         self._scnr_amount.value_changed.connect(
@@ -1645,21 +1649,33 @@ class ToolsPanel(QWidget):
         )
         self._hue_slider        = ca.add_slider(
             "Hue shift",   0, -180, 180, 1, 0,
-            help_text="Rotates every color around the color wheel by this "
-                      "many degrees. 0 leaves hues unchanged.",
+            help_text=param_help(
+                "Rotates every color around the color wheel.",
+                higher="Shifts hues one way (e.g. red->orange->yellow); large "
+                       "shifts give unnatural color.",
+                lower="Shifts hues the other way; 0 leaves them unchanged.",
+            ),
         )
         self._sat_slider        = ca.add_slider(
             "Saturation",  0, -100, 100, 1, 0,
-            help_text="Overall color intensity. Negative washes colors toward "
-                      "gray, 0 is unchanged, positive intensifies colors.",
+            help_text=param_help(
+                "Overall color intensity.",
+                higher="Intensifies all colors — too much clips saturated star "
+                       "cores to solid hues.",
+                lower="Washes colors toward gray; 0 is unchanged.",
+            ),
         )
         # Vibrance is boost-only in the core (0-1); a negative range here was
         # an inert half of the slider.
         self._vibrance_slider   = ca.add_slider(
             "Vibrance",    0, 0, 100, 1, 0,
-            help_text="Boosts only the less-saturated colors, leaving "
-                      "already-vivid colors alone — a gentler way to add "
-                      "punch without oversaturating stars. 0 = no boost.",
+            help_text=param_help(
+                "Boosts only the less-saturated colors, leaving already-vivid "
+                "colors alone — punch without oversaturating stars.",
+                higher="Stronger boost of muted tones; very high can still start "
+                       "to look artificial.",
+                lower="A subtler lift; 0 = no boost.",
+            ),
         )
         ca.add_run("▶ Apply Color Adjust", self.run_color_adjust.emit)
         lay.addWidget(ca)
@@ -1690,14 +1706,19 @@ class ToolsPanel(QWidget):
         ]:
             self._satc_band_sliders[hue] = sat.add_slider(
                 band, 1.0, 0.0, 3.0, 0.05, 2,
-                help_text=f"Saturation multiplier for {band.lower()} tones. "
-                          f"{tip} 0 removes the color, 1 keeps it, "
-                          "3 triples it.",
+                help_text=param_help(
+                    f"Saturation multiplier for {band.lower()} tones. {tip}",
+                    higher="Above 1 intensifies this color (3 triples it).",
+                    lower="Below 1 mutes it; 0 removes the color, 1 keeps it.",
+                ),
             )
         self._satc_strength = sat.add_slider(
             "Master strength", 1.0, 0.0, 3.0, 0.05, 2,
-            help_text="Global multiplier applied on top of all the band "
-                      "sliders. 1.0 = use band values as-is.",
+            help_text=param_help(
+                "Global multiplier applied on top of all the band sliders.",
+                higher="Scales up every band's effect together.",
+                lower="Eases the overall effect; 1.0 = use band values as-is.",
+            ),
         )
         sat.add_run("▶ Apply Saturation", self.run_sat_chroma.emit)
         lay.addWidget(sat)
