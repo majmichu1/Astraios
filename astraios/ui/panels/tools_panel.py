@@ -1102,19 +1102,25 @@ class ToolsPanel(QWidget):
         aut.add_info("Statistical midtone stretch.")
         self._midtone_slider = aut.add_slider(
             "Midtone", 0.25, 0.01, 0.99, 0.01, 2, 0.25,
-            help_text="Target midtone brightness after the stretch. Higher "
-                      "pulls the midtones brighter, revealing more faint "
-                      "detail at the cost of a busier-looking image; lower "
-                      "keeps the image darker and more contrasty.",
+            help_text=param_help(
+                "Target midtone brightness after the stretch.",
+                higher="Pulls midtones brighter — reveals more faint detail, but "
+                       "flattens contrast and can look busy/noisy.",
+                lower="Keeps the image darker and more contrasty.",
+                default="0.25 is a good starting point for most deep-sky data.",
+            ),
         )
         self._midtone_slider.value_changed.connect(lambda _: self.stretch_params_changed.emit())
         self._shadow_spin = aut.add_spin(
             "Shadow clip", -10.0, 0.0, -2.8, 0.1, 1,
-            help_text="Where the black point is set, in noise-sigma below the "
-                      "background median. More negative sets black further "
-                      "below the sky, keeping more of the noise floor visible; "
-                      "less negative (closer to 0) clips more of the "
-                      "background to pure black.",
+            help_text=param_help(
+                "Where the black point sits, in noise-sigma below the background "
+                "median.",
+                higher="Closer to 0 clips more background to pure black — cleaner "
+                       "but can eat faint signal.",
+                lower="More negative keeps more of the noise floor visible.",
+                default="-2.8 is a safe default.",
+            ),
         )
         self._linked_check = aut.add_check(
             "Link RGB channels", True,
@@ -1143,17 +1149,22 @@ class ToolsPanel(QWidget):
         )
         self._statstretch_target = sst2.add_slider(
             "Target median", 0.25, 0.05, 0.6, 0.01, 2,
-            help_text="The background brightness wanted after stretching, as a "
-                      "fraction of full scale. Lower keeps the sky darker and "
-                      "more contrasty; higher lifts the background brighter, "
-                      "revealing more faint signal but looking flatter.",
+            help_text=param_help(
+                "How bright the background sky should end up, as a fraction of "
+                "full scale.",
+                higher="Lifts the background brighter — reveals more faint signal "
+                       "but looks flatter.",
+                lower="Keeps the sky darker and more contrasty.",
+            ),
         )
         self._statstretch_shadow = sst2.add_spin(
             "Shadow clip", -10.0, 0.0, -2.8, 0.1, 1,
-            help_text="Where the black point is set, in noise-sigma below the "
-                      "background median. More negative keeps more of the "
-                      "noise floor visible; less negative clips more of the "
-                      "background to pure black.",
+            help_text=param_help(
+                "Where the black point sits, in noise-sigma below the background "
+                "median.",
+                higher="Closer to 0 clips more background to pure black.",
+                lower="More negative keeps more of the noise floor visible.",
+            ),
         )
         self._statstretch_linked = sst2.add_check(
             "Link RGB channels", True,
@@ -1211,15 +1222,21 @@ class ToolsPanel(QWidget):
         )
         self._arcsinh_factor_spin = arc.add_spin(
             "Stretch factor β", 0.1, 1000.0, 10.0, 1.0, 1,
-            help_text="How aggressively mid-to-bright signal is compressed. "
-                      "Higher pulls up faint nebulosity more strongly but "
-                      "compresses bright stars and cores further toward white.",
+            help_text=param_help(
+                "How aggressively mid-to-bright signal is compressed.",
+                higher="Pulls up faint nebulosity more strongly, but compresses "
+                       "bright stars and cores further toward white.",
+                lower="A gentler stretch that protects star colour.",
+            ),
         )
         self._arcsinh_bp_spin = arc.add_spin(
             "Black point", 0.0, 0.5, 0.0, 0.001, 4,
-            help_text="Input level mapped to zero before stretching. Raise it "
-                      "slightly if the background floor isn't perfectly black, "
-                      "to remove residual skyglow before the stretch.",
+            help_text=param_help(
+                "Input level mapped to zero before stretching.",
+                higher="Raise slightly to subtract residual skyglow before the "
+                       "stretch — too high crushes faint signal.",
+                lower="0 keeps the full background; raise only if it isn't black.",
+            ),
         )
         self._arcsinh_linked_check = arc.add_check(
             "Linked RGB", True,
@@ -1261,15 +1278,20 @@ class ToolsPanel(QWidget):
         )
         self._star_stretch_amount = sst.add_slider(
             "Amount", 0.2, 0.0, 1.0, 0.05, 2,
-            help_text="Stretch strength. Higher lifts fainter stars more; "
-                      "internally this raises the arcsinh stretch factor from "
-                      "barely any lift toward a very strong pull.",
+            help_text=param_help(
+                "Stretch strength for the star layer.",
+                higher="Lifts fainter stars more (stronger arcsinh pull).",
+                lower="A subtle lift that keeps only the brighter stars.",
+            ),
         )
         self._star_stretch_color = sst.add_slider(
             "Colour boost", 1.0, 0.0, 3.0, 0.05, 2,
-            help_text="Saturation multiplier applied to the stars after "
-                      "stretching. 1.0 leaves color unchanged, higher enriches "
-                      "star color, lower desaturates. No effect on mono images.",
+            help_text=param_help(
+                "Saturation multiplier applied to stars after stretching (no "
+                "effect on mono).",
+                higher="Above 1 enriches star colour.",
+                lower="Below 1 desaturates; 1.0 leaves colour unchanged.",
+            ),
         )
         self._star_stretch_preview_check = sst.add_check("Show before/after preview")
         for _sl in (self._star_stretch_amount, self._star_stretch_color):
@@ -1296,32 +1318,47 @@ class ToolsPanel(QWidget):
         ghs.add_info("Advanced non-linear stretch.")
         self._ghs_d_spin  = ghs.add_spin(
             "Stretch (D)",   0.0, 20.0, 5.0, 0.5, 1,
-            help_text="Overall stretch intensity. 0 leaves the image "
-                      "unchanged; higher applies a stronger nonlinear stretch.",
+            help_text=param_help(
+                "Overall stretch intensity.",
+                higher="A stronger nonlinear stretch — more faint signal, more "
+                       "noise.",
+                lower="A gentler stretch; 0 leaves the image unchanged.",
+            ),
         )
         self._ghs_b_spin  = ghs.add_spin(
             "Asymmetry (b)", -5.0, 5.0, 0.0, 0.1, 1,
-            help_text="Shapes the stretch curve asymmetrically around the "
-                      "symmetry point: negative compresses highlights more, "
-                      "positive compresses shadows more, 0 is symmetric.",
+            help_text=param_help(
+                "Tilts the stretch curve around the symmetry point.",
+                higher="Positive compresses shadows more (protects highlights).",
+                lower="Negative compresses highlights more; 0 is symmetric.",
+            ),
         )
         self._ghs_sp_spin = ghs.add_spin(
             "Sym. point",    0.0,  1.0, 0.0, 0.05, 3,
-            help_text="The pivot brightness (0-1) the stretch is centered on. "
-                      "Set it to the background level to concentrate the "
-                      "stretch on the sky and fainter signal.",
+            help_text=param_help(
+                "The pivot brightness (0-1) the stretch is centered on.",
+                higher="Centers the stretch on brighter tones.",
+                lower="Set it to the background level to concentrate the stretch "
+                      "on the sky and faint signal.",
+            ),
         )
         self._ghs_shadow_slider    = ghs.add_slider(
             "Shadow prot.",    0.0, 0.0, 1.0, 0.01, 2,
-            help_text="Protects the darkest pixels from being stretched, "
-                      "reducing how much background noise gets amplified. "
-                      "0 = no protection, 1 = shadows barely move.",
+            help_text=param_help(
+                "Holds the darkest pixels back from the stretch.",
+                higher="Toward 1 the shadows barely move — less amplified "
+                       "background noise.",
+                lower="0 = no protection; the stretch hits shadows fully.",
+            ),
         )
         self._ghs_highlight_slider = ghs.add_slider(
             "Highlight prot.", 0.0, 0.0, 1.0, 0.01, 2,
-            help_text="Protects the brightest pixels (star cores) from being "
-                      "pushed further, reducing clipping to white. 0 = no "
-                      "protection, 1 = highlights barely move.",
+            help_text=param_help(
+                "Holds the brightest pixels (star cores) back from the stretch.",
+                higher="Toward 1 the highlights barely move — less clipping to "
+                       "white.",
+                lower="0 = no protection; bright cores get pushed too.",
+            ),
         )
         self._ghs_preview_check = ghs.add_check("Show before/after preview")
         for _ghs_spin in (self._ghs_d_spin, self._ghs_b_spin, self._ghs_sp_spin):
@@ -1359,21 +1396,30 @@ class ToolsPanel(QWidget):
         ht.add_info("Black point, midtone, and white point adjustment.")
         self._ht_black_spin  = ht.add_spin(
             "Black point", 0.0, 0.99, 0.0, 0.01, 3,
-            help_text="Input level mapped to pure black. Raise it to crush "
-                      "the background darker; anything below this clips to 0.",
+            help_text=param_help(
+                "Input level mapped to pure black.",
+                higher="Crushes the background darker — anything below it clips "
+                       "to 0, which can lose faint signal.",
+                lower="Keeps more shadow detail; 0 clips nothing.",
+            ),
         )
         self._ht_midtone_slider = ht.add_slider(
             "Midtone",  0.5, 0.01, 0.99, 0.01, 2, 0.5,
-            help_text="Brightness of the midtones. Higher brightens the "
-                      "middle of the tonal range without moving the black or "
-                      "white points.",
+            help_text=param_help(
+                "Brightness of the midtones, without moving black or white.",
+                higher="Brightens the middle of the tonal range (reveals faint "
+                       "detail).",
+                lower="Darkens midtones for more contrast.",
+            ),
         )
         self._ht_white_spin  = ht.add_spin(
             "White point", 0.01, 1.0, 1.0, 0.01, 3,
-            help_text="Input level mapped to pure white. Lower it to "
-                      "brighten highlights faster; anything above this clips "
-                      "to 1. Useful for a final contrast boost after "
-                      "stretching.",
+            help_text=param_help(
+                "Input level mapped to pure white.",
+                higher="1.0 clips nothing at the top.",
+                lower="Brightens highlights faster — anything above it clips to "
+                      "white; good for a final contrast boost.",
+            ),
         )
         self._ht_black_spin.valueChanged.connect(lambda _: self._emit_clip_points())
         self._ht_white_spin.valueChanged.connect(lambda _: self._emit_clip_points())
