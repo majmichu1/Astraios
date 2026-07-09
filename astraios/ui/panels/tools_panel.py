@@ -558,23 +558,31 @@ class ToolsPanel(QWidget):
         )
         self._star_sens_spin = reg.add_slider(
             "Star sensitivity", 5.0, 1.0, 20.0, 0.5, 1,
-            help_text="How faint a star can be and still be used for alignment. "
-                      "Higher finds more, fainter stars, useful on sparse "
-                      "fields; lower keeps only the brightest, most reliable "
-                      "stars, useful on noisy or trailed frames.",
+            help_text=param_help(
+                "How faint a star can be and still be used for alignment.",
+                higher="Finds more, fainter stars — good on sparse fields, but "
+                       "may pick up noise as false stars.",
+                lower="Keeps only the brightest, most reliable stars — good on "
+                      "noisy or trailed frames.",
+            ),
         )
         self._max_shift_spin = reg.add_spin(
             "Max distance (px)", 10, 500, 50, 10,
-            help_text="A star match is discarded if it implies a shift larger "
-                      "than this many pixels. Raise it if the mount drifted a "
-                      "lot between subs; lower it to reject bad matches faster.",
+            help_text=param_help(
+                "A star match is rejected if it implies a shift larger than this.",
+                higher="Tolerates big frame-to-frame drift, but lets more bad "
+                       "matches through.",
+                lower="Rejects bad matches faster; too low drops real drift.",
+            ),
         )
         self._ransac_thresh_spin = reg.add_spin(
             "RANSAC threshold", 1.0, 10.0, 3.0, 0.5, 1,
-            help_text="How far a star position may deviate from the fitted "
-                      "alignment model and still count as a good match, in "
-                      "pixels. Lower is stricter; higher tolerates noisier star "
-                      "detections.",
+            help_text=param_help(
+                "How far a star may deviate from the fitted alignment model and "
+                "still count as a match (px).",
+                higher="More tolerant of noisy star detections.",
+                lower="Stricter — demands a tighter fit.",
+            ),
         )
         self._ref_frame_combo = reg.add_combo(
             "Reference frame",
@@ -653,11 +661,15 @@ class ToolsPanel(QWidget):
         )
         self._kappa_spin = integ.add_slider(
             "Kappa (σ)", 3.0, 0.5, 10.0, 0.1, 1,
-            help_text="The sigma multiplier used for rejection: how many "
-                      "noise-sigmas a pixel must deviate from the average before "
-                      "it is thrown out. Lower rejects more aggressively (risks "
-                      "removing real faint signal); higher keeps more data but "
-                      "lets more trails and artifacts slip through.",
+            help_text=param_help(
+                "How many noise-sigmas a pixel must deviate from the average "
+                "before rejection.",
+                higher="Keeps more data, but lets more trails/artifacts slip "
+                       "through.",
+                lower="Rejects more aggressively — cleaner, but risks removing "
+                      "real faint signal.",
+                default="3 is the standard value.",
+            ),
         )
         integ.add_run("▶ Stack Images", self.run_stacking.emit)
         lay.addWidget(integ)
@@ -676,16 +688,21 @@ class ToolsPanel(QWidget):
         mfd.add_info("Joint Richardson-Lucy deconvolution across all aligned frames.")
         self._mfd_iterations_spin = mfd.add_spin(
             "Iterations", 1, 200, 20, 1,
-            help_text="Maximum number of joint Richardson-Lucy iterations to "
-                      "run. More iterations sharpen further but risk ringing "
-                      "and take longer; Early stop below usually cuts this "
-                      "short automatically.",
+            help_text=param_help(
+                "Maximum joint Richardson-Lucy iterations.",
+                higher="Sharpens further, but risks ringing and takes longer.",
+                lower="Gentler and faster; Early stop usually cuts this short "
+                      "anyway.",
+            ),
         )
         self._mfd_min_iterations_spin = mfd.add_spin(
             "Min iterations", 1, 50, 3, 1,
-            help_text="Minimum iterations to run before Early stop is allowed "
-                      "to trigger, so the solve doesn't quit before it has "
-                      "made meaningful progress.",
+            help_text=param_help(
+                "Iterations to run before Early stop may trigger.",
+                higher="Guarantees more work before quitting — safer against "
+                       "stopping too early.",
+                lower="Lets the solve finish sooner once it plateaus.",
+            ),
         )
         self._mfd_rho_combo = mfd.add_combo(
             "Residual loss", ["Huber (robust)", "L2 (classic)"],
@@ -716,18 +733,21 @@ class ToolsPanel(QWidget):
         )
         self._mfd_kappa_spin = mfd.add_slider(
             "Kappa", 2.0, 1.0, 10.0, 0.1, 1,
-            help_text="Clamps the per-pixel multiplicative update each "
-                      "iteration to [1/kappa, kappa], limiting overshoot and "
-                      "ringing. Lower is more conservative; higher lets the "
-                      "solve move faster per iteration.",
+            help_text=param_help(
+                "Clamps each iteration's per-pixel update to [1/kappa, kappa].",
+                higher="Lets the solve move faster per iteration — more prone to "
+                       "overshoot/ringing.",
+                lower="More conservative and stable.",
+            ),
         )
         self._mfd_relaxation_spin = mfd.add_slider(
             "Relaxation", 0.7, 0.1, 1.0, 0.05, 2,
-            help_text="Damping factor blending each iteration's raw update "
-                      "into the estimate. 1.0 takes the full step every "
-                      "iteration (fastest, more prone to ringing); lower "
-                      "values damp the update for a smoother, more stable "
-                      "convergence.",
+            help_text=param_help(
+                "Damping factor blending each iteration's raw update in.",
+                higher="Toward 1.0 takes the full step each iteration — fastest, "
+                       "more prone to ringing.",
+                lower="Damps the update for smoother, more stable convergence.",
+            ),
         )
         self._mfd_early_stop_check = mfd.add_check(
             "Early stop", True,
@@ -776,11 +796,14 @@ class ToolsPanel(QWidget):
         )
         self._drizzle_drop_spin = drz.add_slider(
             "Drop shrink", 0.7, 0.5, 1.0, 0.05, 2,
-            help_text="Fraction of each input pixel's footprint (\"pixfrac\") "
-                      "dropped onto the output grid. Smaller sharpens detail "
-                      "further but needs more, well-dithered frames to avoid "
-                      "gaps; values near 1.0 behave like a normal resample and "
-                      "are safer with limited dithering.",
+            help_text=param_help(
+                "Fraction of each input pixel's footprint (\"pixfrac\") dropped "
+                "onto the output grid.",
+                higher="Near 1.0 behaves like a normal resample — safer with "
+                       "limited dithering.",
+                lower="Sharpens detail further, but needs more well-dithered "
+                      "frames to avoid gaps.",
+            ),
         )
         lay.addWidget(drz)
 
