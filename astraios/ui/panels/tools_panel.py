@@ -475,9 +475,14 @@ class ToolsPanel(QWidget):
         )
         self._ped_amount = ped.add_spin(
             "Amount", 0.0, 0.5, 0.0, 0.001, 4,
-            help_text="Offset to add, in the 0-1 image scale. Typical "
-                      "values are 0.001 to 0.01. In Remove mode, leave at 0 "
-                      "to auto-detect the offset from the darkest pixels.",
+            help_text=param_help(
+                "The constant offset to add or remove, on the 0-1 image scale.",
+                higher="Lifts the whole image brighter (Add) or subtracts more "
+                       "(Remove) — too much crushes shadow detail or clips black.",
+                lower="A gentler shift; 0 in Remove mode auto-detects the offset "
+                      "from the darkest pixels.",
+                default="Typical values are 0.001 to 0.01.",
+            ),
         )
         self._ped_per_channel = ped.add_check(
             "Per channel", True,
@@ -1979,23 +1984,38 @@ class ToolsPanel(QWidget):
         )
         self._deconv_psf_spin   = dec.add_spin(
             "PSF FWHM (px)", 0.5, 20.0, 3.0, 0.1, 1,
-            help_text="How wide a typical star's blur is, in pixels (full "
-                      "width at half maximum). Use Measure PSF for an accurate "
-                      "value instead of guessing — a wrong FWHM gives poor "
-                      "sharpening or ringing.",
+            help_text=param_help(
+                "How wide a typical star's blur is, in pixels (full width at "
+                "half maximum) — the blur the tool tries to reverse.",
+                how="Deconvolution assumes every point of light was smeared to "
+                    "this width; set it to match your actual stars.",
+                higher="Assumes more blur — over-sharpens and rings if it "
+                       "exceeds the true star width.",
+                lower="Assumes less blur — a weaker, safer sharpen; too low "
+                      "barely does anything.",
+                default="Use Measure PSF for an accurate value instead of "
+                        "guessing; a wrong FWHM gives poor sharpening or ringing.",
+            ),
         )
         self._deconv_iter       = dec.add_slider(
             "Iterations", 30, 1, 200, 1, 0,
-            help_text="Number of refinement passes. More sharpens further but "
-                      "amplifies noise and ringing faster than it reveals real "
-                      "detail; watch the preview and stop once artifacts "
-                      "appear.",
+            help_text=param_help(
+                "Number of refinement passes the algorithm makes.",
+                higher="Sharpens further, but amplifies noise and ringing "
+                       "faster than it reveals real detail.",
+                lower="A gentler, cleaner result that leaves some blur in.",
+                default="Watch the preview and stop once artifacts appear; "
+                        "30-50 suits most data.",
+            ),
         )
         self._deconv_reg        = dec.add_spin(
             "Regularization", 0.0, 0.1, 0.001, 0.001, 4,
-            help_text="Smoothing applied between iterations to suppress noise "
-                      "amplification. 0 disables it (sharper but noisier); "
-                      "higher keeps the result cleaner but softer.",
+            help_text=param_help(
+                "Smoothing applied between iterations to hold noise back.",
+                higher="Keeps the result cleaner but softer.",
+                lower="Sharper but noisier; 0 disables it entirely.",
+                default="A small value like 0.001 balances the two.",
+            ),
         )
         self._deconv_deringing  = dec.add_check(
             "Deringing protection", True,
@@ -2005,9 +2025,13 @@ class ToolsPanel(QWidget):
         )
         self._deconv_dering_amt = dec.add_slider(
             "Deringing amount", 0.5, 0.0, 1.0, 0.05, 2,
-            help_text="Strength of the deringing protection. Higher protects "
-                      "star cores more but can leave them slightly softer than "
-                      "the rest of the image.",
+            help_text=param_help(
+                "How strongly star cores are protected from ringing.",
+                higher="Protects star cores more, but leaves them slightly "
+                       "softer than the rest of the image.",
+                lower="Sharpens stars harder, at the risk of dark/bright halos "
+                      "around the brightest ones.",
+            ),
         )
         btns = dec.add_btn_row([("Measure PSF", True), ("Star Mask", True)])
         btns[0].clicked.connect(self.measure_psf.emit)
@@ -2062,10 +2086,15 @@ class ToolsPanel(QWidget):
         psf.add_widget(grid_w)
         self._psf_cutout_spin = psf.add_spin(
             "Cutout radius", 6, 32, 12,
-            help_text="Half-size, in pixels, of the box cropped around each "
-                      "star for the Gaussian fit. Increase for large, bloated "
-                      "stars; too large can pull in neighboring stars and "
-                      "skew the fit.",
+            help_text=param_help(
+                "Half-size, in pixels, of the box cropped around each star for "
+                "the Gaussian fit.",
+                higher="Fits large, bloated stars fully — but too large pulls "
+                       "in neighboring stars and skews the fit.",
+                lower="Tighter boxes isolate stars in crowded fields, but clip "
+                      "the wings of big stars.",
+                default="12 suits typical star sizes.",
+            ),
         )
         self._psf_force_cpu   = psf.add_check(
             "Force CPU (for parallel use)",
@@ -2098,20 +2127,31 @@ class ToolsPanel(QWidget):
         )
         self._denoise_amount     = dnz.add_slider(
             "Amount",     0.5, 0.0, 1.0, 0.05, 2,
-            help_text="Overall denoise strength. Higher removes more noise "
-                      "but risks smoothing away faint real detail.",
+            help_text=param_help(
+                "Overall denoise strength.",
+                higher="Removes more noise, but risks smoothing away faint real "
+                       "detail and softening stars.",
+                lower="A lighter touch that keeps detail but leaves more grain.",
+            ),
         )
         self._denoise_lum        = dnz.add_slider(
             "Luminance",  0.7, 0.0, 1.0, 0.05, 2,
-            help_text="How much of the original detail is blended back in. "
-                      "Higher preserves more fine detail (lighter denoising); "
-                      "lower gives a stronger, smoother result.",
+            help_text=param_help(
+                "How much original brightness detail is blended back in after "
+                "denoising.",
+                higher="Preserves more fine detail — lighter effective denoising.",
+                lower="A stronger, smoother result that can look plasticky.",
+            ),
         )
         self._denoise_chrom      = dnz.add_slider(
             "Chrominance",0.5, 0.0, 1.0, 0.05, 2,
-            help_text="Above the halfway point, only color noise is removed "
-                      "and luminance detail is left untouched; below halfway, "
-                      "luminance and color noise are both reduced together.",
+            help_text=param_help(
+                "Balance between removing color noise and luminance noise.",
+                higher="Above halfway, only color (chroma) noise is removed and "
+                       "brightness detail is left untouched — safest for detail.",
+                lower="Below halfway, brightness and color noise are reduced "
+                      "together, which can soften fine structure.",
+            ),
         )
         _auto_btn = dnz.add_btn_row([("🎯 Auto (measure noise)", False)])[0]
         _auto_btn.clicked.connect(self.request_auto_denoise.emit)
