@@ -64,6 +64,18 @@ Where Astraios actually stands apart: everything runs on the GPU, the GPU instal
 - **Dither Analysis** -- Measure dither spread, coverage, nearest-neighbour spacing, and walking-noise across a registered frame set
 - **Pedestal** -- Add or remove a constant offset (per channel or global) around operations that dislike negative pixels
 
+### Planetary and Solar
+- **SER Viewer** -- Scrub and play SER planetary videos frame by frame with per-frame stats, and send any frame to the canvas
+- **Planetary De-rotation** -- Undo a planet's rotation across a capture by reprojecting each frame through a body-frame longitude/latitude grid before stacking
+- **Planet Projection** -- Reproject a planetary disc to an equirectangular longitude/latitude map or a re-oriented orthographic view, with automatic disc detection
+
+### Science and Analysis
+- **Exoplanet Transit Detector** -- Aperture photometry across a registered frame set with comparison stars and detrending, producing a light curve and transit verdict
+- **Transient Hunter** -- Difference a new frame against a reference of the same field and classify candidates as new (supernova), vanished, or moved (asteroid, with motion vector)
+- **Measure Magnitudes** -- Aperture photometry table with instrumental and calibrated magnitudes, zero point, and limiting magnitude, exportable as CSV
+- **SNR Measurement** -- Signal-to-noise readout, overall and per channel, from selected background/signal regions or robust global statistics
+- **Alt/Az Field Rotation** -- Field-rotation rate and total rotation over an exposure for alt-az mounts, plus parallactic angle
+
 ### AI and Advanced Denoising
 Models download on first use; nothing runs in the cloud.
 
@@ -91,6 +103,7 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 ### Color and Calibration
 - **Photometric Color Calibration (PCC)** -- Plate solve then match against Gaia DR3
 - **SPCC** -- Spectrophotometric calibration with filter response curves
+- **SFCC** -- Spectral flux color calibration: physically integrates filter transmission x sensor QE x stellar flux to derive per-channel scales; ships with representative curves and imports your own vendor CSV data
 - **Background Extraction** -- Polynomial surface fitting, ABE (RBF-based), and DBE with per-pixel rejection
 - **Background Neutralization** -- Robust color balancing from background samples
 - **Color Calibration** -- Statistical and catalog-based correction
@@ -108,6 +121,8 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 
 ### Narrowband and Composition
 - **Narrowband Combine** -- HOO, SHO, and custom palette mappings
+- **Perfect Palette Picker** -- Blend Ha/OIII/SII into 12 named false-color palettes (all SHO-family permutations plus Realistic 1/2 and Foraxx) or a free custom weight matrix, GPU-accelerated
+- **Add Stars** -- Screen or additive recombine of an extracted star layer onto a starless image, with blend amount and mask support
 - **LRGB Combine** -- Luminance-weighted RGB merging
 - **Channel Combine** -- Custom channel mapping dialog
 - **Continuum Subtraction** -- Remove broadband contamination from narrowband filters
@@ -139,6 +154,10 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **WCS Overlay** -- Catalog star positions drawn on the image
 - **DSO Annotation** -- Automatic deep-sky object labels from solved coordinates
 - **Constellation Overlay** -- Constellation lines rendered from WCS solution
+- **Finder Chart** -- Annotated chart over a plate-solved image: compass, scale bar, field marker, grid, catalog markers, and an imaging-train field-of-view box for mosaic planning
+- **What's In My Image** -- Identify every catalog object in a plate-solved field as a clickable table with pixel positions, and render the labels onto the image
+- **What's In My Sky** -- Tonight's observing planner: transit time, maximum altitude, and hours visible for every catalog object from your location and date, with sun/moon rise-set and moon phase, fully offline
+- **Minor Body Catalog** -- Asteroid and comet positions computed locally from downloadable orbital elements (Kepler propagation, no live network queries)
 
 ### Effects and Finishing
 - **Layers** -- Photoshop-style layer stack with 18 blend modes, per-layer opacity, visibility, and masks, with a live composite preview and flatten
@@ -150,7 +169,7 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 ### Workflow and UI
 - **Modern Dark Theme** -- Clean dark interface, designed for long nights
 - **Processing History** -- Non-destructive, replayable history that records every operation; view, toggle, reorder, re-edit, and export as a macro
-- **Hover Help** -- Every tool and setting carries a plain-language explanation on hover, so full power stays approachable
+- **Hover Help** -- Every tool and setting carries a plain-language explanation on hover; sliders additionally teach what turning them up or down actually does, so full power stays approachable without trial and error
 - **EZ Script Suite** -- One-click processing presets (OSC Quick Processing, Narrowband, Deep Sky Minimal, Luminance, Full Processing with ABE, Starless Processing)
 - **4-Panel Layout** -- Project tree / Canvas + Histogram / Tools / Log
 - **Split Before/After Preview** -- Draggable divider with live preview on every tool
@@ -159,6 +178,11 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 - **Macro Recorder** -- Record and playback processing steps
 - **Python Console** -- Embedded scripting dock with live image access
 - **Batch Processing** -- Unattended folder processing
+- **Image Peeker** -- Cull a night's subs fast: auto-stretched thumbnails with per-frame stats (median, FWHM, eccentricity, star count) in a sortable grid
+- **Batch Convert** -- Convert whole file sets between FITS, TIFF, PNG, JPEG, and XISF with bit-depth options
+- **Batch Rename** -- Template renaming from FITS header tokens ({OBJECT}, {FILTER}, counters, filters) with a live dry-run preview
+- **AstroBin Exporter** -- Group your light frames by night, filter, and exposure into the CSV AstroBin's acquisition importer expects
+- **Export Curves (.acv)** -- Save the curve editor's points as a Photoshop-compatible .acv file
 - **Equipment Profiles** -- Camera, telescope, and filter metadata for plate-scale calculations
 - **ICC Color Management** -- Display profile-aware color rendering
 - **Undo / Redo** -- Full history stack with display-reference matching
