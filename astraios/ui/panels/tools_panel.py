@@ -1642,8 +1642,12 @@ class ToolsPanel(QWidget):
         )
         self._resize_scale_spin = rsz.add_spin(
             "Scale", 0.1, 10.0, 1.0, 0.1, 2,
-            help_text="Multiplier applied to both width and height. Below 1 "
-                      "shrinks the image; above 1 enlarges it.",
+            help_text=param_help(
+                "Multiplier applied to both width and height.",
+                higher="Above 1 enlarges the image — but can't invent real "
+                       "detail, so it just gets softer.",
+                lower="Below 1 shrinks it (useful for sharing); 1.0 = no change.",
+            ),
         )
         self._resize_interp_combo = rsz.add_combo(
             "Interpolation", ["Lanczos", "Bicubic", "Bilinear", "Nearest"],
@@ -2701,27 +2705,43 @@ class ToolsPanel(QWidget):
         )
         self._txc_texture_amount = txc.add_slider(
             "Texture", 0.0, -1.0, 1.0, 0.01, 2,
-            help_text="Fine-detail strength. Positive crispens surface "
-                      "texture; negative gives a silky smoothing.",
+            help_text=param_help(
+                "Fine surface-detail strength.",
+                higher="Positive crispens fine texture.",
+                lower="Negative gives a silky smoothing; 0 is off.",
+            ),
         )
         self._txc_texture_radius = txc.add_slider(
             "Texture radius", 1.0, 0.1, 10.0, 0.1, 1,
-            help_text="Size of the detail treated as texture, in pixels.",
+            help_text=param_help(
+                "Size of the detail treated as texture, in pixels.",
+                higher="Treats coarser detail as texture.",
+                lower="Confines the effect to the very finest detail.",
+            ),
         )
         self._txc_clarity_amount = txc.add_slider(
             "Clarity", 0.0, -1.0, 1.0, 0.01, 2,
-            help_text="Local contrast strength at a larger scale. Positive "
-                      "adds punch; negative gives a soft, dreamy look.",
+            help_text=param_help(
+                "Local contrast at a larger scale.",
+                higher="Positive adds midtone punch.",
+                lower="Negative gives a soft, dreamy look; 0 is off.",
+            ),
         )
         self._txc_clarity_radius = txc.add_slider(
             "Clarity radius", 3.0, 0.1, 10.0, 0.1, 1,
-            help_text="Size of the local contrast neighborhood, in pixels.",
+            help_text=param_help(
+                "Size of the local-contrast neighborhood, in pixels.",
+                higher="Broader, gentler contrast shaping.",
+                lower="Tighter, more local punch.",
+            ),
         )
         self._txc_mask_strength = txc.add_slider(
             "Midtone protection", 1.0, 0.0, 1.0, 0.05, 2,
-            help_text="1 = classic behavior (effect confined to midtones, "
-                      "shadows and highlights protected). 0 = apply "
-                      "everywhere.",
+            help_text=param_help(
+                "Confines the effect to midtones, sparing shadows/highlights.",
+                higher="1 = classic behaviour: star cores and shadows protected.",
+                lower="0 = apply everywhere, including bright/dark extremes.",
+            ),
         )
         txc.add_run("▶ Apply Texture and Clarity", self.run_texture_clarity.emit)
         lay.addWidget(txc)
@@ -2743,16 +2763,20 @@ class ToolsPanel(QWidget):
         )
         self._blemish_feather = blm.add_slider(
             "Feather", 0.5, 0.0, 1.0, 0.05, 2,
-            help_text="Edge softness. 0 = hard-edged disc; 1 = the "
-                      "correction fades in smoothly all the way from the "
-                      "brush edge to its center.",
+            help_text=param_help(
+                "Edge softness of the healing brush.",
+                higher="Toward 1 the correction fades in smoothly from edge to "
+                       "center — blends invisibly.",
+                lower="0 = hard-edged disc, which can leave a visible rim.",
+            ),
         )
         self._blemish_opacity = blm.add_slider(
             "Opacity", 1.0, 0.0, 1.0, 0.05, 2,
-            help_text="Blend strength of the healed value over the "
-                      "original. 1.0 fully replaces; lower values "
-                      "partially blend the healed patch back with the "
-                      "original pixels.",
+            help_text=param_help(
+                "Blend strength of the healed patch over the original.",
+                higher="1.0 fully replaces the blemish.",
+                lower="Partially blends the heal with the original pixels.",
+            ),
         )
         self._blemish_toggle_btn = RunBtn("Heal on click", flat=True)
         self._blemish_toggle_btn.setCheckable(True)
@@ -2788,18 +2812,27 @@ class ToolsPanel(QWidget):
         )
         self._fx_blur_radius = fx.add_slider(
             "Glow radius", 15.0, 1.0, 100.0, 1.0, 0,
-            help_text="Size of the glow/blur in pixels. Bigger = softer, "
-                      "dreamier halo.",
+            help_text=param_help(
+                "Size of the glow/blur, in pixels.",
+                higher="A softer, dreamier, wider halo.",
+                lower="A tight glow close to bright features.",
+            ),
         )
         self._fx_opacity = fx.add_slider(
             "Opacity", 0.5, 0.0, 1.0, 0.01, 2,
-            help_text="How strongly the effect is mixed into the image. "
-                      "0 = off, 1 = full effect.",
+            help_text=param_help(
+                "How strongly the effect is mixed into the image.",
+                higher="Toward 1 = full effect.",
+                lower="Toward 0 = barely there / off.",
+            ),
         )
         self._fx_glow_brightness = fx.add_slider(
             "Glow brightness", 1.4, 0.5, 3.0, 0.05, 2,
-            help_text="Brightens the glow layer before blending. Higher = "
-                      "more luminous glow.",
+            help_text=param_help(
+                "Brightens the glow layer before blending.",
+                higher="A more luminous, blooming glow.",
+                lower="A subtler glow.",
+            ),
         )
         # In a hideable container so the label disappears with the combo
         # when another effect is selected.
@@ -2813,46 +2846,75 @@ class ToolsPanel(QWidget):
         fx.add_widget(self._fx_blend_row)
         self._fx_highlight_protect = fx.add_slider(
             "Highlight protect", 0.5, 0.0, 1.0, 0.01, 2,
-            help_text="Fades the glow near already-bright areas so star "
-                      "cores and galaxy cores don't blow out.",
+            help_text=param_help(
+                "Fades the glow near already-bright areas.",
+                higher="Protects star and galaxy cores more from blowing out.",
+                lower="Lets the glow build over highlights too.",
+            ),
         )
         self._fx_luma_recovery = fx.add_slider(
             "Luma recovery", 0.7, 0.0, 1.0, 0.01, 2,
-            help_text="Pulls overall brightness back toward the original "
-                      "after a Screen blend, preventing a washed-out look.",
+            help_text=param_help(
+                "Pulls brightness back toward the original after a Screen blend.",
+                higher="Prevents a washed-out look — keeps original contrast.",
+                lower="Lets the effect lift overall brightness more.",
+            ),
         )
         self._fx_bloom_threshold = fx.add_slider(
             "Bloom threshold", 0.7, 0.0, 1.0, 0.01, 2,
-            help_text="Only pixels brighter than this get the bloom glow. "
-                      "Lower = more of the image blooms.",
+            help_text=param_help(
+                "Only pixels brighter than this get the bloom glow.",
+                higher="Restricts bloom to the very brightest cores.",
+                lower="More of the image blooms.",
+            ),
         )
         self._fx_bloom_brightness = fx.add_slider(
             "Bloom brightness", 1.5, 0.5, 3.0, 0.05, 2,
-            help_text="Brightness boost of the isolated highlights before "
-                      "they are blended back.",
+            help_text=param_help(
+                "Brightness boost of the isolated highlights before blending back.",
+                higher="A stronger, brighter bloom.",
+                lower="A gentle halo.",
+            ),
         )
         self._fx_vignette_amount = fx.add_slider(
             "Vignette amount", 0.4, 0.0, 1.0, 0.01, 2,
-            help_text="How dark the corners get. 0 = none, 1 = black "
-                      "corners.",
+            help_text=param_help(
+                "How dark the corners get.",
+                higher="Toward 1 = near-black corners.",
+                lower="Toward 0 = no darkening.",
+            ),
         )
         self._fx_vignette_radius = fx.add_slider(
             "Vignette radius", 0.7, 0.1, 1.5, 0.01, 2,
-            help_text="Distance from center where darkening starts. Smaller "
-                      "= vignette reaches further into the frame.",
+            help_text=param_help(
+                "Distance from center where the darkening starts.",
+                higher="Keeps the darkening out near the corners.",
+                lower="The vignette reaches further into the frame.",
+            ),
         )
         self._fx_vignette_softness = fx.add_slider(
             "Vignette softness", 0.5, 0.05, 1.0, 0.01, 2,
-            help_text="Softness of the transition into the dark corners.",
+            help_text=param_help(
+                "Softness of the transition into the dark corners.",
+                higher="A gradual, feathered falloff.",
+                lower="A harder, more defined edge.",
+            ),
         )
         self._fx_grain_intensity = fx.add_slider(
             "Grain intensity", 0.1, 0.0, 1.0, 0.01, 2,
-            help_text="Strength of the film grain texture.",
+            help_text=param_help(
+                "Strength of the film-grain texture.",
+                higher="Heavier, more visible grain.",
+                lower="A faint texture; 0 = none.",
+            ),
         )
         self._fx_grain_size = fx.add_slider(
             "Grain size", 1.0, 0.0, 8.0, 0.5, 1,
-            help_text="Clump size of the grain. 0 is the finest grain; "
-                      "higher values look like faster, chunkier film stock.",
+            help_text=param_help(
+                "Clump size of the grain.",
+                higher="Chunkier grain, like faster film stock.",
+                lower="0 is the finest grain.",
+            ),
         )
         self._fx_grain_mono = fx.add_check(
             "Monochrome grain", True,
@@ -2871,12 +2933,19 @@ class ToolsPanel(QWidget):
         )
         self._fx_tone_balance = fx.add_slider(
             "Tone balance", 0.0, -1.0, 1.0, 0.01, 2,
-            help_text="Shifts the split point: negative tints more of the "
-                      "image as shadows, positive as highlights.",
+            help_text=param_help(
+                "Shifts the split point between shadow and highlight tint.",
+                higher="Positive tints more of the image as highlights.",
+                lower="Negative tints more of the image as shadows.",
+            ),
         )
         self._fx_tone_strength = fx.add_slider(
             "Tone strength", 0.3, 0.0, 1.0, 0.01, 2,
-            help_text="Overall strength of the split-tone tint.",
+            help_text=param_help(
+                "Overall strength of the split-tone tint.",
+                higher="A bolder, more saturated colour grade.",
+                lower="A subtle tint; 0 = off.",
+            ),
         )
         fx.add_run("▶ Apply FX", self.run_fx.emit)
         lay.addWidget(fx)
