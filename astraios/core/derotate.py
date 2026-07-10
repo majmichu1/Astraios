@@ -68,6 +68,16 @@ _TORCH_INTERP = {
     "cubic": "bicubic",
 }
 
+# Idle-GPU benchmark (RTX 5060, 2026-07-10, 4096x4096 remap, end-to-end
+# including transfers): cv2.remap 23 ms vs torch.grid_sample 70 ms with the
+# flow grid built per call (this module's pattern) and still 32 ms with the
+# grid pre-resident on device — cv2's SIMD remap simply wins this workload,
+# and real planetary frames are far smaller than 4K anyway. CPU is therefore
+# the primary path; the GPU branch is kept behind an out-of-reach threshold
+# (same pattern as astraios.core.diffraction_spikes) so future hardware can
+# re-enable it by lowering one constant.
+GPU_PIXEL_THRESHOLD = 10_000_000_000
+
 
 @dataclass
 class DerotateParams:
@@ -312,7 +322,7 @@ def _derotate_one(
     )
 
     dm = get_device_manager()
-    if dm.is_gpu:
+    if dm.is_gpu and frame.shape[-2] * frame.shape[-1] >= GPU_PIXEL_THRESHOLD:
         try:
             return _remap_gpu(
                 frame, map_x, map_y, valid,

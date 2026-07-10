@@ -67,6 +67,7 @@ import numpy as np
 import torch
 import torch.nn.functional as functional
 
+from astraios.core.derotate import GPU_PIXEL_THRESHOLD
 from astraios.core.device_manager import get_device_manager
 from astraios.core.masks import Mask
 
@@ -353,7 +354,10 @@ def project_planet(
 
     dm = get_device_manager()
     out_hwc = None
-    if dm.is_gpu:
+    # cv2.remap wins this workload at every realistic size (see
+    # derotate.GPU_PIXEL_THRESHOLD for the idle-GPU benchmark numbers), so
+    # CPU is the primary path and GPU only engages beyond the threshold.
+    if dm.is_gpu and map_x.size >= GPU_PIXEL_THRESHOLD:
         try:
             out_hwc = _remap_gpu(
                 hwc, map_x, map_y, vis,

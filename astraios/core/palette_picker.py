@@ -170,13 +170,15 @@ _LINEAR_MATRICES: dict[Palette, np.ndarray] = {
 
 _NONLINEAR_PALETTES = frozenset({Palette.REALISTIC_1, Palette.REALISTIC_2, Palette.FORAXX})
 
-# GPU transfer overhead outweighs this module's few elementwise ops even at
-# large frame sizes (benchmarked: CPU faster at 3x4000x4000; see
-# scratchpad benchmark run for this port). Kept as a named threshold, gated
-# very high like astraios.core.diffraction_spikes.GPU_PIXEL_THRESHOLD, so a
-# future benchmark on bigger/rarer hardware can re-enable it by lowering
-# this constant rather than changing call sites.
-GPU_PIXEL_THRESHOLD = 10_000_000_000
+# Re-benchmarked on a genuinely idle RTX 5060 (2026-07-10): the original
+# port's GPU branch showed no win because it only ran the channel mix on
+# device and did nan_to_num/clip/normalize back on the CPU — at 4096x4096
+# that CPU tail dominated (GPU-current 960 ms vs CPU 946 ms). With the whole
+# pipeline fused on device (one H2D per channel, one D2H at the end) the GPU
+# wins decisively: SHO 134 ms vs 946 ms CPU (7.1x), Foraxx 130 ms vs
+# 1452 ms (11.1x), outputs identical to 1.2e-7. Below ~2Kx2K both paths run
+# in tens of ms and transfer overhead erodes the win, so gate on ~4 MP.
+GPU_PIXEL_THRESHOLD = 4_000_000
 
 
 @dataclass
@@ -253,6 +255,56 @@ def _stretch_channel(channel: np.ndarray, target_median: float) -> np.ndarray:
 def _linear_mix_gpu(stack_t: torch.Tensor, matrix: np.ndarray, dm) -> torch.Tensor:
     matrix_t = torch.from_numpy(np.ascontiguousarray(matrix, dtype=np.float32)).to(dm.device)
     return torch.einsum("ci,ihw->chw", matrix_t, stack_t)
+
+
+@torch.no_grad()
+def _build_rgb_gpu(
+    ha_arr: np.ndarray,
+    oo: np.ndarray,
+    si_arr: np.ndarray,
+    stars_rgb: np.ndarray | None,
+    params: "PalettePickerParams",
+    dm,
+) -> np.ndarray:
+    """Fully device-resident palette build: mix + sanitize + normalize +
+    star blend all run on the GPU with a single download at the end.
+
+    Splitting this pipeline (mix on GPU, post-processing on CPU) erases the
+    GPU win entirely — see the threshold comment above for the numbers.
+    """
+    ha_t = dm.from_numpy(np.ascontiguousarray(ha_arr))
+    oo_t = dm.from_numpy(np.ascontiguousarray(oo))
+    si_t = dm.from_numpy(np.ascontiguousarray(si_arr))
+
+    if params.palette in _NONLINEAR_PALETTES:
+        fn_gpu = {
+            Palette.REALISTIC_1: _realistic_1_gpu,
+            Palette.REALISTIC_2: _realistic_2_gpu,
+            Palette.FORAXX: _foraxx_gpu,
+        }[params.palette]
+        rgb_t = fn_gpu(ha_t, oo_t, si_t)
+    else:
+        matrix = (
+            params.custom_weights
+            if params.palette == Palette.CUSTOM
+            else _LINEAR_MATRICES[params.palette]
+        )
+        stack_t = torch.stack([ha_t, oo_t, si_t], dim=0)  # [Ha, OIII, SII]
+        rgb_t = _linear_mix_gpu(stack_t, matrix, dm)
+
+    rgb_t = torch.nan_to_num(rgb_t).clamp_(0.0, 1.0)
+
+    if params.normalize:
+        mx = torch.clamp(rgb_t.max(), min=1e-12)
+        rgb_t = (rgb_t / mx).clamp_(0.0, 1.0)
+
+    if stars_rgb is not None:
+        opacity = float(np.clip(params.stars_opacity, 0.0, 1.0))
+        stars_t = dm.from_numpy(np.ascontiguousarray(stars_rgb))
+        screened = 1.0 - (1.0 - rgb_t) * (1.0 - stars_t)
+        rgb_t = (rgb_t + opacity * (screened - rgb_t)).clamp_(0.0, 1.0)
+
+    return rgb_t.cpu().numpy().astype(np.float32, copy=False)
 
 
 def _linear_mix_np(stack: np.ndarray, matrix: np.ndarray) -> np.ndarray:
@@ -397,53 +449,47 @@ def apply_palette(
     use_gpu = dm.is_gpu and (h * w) >= GPU_PIXEL_THRESHOLD
 
     progress(0.3, f"Building {PALETTE_LABELS.get(params.palette, params.palette.name)} palette…")
-    if params.palette in _NONLINEAR_PALETTES:
-        fn_gpu = {
-            Palette.REALISTIC_1: _realistic_1_gpu,
-            Palette.REALISTIC_2: _realistic_2_gpu,
-            Palette.FORAXX: _foraxx_gpu,
-        }[params.palette]
-        fn_np = {
-            Palette.REALISTIC_1: _realistic_1_np,
-            Palette.REALISTIC_2: _realistic_2_np,
-            Palette.FORAXX: _foraxx_np,
-        }[params.palette]
-        if use_gpu:
-            with torch.no_grad():
-                ha_t = dm.from_numpy(np.ascontiguousarray(ha_arr))
-                oo_t = dm.from_numpy(np.ascontiguousarray(oo))
-                si_t = dm.from_numpy(np.ascontiguousarray(si_arr))
-                rgb_t = fn_gpu(ha_t, oo_t, si_t)
-                rgb = rgb_t.cpu().numpy().astype(np.float32)
-        else:
+    rgb: np.ndarray | None = None
+    if use_gpu:
+        try:
+            rgb = _build_rgb_gpu(ha_arr, oo, si_arr, stars_rgb, params, dm)
+        except Exception:
+            log.warning(
+                "Palette Picker: GPU build failed (falling back to CPU)",
+                exc_info=True,
+            )
+            dm.empty_cache()
+            rgb = None
+
+    if rgb is None:
+        if params.palette in _NONLINEAR_PALETTES:
+            fn_np = {
+                Palette.REALISTIC_1: _realistic_1_np,
+                Palette.REALISTIC_2: _realistic_2_np,
+                Palette.FORAXX: _foraxx_np,
+            }[params.palette]
             rgb = fn_np(ha_arr, oo, si_arr)
-    else:
-        matrix = (
-            params.custom_weights
-            if params.palette == Palette.CUSTOM
-            else _LINEAR_MATRICES[params.palette]
-        )
-        stack = np.stack([ha_arr, oo, si_arr], axis=0)  # (3, H, W): [Ha, OIII, SII]
-        if use_gpu:
-            with torch.no_grad():
-                stack_t = dm.from_numpy(np.ascontiguousarray(stack))
-                rgb_t = _linear_mix_gpu(stack_t, matrix, dm)
-                rgb = rgb_t.cpu().numpy().astype(np.float32)
         else:
+            matrix = (
+                params.custom_weights
+                if params.palette == Palette.CUSTOM
+                else _LINEAR_MATRICES[params.palette]
+            )
+            stack = np.stack([ha_arr, oo, si_arr], axis=0)  # [Ha, OIII, SII]
             rgb = _linear_mix_np(stack, matrix)
 
-    rgb = np.clip(np.nan_to_num(rgb), 0.0, 1.0).astype(np.float32)
+        rgb = np.clip(np.nan_to_num(rgb), 0.0, 1.0).astype(np.float32)
 
-    progress(0.7, "Normalizing…")
-    if params.normalize:
-        mx = float(rgb.max()) or 1.0
-        rgb = np.clip(rgb / mx, 0.0, 1.0).astype(np.float32)
+        progress(0.7, "Normalizing…")
+        if params.normalize:
+            mx = float(rgb.max()) or 1.0
+            rgb = np.clip(rgb / mx, 0.0, 1.0).astype(np.float32)
 
-    if stars_rgb is not None:
-        progress(0.85, "Blending star color…")
-        opacity = float(np.clip(params.stars_opacity, 0.0, 1.0))
-        screened = 1.0 - (1.0 - rgb) * (1.0 - stars_rgb)
-        rgb = np.clip(rgb + opacity * (screened - rgb), 0.0, 1.0).astype(np.float32)
+        if stars_rgb is not None:
+            progress(0.85, "Blending star color…")
+            opacity = float(np.clip(params.stars_opacity, 0.0, 1.0))
+            screened = 1.0 - (1.0 - rgb) * (1.0 - stars_rgb)
+            rgb = np.clip(rgb + opacity * (screened - rgb), 0.0, 1.0).astype(np.float32)
 
     progress(1.0, "Palette complete")
     return rgb

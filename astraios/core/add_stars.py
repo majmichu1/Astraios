@@ -24,22 +24,15 @@ docs enumeration, which are UI concerns handled by
 option — the final clip is unconditional, as above — and no per-channel
 control; both are preserved as-is (no cutting, no invention).
 
-GPU/CPU decision: Screen and Add are simple elementwise ops on at most two
-full-resolution frames, the same shape of workload already documented in
-:mod:`astraios.core.image_combine` as not benefiting from GPU dispatch (it is
-bandwidth-bound, and the host<->device round trip for a one-shot interactive
-op can exceed the compute time it saves). A live benchmark was attempted for
-this port (3-channel 6000x6000, warm-up + median of 3) but the GPU on this
-dev machine was not actually idle -- LM Studio was holding ~7 of 8GB VRAM,
-so the GPU-forced run raised ``torch.OutOfMemoryError`` while allocating a
-single 412 MiB input tensor and no valid GPU timing could be captured this
-session (this is the same LM-Studio-contamination failure mode already noted
-in project history for other GPU benchmarks). The CPU/numpy baseline for the
-same op was consistent: median 1001 ms across 3 runs for 108M elements.
-Given that precedent plus this session's inconclusive-but-suspicious GPU
-timing, GPU dispatch here defaults to *off* below a conservative pixel-count
-threshold (~150 megapixels, well above any normal single-frame astrophoto),
-and the GPU branch is wrapped so any CUDA/MPS failure (including
+GPU/CPU decision: Screen and Add are elementwise, bandwidth-bound ops, so
+the GPU win is modest but real. Re-benchmarked on a genuinely idle RTX 5060
+(2026-07-10; the port-time attempt OOM'd because LM Studio held ~7 of 8GB
+VRAM): end-to-end including transfers, the fused device path (blend + amount
++ clamp on GPU, one upload per input and one download) beat numpy at every
+size measured — 1.20x at 3x3000x3000 (27M elements), 1.29x at 3x4500x4500,
+1.30x at 3x6000x6000 (953 ms vs 1243 ms). Below ~25M elements both paths
+finish in ~0.2 s and the difference stops mattering, so GPU dispatch is
+gated there. The GPU branch stays wrapped so any CUDA/MPS failure (including
 out-of-memory from a contending process) falls back to the numpy path rather
 than raising.
 
@@ -69,10 +62,11 @@ def _noop_progress(fraction: float, message: str) -> None:
     pass
 
 
-# Elementwise, bandwidth-bound op: below this element count the host<->device
-# transfer dwarfs any compute saving (see module docstring for the benchmark
-# context). Only dispatch to GPU above this size.
-_GPU_ELEMENT_THRESHOLD = 150_000_000
+# Elementwise, bandwidth-bound op: GPU wins ~1.2-1.3x end-to-end at every
+# size from 27M elements up (idle-GPU benchmark, see module docstring).
+# Below this count both paths are near-instant and transfer overhead erodes
+# the win, so stay on numpy there.
+_GPU_ELEMENT_THRESHOLD = 25_000_000
 
 
 class AddStarsBlendMode(str, Enum):
