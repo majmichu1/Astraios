@@ -3043,9 +3043,11 @@ class ToolsPanel(QWidget):
         )
         self._spike_amount = sp.add_slider(
             "Stars with spikes", 10.0, 1.0, 100.0, 1.0, 0,
-            help_text="Percentage of the brightest detected stars that "
-                      "receive spikes. Keep it low: real optics only spike "
-                      "the bright ones.",
+            help_text=param_help(
+                "Percentage of the brightest detected stars that get spikes.",
+                higher="Spikes more (fainter) stars — quickly looks unrealistic.",
+                lower="Only the brightest few, like real optics.",
+            ),
         )
         self._spike_quantity = sp.add_spin(
             "Spikes per star", 2, 12, 4,
@@ -3054,7 +3056,11 @@ class ToolsPanel(QWidget):
         )
         self._spike_length = sp.add_slider(
             "Length", 1.0, 0.1, 5.0, 0.05, 2,
-            help_text="Base spike length, scaled by each star's size.",
+            help_text=param_help(
+                "Base spike length, scaled by each star's size.",
+                higher="Longer, more dramatic spikes.",
+                lower="Short, subtle spikes.",
+            ),
         )
         self._spike_angle = sp.add_slider(
             "Angle", 0.0, 0.0, 180.0, 1.0, 0,
@@ -3062,26 +3068,44 @@ class ToolsPanel(QWidget):
         )
         self._spike_intensity = sp.add_slider(
             "Intensity", 0.8, 0.0, 1.0, 0.01, 2,
-            help_text="Opacity of the primary spikes.",
+            help_text=param_help(
+                "Opacity of the primary spikes.",
+                higher="Brighter, more prominent spikes.",
+                lower="Faint spikes; 0 = invisible.",
+            ),
         )
         self._spike_width = sp.add_slider(
             "Width", 1.0, 0.2, 4.0, 0.05, 2,
-            help_text="Thickness of the spikes.",
+            help_text=param_help(
+                "Thickness of the spikes.",
+                higher="Thicker, bolder spikes.",
+                lower="Thin, delicate spikes.",
+            ),
         )
         self._spike_sharpness = sp.add_slider(
             "Sharpness", 1.0, 0.2, 4.0, 0.05, 2,
-            help_text="How quickly a spike fades along its length. Higher "
-                      "= shorter bright core with a long faint tail.",
+            help_text=param_help(
+                "How quickly a spike fades along its length.",
+                higher="A short bright core with a long faint tail.",
+                lower="An even brightness along the whole spike.",
+            ),
         )
         sp.add_divider()
         self._spike_secondary_intensity = sp.add_slider(
             "Secondary intensity", 0.0, 0.0, 1.0, 0.01, 2,
-            help_text="Opacity of a second, offset spike set (0 disables "
-                      "it). Adds the thin cross JWST images show.",
+            help_text=param_help(
+                "Opacity of a second, offset spike set (the thin JWST cross).",
+                higher="Makes the secondary spikes more visible.",
+                lower="0 disables the secondary set entirely.",
+            ),
         )
         self._spike_secondary_length = sp.add_slider(
             "Secondary length", 0.5, 0.1, 3.0, 0.05, 2,
-            help_text="Length of the secondary spikes relative to the star.",
+            help_text=param_help(
+                "Length of the secondary spikes relative to the star.",
+                higher="Longer secondary spikes.",
+                lower="Short secondary spikes.",
+            ),
         )
         self._spike_secondary_offset = sp.add_slider(
             "Secondary offset", 45.0, 0.0, 180.0, 1.0, 0,
@@ -3089,8 +3113,11 @@ class ToolsPanel(QWidget):
         )
         self._spike_flare_intensity = sp.add_slider(
             "Soft flare", 0.3, 0.0, 1.0, 0.01, 2,
-            help_text="A soft round glow under the spikes that sells the "
-                      "effect. 0 disables it.",
+            help_text=param_help(
+                "A soft round glow under the spikes that sells the effect.",
+                higher="A stronger halo around spiked stars.",
+                lower="Little or no glow; 0 disables it.",
+            ),
         )
         self._spike_halo_check = sp.add_check(
             "Diffraction halo ring",
@@ -3207,9 +3234,12 @@ class ToolsPanel(QWidget):
         )
         self._ai_denoise_strength = den.add_slider(
             "Strength", 0.7, 0.0, 1.0, 0.05, 2,
-            help_text="How strongly the model's denoising is blended in. "
-                      "Higher removes more noise but risks softening faint "
-                      "real detail.",
+            help_text=param_help(
+                "How strongly the model's denoising is blended in.",
+                higher="Removes more noise — but risks softening faint real "
+                       "detail.",
+                lower="A lighter touch that preserves detail.",
+            ),
         )
         self._ai_tile_combo       = den.add_combo(
             "Tile size", ["128", "256", "512", "Full"],
@@ -3259,9 +3289,12 @@ class ToolsPanel(QWidget):
         )
         self._ai_sharpen_strength = shr.add_slider(
             "Strength", 0.5, 0.0, 1.0, 0.05, 2,
-            help_text="How strongly the sharpening is applied. Higher "
-                      "sharpens more but risks noise amplification and "
-                      "ringing, the same trade-off as manual Deconvolution.",
+            help_text=param_help(
+                "How strongly the sharpening is applied.",
+                higher="Sharpens more — but risks noise amplification and "
+                       "ringing (same trade-off as manual Deconvolution).",
+                lower="A gentle sharpen.",
+            ),
         )
         shr.add_run("▶ Apply AI Sharpen", self.run_ai_sharpen.emit)
         lay.addWidget(shr)
@@ -3289,10 +3322,11 @@ class ToolsPanel(QWidget):
         )
         self._star_threshold = star.add_slider(
             "Threshold", 0.5, 0.1, 0.9, 0.05, 2,
-            help_text="How aggressively pixels are classified as star versus "
-                      "background. Higher removes more of each star, "
-                      "including its dimmer outer halo; lower is more "
-                      "conservative and leaves more of the star behind.",
+            help_text=param_help(
+                "How aggressively pixels are classified as star vs background.",
+                higher="Removes more of each star, including its dim outer halo.",
+                lower="More conservative — leaves more of the star behind.",
+            ),
         )
         self._star_protect_bg = star.add_check(
             "Protect background detail", True,
