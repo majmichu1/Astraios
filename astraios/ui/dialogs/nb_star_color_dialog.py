@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -96,9 +96,15 @@ class NBStarColorDialog(QDialog):
         self._ratio_spin.setSingleStep(0.05)
         self._ratio_spin.setValue(0.30)
         form.addRow("Ha/green ratio", self._row(
-            self._ratio_spin,
-            "Ha:broadband-green blend weight for the output green channel. "
-            "1.0 uses pure Ha; 0.0 uses pure broadband green.",
+            self._ratio_spin, param_help(
+                "Ha:broadband-green blend weight for the output green "
+                "channel.",
+                higher="Leans more on Ha for green — stars trend toward "
+                       "the narrowband color.",
+                lower="Leans more on the broadband green — stars trend "
+                      "toward their natural color.",
+                default="1.0 uses pure Ha; 0.0 uses pure broadband green.",
+            ),
         ))
 
         self._stretch_check = QCheckBox("Enable star stretch")
@@ -115,9 +121,13 @@ class NBStarColorDialog(QDialog):
         self._stretch_factor_spin.setSingleStep(0.5)
         self._stretch_factor_spin.setValue(5.0)
         form.addRow("Stretch factor", self._row(
-            self._stretch_factor_spin,
-            "Exponent in the star-stretch formula. Higher values push "
-            "faint signal (and star wings) up harder.",
+            self._stretch_factor_spin, param_help(
+                "Exponent in the star-stretch formula.",
+                higher="Pushes faint signal (and star wings) up harder, "
+                       "for punchier star color.",
+                lower="A gentler stretch, closer to the unstretched "
+                      "combined color.",
+            ),
         ))
 
         self._saturation_spin = QDoubleSpinBox()
@@ -125,9 +135,12 @@ class NBStarColorDialog(QDialog):
         self._saturation_spin.setSingleStep(0.05)
         self._saturation_spin.setValue(1.0)
         form.addRow("Saturation", self._row(
-            self._saturation_spin,
-            "HSV saturation multiplier applied after combining. 1.0 "
-            "leaves color unchanged.",
+            self._saturation_spin, param_help(
+                "HSV saturation multiplier applied after combining.",
+                higher="More saturated color.",
+                lower="Less saturated color; toward grayscale at 0.",
+                default="1.0 leaves color unchanged.",
+            ),
         ))
 
         self._scnr_check = QCheckBox("Apply green SCNR")
@@ -144,8 +157,13 @@ class NBStarColorDialog(QDialog):
         self._scnr_amount_spin.setSingleStep(0.05)
         self._scnr_amount_spin.setValue(1.0)
         form.addRow("SCNR amount", self._row(
-            self._scnr_amount_spin,
-            "SCNR strength. 1.0 reproduces g = min(g, (r+b)/2) exactly.",
+            self._scnr_amount_spin, param_help(
+                "SCNR strength.",
+                higher="Removes more of the green cast.",
+                lower="Removes less green cast, blending partway back "
+                      "toward the original green.",
+                default="1.0 reproduces g = min(g, (r+b)/2) exactly.",
+            ),
         ))
 
         self._preserve_lum_check = QCheckBox("Preserve luminance in SCNR")

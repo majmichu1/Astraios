@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -116,9 +116,14 @@ class IsophoteDialog(QDialog):
         self._sma0_spin.setRange(1.0, 100000.0)
         self._sma0_spin.setValue(20.0)
         gform.addRow("Seed SMA (px)", self._row(
-            self._sma0_spin,
-            "Seed semi-major axis. Fitting grows outward to Max SMA and "
-            "inward starting from this ring.",
+            self._sma0_spin, param_help(
+                "Seed semi-major axis. Fitting grows outward to Max SMA "
+                "and inward starting from this ring.",
+                higher="Starts the fit on a larger initial ellipse — "
+                       "useful for a galaxy with a small, irregular core.",
+                lower="Starts closer to the center — can struggle if the "
+                      "core itself is not well-fit by an ellipse.",
+            ),
         ))
 
         self._maxsma_check = QCheckBox("Auto (min(H,W) / 1.2)")
@@ -129,7 +134,13 @@ class IsophoteDialog(QDialog):
         self._maxsma_spin.setRange(1.0, 100000.0)
         self._maxsma_spin.setValue(min(h, w) / 1.2)
         gform.addRow("Max SMA (px)", self._row(
-            self._maxsma_spin, "Maximum semi-major axis to fit.",
+            self._maxsma_spin, param_help(
+                "Maximum semi-major axis to fit.",
+                higher="Fits rings further out into the faint outskirts — "
+                       "slower and noisier at the largest radii.",
+                lower="Stops fitting sooner, missing the faintest "
+                      "outskirts but finishing faster.",
+            ),
         ))
 
         self._step_spin = QDoubleSpinBox()
@@ -138,9 +149,15 @@ class IsophoteDialog(QDialog):
         self._step_spin.setDecimals(3)
         self._step_spin.setValue(0.2)
         gform.addRow("Step", self._row(
-            self._step_spin,
-            "Relative growth factor between rings: ring i+1 = ring i * "
-            "(1 + step).",
+            self._step_spin, param_help(
+                "Relative growth factor between rings: ring i+1 = ring i "
+                "* (1 + step).",
+                higher="Fewer, more widely-spaced rings — faster fit, "
+                       "coarser radial profile.",
+                lower="More closely-spaced rings — finer radial profile, "
+                      "slower fit.",
+                default="0.2 is a good balance.",
+            ),
         ))
 
         self._eps0_spin = QDoubleSpinBox()
@@ -148,7 +165,12 @@ class IsophoteDialog(QDialog):
         self._eps0_spin.setSingleStep(0.05)
         self._eps0_spin.setValue(0.20)
         gform.addRow("Initial ellipticity", self._row(
-            self._eps0_spin, "Initial ellipticity guess, 1 - b/a.",
+            self._eps0_spin, param_help(
+                "Initial ellipticity guess, 1 - b/a.",
+                higher="Starts from a more elongated ellipse guess.",
+                lower="Starts from a rounder (more circular) ellipse "
+                      "guess; 0 is a circle.",
+            ),
         ))
 
         self._pa0_spin = QDoubleSpinBox()

@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -177,20 +177,33 @@ class ExoplanetDialog(QDialog):
         self._aperture = QDoubleSpinBox()
         self._aperture.setRange(1.0, 100.0)
         self._aperture.setValue(10.0)
-        form.addRow(*self._r("Aperture radius", self._aperture,
-                    "Photometry aperture radius, in pixels."))
+        form.addRow(*self._r("Aperture radius", self._aperture, param_help(
+            "Photometry aperture radius, in pixels.",
+            higher="Captures more of the target's flux (and more "
+                   "background noise) — needed for larger/softer stars.",
+            lower="Tighter aperture — less background contamination, but "
+                  "can clip flux from a bloated or defocused star.",
+        )))
         self._annulus_in = QDoubleSpinBox()
         self._annulus_in.setRange(1.0, 200.0)
         self._annulus_in.setValue(15.0)
-        form.addRow(*self._r("Annulus inner", self._annulus_in,
-                    "Inner radius of the sky-background annulus, in "
-                    "pixels."))
+        form.addRow(*self._r("Annulus inner", self._annulus_in, param_help(
+            "Inner radius of the sky-background annulus, in pixels.",
+            higher="Leaves a wider gap between the aperture and the "
+                   "background ring, reducing star-light contamination.",
+            lower="Keeps the background ring close to the star — risks "
+                  "including some of the star's own light.",
+        )))
         self._annulus_out = QDoubleSpinBox()
         self._annulus_out.setRange(2.0, 300.0)
         self._annulus_out.setValue(20.0)
-        form.addRow(*self._r("Annulus outer", self._annulus_out,
-                    "Outer radius of the sky-background annulus, in "
-                    "pixels."))
+        form.addRow(*self._r("Annulus outer", self._annulus_out, param_help(
+            "Outer radius of the sky-background annulus, in pixels.",
+            higher="Averages the background over a wider ring — steadier "
+                   "estimate, but more likely to catch neighboring stars.",
+            lower="Narrower ring — more local, but noisier background "
+                  "estimate.",
+        )))
 
         self._detrend = QComboBox()
         self._detrend.addItems(["None", "Linear", "Quadratic"])
@@ -204,9 +217,14 @@ class ExoplanetDialog(QDialog):
         self._threshold_ppt.setRange(0.1, 500.0)
         self._threshold_ppt.setValue(20.0)
         self._threshold_ppt.setSuffix(" ppt")
-        form.addRow(*self._r("Detection threshold", self._threshold_ppt,
-                    "Minimum dip depth, in parts-per-thousand, required to "
-                    "flag a transit detection."))
+        form.addRow(*self._r("Detection threshold", self._threshold_ppt, param_help(
+            "Minimum dip depth, in parts-per-thousand, required to flag a "
+            "transit detection.",
+            higher="Stricter — only deep, unambiguous dips get flagged, "
+                   "so noise is less likely to trigger a false positive.",
+            lower="More sensitive — catches shallower dips too, but noise "
+                  "spikes are more likely to be flagged as transits.",
+        )))
         lay.addLayout(form)
 
         self._frames_label = QLabel(self._frames_status_text())

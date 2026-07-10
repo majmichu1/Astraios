@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -172,9 +172,13 @@ class ImageAnnotateDialog(QDialog):
         self._star_mag_limit.setValue(9.0)
         self._star_mag_limit.setEnabled(self._include_stars.isChecked())
         self._include_stars.toggled.connect(self._star_mag_limit.setEnabled)
-        form.addRow(*self._r("Star magnitude limit", self._star_mag_limit,
-                    "Faintest Gaia G magnitude to include when bright-star "
-                    "identification is enabled."))
+        form.addRow(*self._r("Star magnitude limit", self._star_mag_limit, param_help(
+            "Faintest Gaia G magnitude to include when bright-star "
+            "identification is enabled.",
+            higher="Includes fainter stars too, so more get identified "
+                   "(and labeled/plotted).",
+            lower="Only the brightest stars are included.",
+        )))
 
         self._max_stars = QSpinBox()
         self._max_stars.setRange(1, 2000)

@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -91,27 +91,46 @@ class MagnitudeToolDialog(QDialog):
         self._aperture = QDoubleSpinBox()
         self._aperture.setRange(1.0, 100.0)
         self._aperture.setValue(10.0)
-        form.addRow(*self._r("Aperture radius", self._aperture,
-                    "Radius, in pixels, of the photometry aperture centered "
-                    "on each detected star."))
+        form.addRow(*self._r("Aperture radius", self._aperture, param_help(
+            "Radius, in pixels, of the photometry aperture centered on "
+            "each detected star.",
+            higher="Captures more of a star's flux (and more sky "
+                   "background noise) — needed for larger/softer stars.",
+            lower="Tighter aperture — less background contamination, but "
+                  "can clip flux from bloated or poorly-focused stars.",
+        )))
         self._annulus_in = QDoubleSpinBox()
         self._annulus_in.setRange(1.0, 200.0)
         self._annulus_in.setValue(15.0)
-        form.addRow(*self._r("Annulus inner", self._annulus_in,
-                    "Inner radius of the sky-background annulus, in "
-                    "pixels."))
+        form.addRow(*self._r("Annulus inner", self._annulus_in, param_help(
+            "Inner radius of the sky-background annulus, in pixels.",
+            higher="Leaves a wider gap between the star aperture and the "
+                   "background ring, reducing star-light contamination.",
+            lower="Keeps the background ring close to the star — risks "
+                  "including some of the star's own light.",
+        )))
         self._annulus_out = QDoubleSpinBox()
         self._annulus_out.setRange(2.0, 300.0)
         self._annulus_out.setValue(20.0)
-        form.addRow(*self._r("Annulus outer", self._annulus_out,
-                    "Outer radius of the sky-background annulus, in "
-                    "pixels."))
+        form.addRow(*self._r("Annulus outer", self._annulus_out, param_help(
+            "Outer radius of the sky-background annulus, in pixels.",
+            higher="Averages the background over a wider ring — steadier "
+                   "estimate, but more likely to catch neighboring stars.",
+            lower="Narrower ring — more local, but noisier background "
+                  "estimate.",
+        )))
         self._threshold = QDoubleSpinBox()
         self._threshold.setRange(1.0, 50.0)
         self._threshold.setValue(5.0)
-        form.addRow(*self._r("Detection threshold", self._threshold,
-                    "Source-detection threshold, in sigma above the "
-                    "background noise."))
+        form.addRow(*self._r("Detection threshold", self._threshold, param_help(
+            "Source-detection threshold, in sigma above the background "
+            "noise.",
+            higher="Stricter — only the brightest, most obvious stars are "
+                   "detected.",
+            lower="More permissive — detects fainter stars too, but risks "
+                  "picking up noise spikes.",
+            default="5 is a safe default.",
+        )))
         self._max_sources = QSpinBox()
         self._max_sources.setRange(1, 5000)
         self._max_sources.setValue(500)
@@ -136,10 +155,16 @@ class MagnitudeToolDialog(QDialog):
         self._limiting_sigma = QDoubleSpinBox()
         self._limiting_sigma.setRange(1.0, 20.0)
         self._limiting_sigma.setValue(5.0)
-        form.addRow(*self._r("Limiting mag sigma", self._limiting_sigma,
-                    "N-sigma flux threshold used to estimate the limiting "
-                    "(faintest reliably detectable) magnitude from the "
-                    "background noise."))
+        form.addRow(*self._r("Limiting mag sigma", self._limiting_sigma, param_help(
+            "N-sigma flux threshold used to estimate the limiting "
+            "(faintest reliably detectable) magnitude from the background "
+            "noise.",
+            higher="A more conservative (brighter) limiting-magnitude "
+                   "estimate — only counts sources well above the noise.",
+            lower="A more optimistic (fainter) limiting-magnitude "
+                  "estimate, closer to the noise floor.",
+            default="5 is a common choice.",
+        )))
         lay.addLayout(form)
 
         self._progress = QProgressBar()

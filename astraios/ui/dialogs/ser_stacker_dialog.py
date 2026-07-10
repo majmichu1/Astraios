@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -101,9 +101,14 @@ class SERStackerDialog(QDialog):
         self._keep.setRange(1.0, 100.0)
         self._keep.setValue(20.0)
         self._keep.setSuffix(" %")
-        lform.addRow("Keep best", self._row(self._keep,
-                     "Percent of the sharpest frames to keep. 10-30% is "
-                     "typical: fewer frames are sharper but noisier."))
+        lform.addRow("Keep best", self._row(self._keep, param_help(
+            "Percent of the sharpest frames to keep.",
+            higher="Keeps more frames — smoother, lower-noise stack, but "
+                   "pulls in softer frames too.",
+            lower="Keeps only the very sharpest frames — crisper detail, "
+                  "but noisier from fewer frames averaged.",
+            default="10-30% is typical.",
+        )))
         self._align_combo = QComboBox()
         self._align_combo.addItems(["Phase correlation", "Centroid", "None"])
         lform.addRow("Alignment", self._row(self._align_combo,
@@ -118,9 +123,14 @@ class SERStackerDialog(QDialog):
         self._upsample = QSpinBox()
         self._upsample.setRange(1, 20)
         self._upsample.setValue(4)
-        lform.addRow("Sub-pixel", self._row(self._upsample,
-                     "Sub-pixel alignment precision. Higher aligns more "
-                     "finely (slower); 4 is a good default."))
+        lform.addRow("Sub-pixel", self._row(self._upsample, param_help(
+            "Sub-pixel alignment precision.",
+            higher="Aligns more finely, sharpening the stack, at the "
+                   "cost of slower alignment.",
+            lower="Coarser alignment — faster, but frame-to-frame "
+                  "registration is less precise.",
+            default="4 is a good default.",
+        )))
         lay.addWidget(lucky)
 
         # Integration
@@ -144,9 +154,14 @@ class SERStackerDialog(QDialog):
         self._drizzle.setSingleStep(0.5)
         self._drizzle.setValue(1.0)
         self._drizzle.setSuffix("x")
-        iform.addRow("Drizzle scale", self._row(self._drizzle,
-                     "Upscale the output canvas. 1.5x-2x can pull out extra "
-                     "detail when you have many well-aligned frames."))
+        iform.addRow("Drizzle scale", self._row(self._drizzle, param_help(
+            "Upscale factor for the output canvas.",
+            higher="A larger output canvas that can pull out extra "
+                   "detail, provided you have many well-aligned frames "
+                   "and good sub-pixel dithering.",
+            lower="A smaller output canvas — closer to native resolution.",
+            default="1.5x-2x is typical.",
+        )))
         self._max_frames = QSpinBox()
         self._max_frames.setRange(0, 1000000)
         self._max_frames.setValue(0)

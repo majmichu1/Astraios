@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -127,11 +127,15 @@ class MinorBodyDialog(QDialog):
         self._radius.setDecimals(2)
         self._radius.setSuffix(" deg")
         self._radius.setValue(1.0)
-        form.addRow(*self._r("Search radius", self._radius,
-                    "Cone-search radius around the field center. Keep this "
-                    "close to your imaging train's actual field of view — a "
-                    "large radius means propagating (and filtering) many "
-                    "more candidate bodies."))
+        form.addRow(*self._r("Search radius", self._radius, param_help(
+            "Cone-search radius around the field center.",
+            how="Keep this close to your imaging train's actual field of "
+                "view.",
+            higher="Searches a wider patch of sky, propagating (and "
+                   "filtering) many more candidate bodies — slower.",
+            lower="Searches a tighter patch matched to your field of "
+                  "view — faster, but can miss bodies near the edge.",
+        )))
 
         self._time = QDateTimeEdit(QDateTime.currentDateTimeUtc())
         self._time.setCalendarPopup(True)

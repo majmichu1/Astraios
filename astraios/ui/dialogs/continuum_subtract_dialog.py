@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -92,10 +92,15 @@ class ContinuumSubtractDialog(QDialog):
         self._scale.setRange(0.0, 5.0)
         self._scale.setSingleStep(0.05)
         self._scale.setValue(0.8)
-        form.addRow(*self._r("Scale factor", self._scale,
-                    "How much continuum to subtract in Manual mode (and the "
-                    "starting point for Star-based). Raise if stars leave "
-                    "bright residuals, lower if the nebula goes too dark."))
+        form.addRow(*self._r("Scale factor", self._scale, param_help(
+            "How much continuum to subtract in Manual mode (and the "
+            "starting point for Star-based).",
+            higher="Removes more continuum — raise if stars leave bright "
+                   "residuals after subtraction.",
+            lower="Removes less continuum — lower if the nebula itself "
+                  "goes too dark.",
+            default="0.8 is a reasonable starting point.",
+        )))
         self._pedestal = QCheckBox("Match background level")
         self._pedestal.setChecked(True)
         self._pedestal.setToolTip(

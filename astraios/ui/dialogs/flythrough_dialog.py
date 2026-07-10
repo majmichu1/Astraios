@@ -28,7 +28,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -88,14 +88,21 @@ class FlythroughDialog(QDialog):
         self._duration.setRange(1.0, 120.0)
         self._duration.setValue(8.0)
         self._duration.setSuffix(" s")
-        form.addRow("Duration", self._row(self._duration,
-                                          "Length of the video in seconds."))
+        form.addRow("Duration", self._row(self._duration, param_help(
+            "Length of the rendered video.",
+            higher="A longer, slower flight through the same zoom range.",
+            lower="A shorter, snappier flight.",
+        )))
         self._fps = QSpinBox()
         self._fps.setRange(10, 60)
         self._fps.setValue(30)
-        form.addRow("Frame rate", self._row(self._fps,
-                                            "Frames per second. 30 is smooth; 60 "
-                                            "doubles render time."))
+        form.addRow("Frame rate", self._row(self._fps, param_help(
+            "Frames rendered per second of video.",
+            higher="Smoother motion, but roughly proportionally longer to "
+                   "render.",
+            lower="Choppier motion, faster to render.",
+            default="30 is smooth; 60 doubles render time.",
+        )))
         self._res_combo = QComboBox()
         self._res_combo.addItems(["1920x1080", "1280x720", "3840x2160", "1080x1920 (vertical)"])
         form.addRow("Resolution", self._row(self._res_combo,
@@ -109,16 +116,21 @@ class FlythroughDialog(QDialog):
         self._zoom_start.setRange(0.5, 20.0)
         self._zoom_start.setSingleStep(0.1)
         self._zoom_start.setValue(1.0)
-        cform.addRow("Zoom start", self._row(self._zoom_start,
-                                             "Starting magnification. 1.0 shows "
-                                             "the whole image."))
+        cform.addRow("Zoom start", self._row(self._zoom_start, param_help(
+            "Magnification at the start of the flight.",
+            higher="Starts already zoomed in closer to the target.",
+            lower="Starts further out; 1.0 shows the whole image.",
+        )))
         self._zoom_end = QDoubleSpinBox()
         self._zoom_end.setRange(0.5, 20.0)
         self._zoom_end.setSingleStep(0.1)
         self._zoom_end.setValue(3.0)
-        cform.addRow("Zoom end", self._row(self._zoom_end,
-                                           "Final magnification. 3.0 ends three "
-                                           "times closer than the start."))
+        cform.addRow("Zoom end", self._row(self._zoom_end, param_help(
+            "Magnification at the end of the flight.",
+            higher="Ends zoomed in tighter on the target.",
+            lower="Ends further back, closer to the start's framing.",
+            default="3.0 ends three times closer than the start.",
+        )))
         self._ease_combo = QComboBox()
         self._ease_combo.addItems(["Ease In-Out", "Linear", "Ease In", "Ease Out"])
         cform.addRow("Motion", self._row(self._ease_combo,

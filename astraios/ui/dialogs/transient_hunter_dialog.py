@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -162,24 +162,42 @@ class TransientHunterDialog(QDialog):
         self._sigma = QDoubleSpinBox()
         self._sigma.setRange(1.0, 30.0)
         self._sigma.setValue(5.0)
-        form.addRow(*self._r("Detection sigma", self._sigma,
-                    "Residual-detection threshold, in noise sigma, applied "
-                    "to the new-minus-reference difference image."))
+        form.addRow(*self._r("Detection sigma", self._sigma, param_help(
+            "Residual-detection threshold, in noise sigma, applied to "
+            "the new-minus-reference difference image.",
+            higher="Stricter — only strong, unambiguous residuals are "
+                   "flagged as candidates.",
+            lower="More sensitive — catches fainter residuals too, but "
+                  "noise is more likely to be flagged as a false "
+                  "candidate.",
+        )))
         self._match_radius = QDoubleSpinBox()
         self._match_radius.setRange(1.0, 500.0)
         self._match_radius.setValue(50.0)
-        form.addRow(*self._r("Match radius", self._match_radius,
-                    "Max pixel distance used to pair a newly-appeared "
-                    "residual with a vanished one, classifying it as a "
-                    "moving (asteroid/comet) candidate rather than two "
-                    "separate new/vanished candidates."))
+        form.addRow(*self._r("Match radius", self._match_radius, param_help(
+            "Max pixel distance used to pair a newly-appeared residual "
+            "with a vanished one, classifying it as a moving "
+            "(asteroid/comet) candidate rather than two separate "
+            "new/vanished candidates.",
+            higher="Pairs residuals across a wider gap — catches faster "
+                   "movers, but risks pairing unrelated candidates.",
+            lower="Only pairs nearby residuals — safer, but can miss a "
+                  "fast-moving object and report it as two candidates.",
+        )))
         self._edge_margin = QDoubleSpinBox()
         self._edge_margin.setRange(0.0, 0.4)
         self._edge_margin.setSingleStep(0.01)
         self._edge_margin.setValue(0.05)
-        form.addRow(*self._r("Edge margin", self._edge_margin,
-                    "Fraction of the frame border excluded from candidate "
-                    "detection, to avoid registration-edge artifacts."))
+        form.addRow(*self._r("Edge margin", self._edge_margin, param_help(
+            "Fraction of the frame border excluded from candidate "
+            "detection, to avoid registration-edge artifacts.",
+            higher="Excludes a wider border — safer against edge "
+                   "artifacts, but can miss a real candidate near the "
+                   "frame edge.",
+            lower="Excludes less of the border — checks closer to the "
+                  "edge, but more exposed to registration artifacts "
+                  "there.",
+        )))
         self._normalize = QCheckBox("Normalize background/contrast")
         self._normalize.setChecked(True)
         self._normalize.setToolTip(

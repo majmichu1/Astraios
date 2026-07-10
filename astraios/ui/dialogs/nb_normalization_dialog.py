@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -194,9 +194,15 @@ class NBNormalizationDialog(QDialog):
         self._blackpoint_spin.setDecimals(2)
         self._blackpoint_spin.setValue(0.0)
         form.addRow("Blackpoint", self._row(
-            self._blackpoint_spin,
-            "0..1 -- where between each channel's min and median the "
-            "normalization blackpoint sits (0 = min, 1 = median).",
+            self._blackpoint_spin, param_help(
+                "Where between each channel's min and median the "
+                "normalization blackpoint sits.",
+                higher="Pulls the blackpoint toward the median — crushes "
+                       "more of the faint background to black.",
+                lower="Keeps the blackpoint near the channel minimum — "
+                      "preserves more faint signal near black.",
+                default="0 = min, 1 = median.",
+            ),
         ))
 
         self._hlrecover_spin = QDoubleSpinBox()
@@ -205,8 +211,14 @@ class NBNormalizationDialog(QDialog):
         self._hlrecover_spin.setDecimals(2)
         self._hlrecover_spin.setValue(1.0)
         form.addRow("Highlight recover", self._row(
-            self._hlrecover_spin,
-            "Highlight recovery scale in the finishing stage (minimum 0.25).",
+            self._hlrecover_spin, param_help(
+                "Highlight recovery scale in the finishing stage.",
+                higher="Recovers more highlight detail, pulling blown "
+                       "areas back down.",
+                lower="Less recovery — highlights stay closer to their "
+                      "combined level.",
+                default="1.0 is neutral; minimum is 0.25.",
+            ),
         ))
 
         self._hlreduct_spin = QDoubleSpinBox()
@@ -215,8 +227,13 @@ class NBNormalizationDialog(QDialog):
         self._hlreduct_spin.setDecimals(2)
         self._hlreduct_spin.setValue(1.0)
         form.addRow("Highlight reduction", self._row(
-            self._hlreduct_spin,
-            "Highlight reduction strength in the finishing stage (minimum 0.25).",
+            self._hlreduct_spin, param_help(
+                "Highlight reduction strength in the finishing stage.",
+                higher="Compresses highlights more aggressively, taming "
+                       "bright cores.",
+                lower="Less compression — highlights stay brighter.",
+                default="1.0 is neutral; minimum is 0.25.",
+            ),
         ))
 
         self._brightness_spin = QDoubleSpinBox()
@@ -225,8 +242,12 @@ class NBNormalizationDialog(QDialog):
         self._brightness_spin.setDecimals(2)
         self._brightness_spin.setValue(1.0)
         form.addRow("Brightness", self._row(
-            self._brightness_spin,
-            "Overall brightness in the finishing stage (minimum 0.25).",
+            self._brightness_spin, param_help(
+                "Overall brightness multiplier in the finishing stage.",
+                higher="Brightens the whole combined result.",
+                lower="Darkens the whole combined result.",
+                default="1.0 is neutral; minimum is 0.25.",
+            ),
         ))
 
         self._siiboost_spin = QDoubleSpinBox()
@@ -235,8 +256,13 @@ class NBNormalizationDialog(QDialog):
         self._siiboost_spin.setDecimals(2)
         self._siiboost_spin.setValue(1.0)
         form.addRow("SII boost", self._row(
-            self._siiboost_spin,
-            "SHO/HSO/HOS only -- SII normalization boost divisor.",
+            self._siiboost_spin, param_help(
+                "SHO/HSO/HOS only — SII normalization boost divisor.",
+                higher="Boosts the SII channel's contribution more "
+                       "strongly.",
+                lower="Reduces SII's contribution to the mix.",
+                default="1.0 is neutral.",
+            ),
         ))
 
         self._oiiiboost2_spin = QDoubleSpinBox()
@@ -245,8 +271,13 @@ class NBNormalizationDialog(QDialog):
         self._oiiiboost2_spin.setDecimals(2)
         self._oiiiboost2_spin.setValue(1.0)
         form.addRow("OIII boost", self._row(
-            self._oiiiboost2_spin,
-            "SHO/HSO/HOS only -- OIII normalization boost divisor.",
+            self._oiiiboost2_spin, param_help(
+                "SHO/HSO/HOS only — OIII normalization boost divisor.",
+                higher="Boosts the OIII channel's contribution more "
+                       "strongly.",
+                lower="Reduces OIII's contribution to the mix.",
+                default="1.0 is neutral.",
+            ),
         ))
 
         self._oiiiboost_spin = QDoubleSpinBox()
@@ -255,8 +286,13 @@ class NBNormalizationDialog(QDialog):
         self._oiiiboost_spin.setDecimals(2)
         self._oiiiboost_spin.setValue(1.0)
         form.addRow("OIII boost (HOO)", self._row(
-            self._oiiiboost_spin,
-            "HOO only -- OIII normalization boost divisor.",
+            self._oiiiboost_spin, param_help(
+                "HOO only — OIII normalization boost divisor.",
+                higher="Boosts the OIII channel's contribution more "
+                       "strongly.",
+                lower="Reduces OIII's contribution to the mix.",
+                default="1.0 is neutral.",
+            ),
         ))
 
         self._blendmode_combo = QComboBox()
@@ -272,8 +308,13 @@ class NBNormalizationDialog(QDialog):
         self._hablend_spin.setDecimals(2)
         self._hablend_spin.setValue(0.6)
         form.addRow("Ha blend", self._row(
-            self._hablend_spin,
-            "HOO only -- 0..1 mix ratio for Ha blend mode.",
+            self._hablend_spin, param_help(
+                "HOO only — mix ratio for Ha blend mode.",
+                higher="Ha contributes more strongly to the blend.",
+                lower="Ha contributes less; the blend leans on OIII "
+                      "instead.",
+                default="0..1 range.",
+            ),
         ))
 
         self._scnr_check = QCheckBox("Apply SCNR (green-cast reduction)")

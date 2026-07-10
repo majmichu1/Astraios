@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -113,9 +113,15 @@ class LuminanceRecombineDialog(QDialog):
         self._blend_spin.setDecimals(2)
         self._blend_spin.setValue(1.0)
         form.addRow("Blend", self._row(
-            self._blend_spin,
-            "Mix ratio between the original color image (0.0) and the "
-            "fully recombined result (1.0).",
+            self._blend_spin, param_help(
+                "Mix ratio between the original color image and the "
+                "fully recombined result.",
+                higher="Leans more toward the fully luminance-recombined "
+                       "result.",
+                lower="Leans more toward the original, unrecombined "
+                      "color image.",
+                default="0.0 = original color, 1.0 = fully recombined.",
+            ),
         ))
 
         self._pedestal_spin = QDoubleSpinBox()
@@ -124,10 +130,17 @@ class LuminanceRecombineDialog(QDialog):
         self._pedestal_spin.setDecimals(2)
         self._pedestal_spin.setValue(0.05)
         form.addRow("Pedestal", self._row(
-            self._pedestal_spin,
-            "Noise-floor compression (lift-then-compress) amount applied "
-            "before computing the scale factor. Protects near-zero pixels "
-            "from hue skew; 0.0 disables it.",
+            self._pedestal_spin, param_help(
+                "Noise-floor compression (lift-then-compress) amount "
+                "applied before computing the scale factor.",
+                how="Protects near-zero pixels from hue skew when the "
+                    "luminance scale factor is computed.",
+                higher="Protects more of the noise floor, at the cost of "
+                       "slightly flattening the faintest signal.",
+                lower="Less protection — faint pixels are more exposed "
+                      "to hue skew.",
+                default="0.0 disables it.",
+            ),
         ))
 
         self._knee_spin = QDoubleSpinBox()
@@ -136,11 +149,16 @@ class LuminanceRecombineDialog(QDialog):
         self._knee_spin.setDecimals(2)
         self._knee_spin.setValue(0.0)
         form.addRow("Highlight soft knee", self._row(
-            self._knee_spin,
-            "Softens (rolls off) the per-pixel scale factor in highlights "
-            "to reduce clipping/halos when the new luminance is much "
-            "brighter than the color image's own. 0.0 disables it (pure "
-            "linear scale).",
+            self._knee_spin, param_help(
+                "Softens (rolls off) the per-pixel scale factor in "
+                "highlights to reduce clipping/halos when the new "
+                "luminance is much brighter than the color image's own.",
+                higher="Rolls off more of the highlight range — safer "
+                       "against clipping/halos, but flattens bright "
+                       "cores slightly.",
+                lower="Less roll-off, closer to a pure linear scale.",
+                default="0.0 disables it (pure linear scale).",
+            ),
         ))
 
         self._sat_spin = QDoubleSpinBox()
@@ -149,10 +167,15 @@ class LuminanceRecombineDialog(QDialog):
         self._sat_spin.setDecimals(2)
         self._sat_spin.setValue(0.0)
         form.addRow("Saturation boost", self._row(
-            self._sat_spin,
-            "HSV saturation adjustment applied to the color image before "
-            "its luminance is measured and replaced. 0.0 = no change, "
-            "1.0 = double saturation, -1.0 = grayscale.",
+            self._sat_spin, param_help(
+                "HSV saturation adjustment applied to the color image "
+                "before its luminance is measured and replaced.",
+                higher="More saturated color.",
+                lower="Less saturated color; the negative end desaturates "
+                      "toward grayscale.",
+                default="0.0 = no change, 1.0 = double saturation, "
+                        "-1.0 = grayscale.",
+            ),
         ))
 
         self._chroma_nr_spin = QDoubleSpinBox()
@@ -161,11 +184,16 @@ class LuminanceRecombineDialog(QDialog):
         self._chroma_nr_spin.setDecimals(1)
         self._chroma_nr_spin.setValue(0.0)
         form.addRow("Chrominance NR sigma", self._row(
-            self._chroma_nr_spin,
-            "Gaussian sigma (pixels) for a chrominance-only noise "
-            "reduction pass (blurs Cb/Cr, leaving luminance untouched) "
-            "applied to the color image before luminance is replaced. "
-            "0.0 disables it.",
+            self._chroma_nr_spin, param_help(
+                "Gaussian sigma (pixels) for a chrominance-only noise "
+                "reduction pass (blurs Cb/Cr, leaving luminance "
+                "untouched) applied to the color image before luminance "
+                "is replaced.",
+                higher="Smooths color noise more aggressively, but can "
+                       "bleed color across fine detail edges.",
+                lower="Lighter smoothing — less color-noise cleanup.",
+                default="0.0 disables it.",
+            ),
         ))
 
         lay.addWidget(form_group)

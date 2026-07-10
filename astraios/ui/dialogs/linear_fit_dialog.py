@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -100,15 +100,25 @@ class LinearFitDialog(QDialog):
         self._sigma.setRange(1.0, 6.0)
         self._sigma.setSingleStep(0.5)
         self._sigma.setValue(3.0)
-        form.addRow(*self._r("Sigma", self._sigma,
-                    "How aggressively outliers are rejected. Lower rejects "
-                    "more; 3 is standard."))
+        form.addRow(*self._r("Sigma", self._sigma, param_help(
+            "How far from the fit a point must sit, in standard "
+            "deviations, before it is rejected as an outlier.",
+            higher="Stricter — fewer points are rejected, so stars/hot "
+                   "pixels that slip through can bias the fit.",
+            lower="More aggressive — rejects more points, keeping the fit "
+                  "closer to the true background relationship.",
+            default="3 is standard.",
+        )))
         self._iters = QSpinBox()
         self._iters.setRange(1, 10)
         self._iters.setValue(5)
-        form.addRow(*self._r("Iterations", self._iters,
-                    "Rejection passes. More refines the fit against stubborn "
-                    "outliers."))
+        form.addRow(*self._r("Iterations", self._iters, param_help(
+            "Number of outlier-rejection passes before the final fit.",
+            higher="Refines the fit further against stubborn outliers, at "
+                   "the cost of a slower fit.",
+            lower="Fewer refinement passes — faster, but outliers may not "
+                  "be fully weeded out.",
+        )))
         lay.addLayout(form)
 
         self._progress = QProgressBar()

@@ -43,7 +43,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.image_peek import FramePeek, ImagePeekParams, peek_frames
-from astraios.ui.widgets.ui_kit import field_row, help_dot
+from astraios.ui.widgets.ui_kit import field_row, help_dot, param_help
 
 _TILE_THUMB_SIZE = 140  # px — thumbnail edge inside the grid tile
 _FILE_FILTER = "Images (*.fits *.fit *.fts *.FTS *.xisf *.tif *.tiff *.png *.jpg *.jpeg)"
@@ -191,8 +191,14 @@ class ImagePeekerDialog(QDialog):
         self._thumb_size_spin.setValue(220)
         controls.addLayout(field_row(
             "Thumb size:", self._thumb_size_spin, label_width=70,
-            help_text="Longest edge of the generated preview thumbnail, in pixels. "
-                      "Smaller thumbnails peek faster over large batches.",
+            help_text=param_help(
+                "Longest edge of the generated preview thumbnail, in "
+                "pixels.",
+                higher="Larger, more detailed previews, at the cost of "
+                       "slower peeking over large batches.",
+                lower="Smaller previews that peek faster over large "
+                      "batches.",
+            ),
         ))
 
         self._measure_stars_check = QCheckBox("Measure stars")

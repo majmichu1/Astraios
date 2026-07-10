@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -111,17 +111,24 @@ class ImageCombineDialog(QDialog):
         self._weight_a.setRange(0.0, 10.0)
         self._weight_a.setSingleStep(0.05)
         self._weight_a.setValue(1.0)
-        form.addRow(*self._r("Weight A", self._weight_a,
-                    "Multiplier applied to image A before the operation."))
+        form.addRow(*self._r("Weight A", self._weight_a, param_help(
+            "Multiplier applied to image A before the operation.",
+            higher="Image A contributes more strongly to the result.",
+            lower="Image A contributes less; 0 removes it entirely.",
+            default="1.0 leaves A unscaled.",
+        )))
 
         self._weight_b = QDoubleSpinBox()
         self._weight_b.setRange(0.0, 10.0)
         self._weight_b.setSingleStep(0.05)
         self._weight_b.setValue(1.0)
-        form.addRow(*self._r("Weight B", self._weight_b,
-                    "Multiplier applied to image B before the operation. "
-                    "For an opacity cross-fade with Blend, set Weight A = "
-                    "1 - alpha and Weight B = alpha."))
+        form.addRow(*self._r("Weight B", self._weight_b, param_help(
+            "Multiplier applied to image B before the operation.",
+            higher="Image B contributes more strongly to the result.",
+            lower="Image B contributes less; 0 removes it entirely.",
+            default="1.0 leaves B unscaled. For an opacity cross-fade with "
+                    "Blend, set Weight A = 1 - alpha and Weight B = alpha.",
+        )))
 
         self._clip = QCheckBox("Clip result to [0, 1]")
         self._clip.setChecked(True)

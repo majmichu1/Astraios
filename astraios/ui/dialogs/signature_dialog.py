@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from astraios.ui.widgets.ui_kit import help_dot
+from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
 
@@ -107,9 +107,12 @@ class SignatureDialog(QDialog):
         self._outline_spin.setValue(2)
         row = QHBoxLayout()
         row.addWidget(self._outline_spin)
-        row.addWidget(help_dot(
+        row.addWidget(help_dot(param_help(
             "Dark outline thickness around the letters so the text stays "
-            "readable over stars. 0 disables it."))
+            "readable over stars.",
+            higher="A thicker, more visible outline.",
+            lower="A thinner outline; 0 disables it.",
+        )))
         row.addStretch()
         tform.addRow("Outline", row)
         lay.addWidget(self._text_group)
