@@ -1854,13 +1854,20 @@ class ToolsPanel(QWidget):
         )
         self._selc_smooth = selc.add_slider(
             "Edge feather", 10.0, 0.0, 60.0, 1.0, 0,
-            help_text="How softly the selection fades at the edge of the "
-                      "color family, in hue degrees. Higher avoids hard "
-                      "color seams.",
+            help_text=param_help(
+                "How softly the selection fades at the edge of the colour "
+                "family, in hue degrees.",
+                higher="Wider feather — avoids hard colour seams.",
+                lower="A tight selection with crisp edges.",
+            ),
         )
         self._selc_intensity = selc.add_slider(
             "Intensity", 1.0, 0.0, 2.0, 0.05, 2,
-            help_text="Master strength of all adjustments below.",
+            help_text=param_help(
+                "Master strength of all the adjustments below.",
+                higher="Amplifies every adjustment together.",
+                lower="Eases the whole effect; 0 = off.",
+            ),
         )
         selc.add_divider()
         self._selc_adjust = {}
@@ -1883,13 +1890,19 @@ class ToolsPanel(QWidget):
         selc.add_divider()
         self._selc_min_chroma = selc.add_slider(
             "Ignore gray below", 0.05, 0.0, 0.5, 0.01, 2,
-            help_text="Pixels less colorful than this are never selected, "
-                      "protecting the gray background from color shifts.",
+            help_text=param_help(
+                "Pixels less colourful than this are never selected.",
+                higher="Protects more of the gray background from colour shifts.",
+                lower="Lets even near-gray pixels be adjusted.",
+            ),
         )
         self._selc_edge_blur = selc.add_slider(
             "Mask blur", 0.0, 0.0, 20.0, 0.5, 1,
-            help_text="Blurs the selection mask by this many pixels for "
-                      "seamless transitions.",
+            help_text=param_help(
+                "Blurs the selection mask, in pixels.",
+                higher="Softer, more seamless spatial transitions.",
+                lower="A sharp mask; 0 = no blur.",
+            ),
         )
         selc.add_run("▶ Apply Selective Color", self.run_selective_color.emit)
         lay.addWidget(selc)
@@ -1918,11 +1931,19 @@ class ToolsPanel(QWidget):
         )
         self._sell_smooth = sell.add_slider(
             "Edge feather", 0.05, 0.0, 0.5, 0.01, 2,
-            help_text="How softly the selection fades at the band edges.",
+            help_text=param_help(
+                "How softly the selection fades at the brightness-band edges.",
+                higher="A gradual blend into neighbouring tones.",
+                lower="A tight band with abrupt edges.",
+            ),
         )
         self._sell_intensity = sell.add_slider(
             "Intensity", 1.0, 0.0, 2.0, 0.05, 2,
-            help_text="Master strength of all adjustments below.",
+            help_text=param_help(
+                "Master strength of all the adjustments below.",
+                higher="Amplifies every adjustment together.",
+                lower="Eases the whole effect; 0 = off.",
+            ),
         )
         sell.add_divider()
         self._sell_adjust = {}
@@ -1942,8 +1963,11 @@ class ToolsPanel(QWidget):
             )
         self._sell_edge_blur = sell.add_slider(
             "Mask blur", 5.0, 0.0, 20.0, 0.5, 1,
-            help_text="Blurs the selection mask by this many pixels so the "
-                      "band transition is invisible.",
+            help_text=param_help(
+                "Blurs the selection mask, in pixels.",
+                higher="Makes the band transition invisible.",
+                lower="A sharp band edge; 0 = no blur.",
+            ),
         )
         sell.add_run("▶ Apply Selective Luminance", self.run_selective_luma.emit)
         lay.addWidget(sell)
@@ -2465,10 +2489,12 @@ class ToolsPanel(QWidget):
         )
         self._fs_lf_smooth = fs.add_slider(
             "Smooth structure", 0.0, 0.0, 30.0, 1.0, 1,
-            help_text="Blurs the structure/color layer by this many pixels "
-                      "before recombining, smoothing large-scale color mottle "
-                      "or gradients without touching fine detail. 0 leaves it "
-                      "untouched.",
+            help_text=param_help(
+                "Blurs the structure/colour layer (px) before recombining.",
+                higher="Smooths large-scale colour mottle and gradients more, "
+                       "without touching fine detail.",
+                lower="Leaves the structure layer as-is; 0 = untouched.",
+            ),
         )
         self._fs_preview_check = fs.add_check("Show before/after preview")
         for _sl in (self._fs_sigma, self._fs_hf_boost, self._fs_lf_smooth):
@@ -2494,17 +2520,20 @@ class ToolsPanel(QWidget):
         )
         self._clahe_clip  = clh.add_slider(
             "Clip limit", 2.0, 0.5, 10.0, 0.5, 1,
-            help_text="Caps how much contrast can be boosted within each "
-                      "tile before the excess spreads to neighboring tiles "
-                      "instead. Higher allows a stronger local contrast boost "
-                      "but amplifies more noise.",
+            help_text=param_help(
+                "Caps how much contrast each tile can boost.",
+                higher="A stronger local-contrast boost — but amplifies more "
+                       "noise in flat areas.",
+                lower="A gentler, cleaner boost.",
+            ),
         )
         self._clahe_tiles = clh.add_slider(
             "Tile size",  8,   4,   32,   1,   0,
-            help_text="Number of contrast tiles along each axis of the grid. "
-                      "More tiles boost finer local detail but can look "
-                      "patchy; fewer tiles give a smoother, more "
-                      "global-looking boost.",
+            help_text=param_help(
+                "Number of contrast tiles along each axis.",
+                higher="Boosts finer local detail, but can look patchy.",
+                lower="A smoother, more global-looking boost.",
+            ),
         )
         self._clahe_preview_check = clh.add_check("Show before/after preview")
         for _sl in (self._clahe_clip, self._clahe_tiles):
@@ -2529,21 +2558,28 @@ class ToolsPanel(QWidget):
         )
         self._um_radius    = um.add_slider(
             "Radius (px)", 1.5, 0.5, 10.0, 0.5, 1,
-            help_text="Size, in pixels, of the blur used to find edges. "
-                      "Smaller sharpens fine detail; larger sharpens coarser "
-                      "structure.",
+            help_text=param_help(
+                "Size of the blur used to find edges, in pixels.",
+                higher="Sharpens coarser structure.",
+                lower="Sharpens fine detail.",
+            ),
         )
         self._um_amount    = um.add_slider(
             "Amount",      0.5, 0.0,  2.0, 0.05, 2,
-            help_text="Strength of the sharpening. 0 has no effect; higher "
-                      "increases edge contrast more but can create dark or "
-                      "bright fringes if pushed too far.",
+            help_text=param_help(
+                "Strength of the sharpening.",
+                higher="More edge contrast — but can create dark/bright fringes "
+                       "if pushed too far.",
+                lower="A subtle sharpen; 0 = no effect.",
+            ),
         )
         self._um_threshold = um.add_slider(
             "Threshold",   0.0, 0.0,  0.1, 0.005, 3,
-            help_text="Minimum brightness difference needed before an edge "
-                      "is sharpened. Raise it to avoid amplifying noise in "
-                      "smooth, flat sky.",
+            help_text=param_help(
+                "Minimum brightness difference before an edge is sharpened.",
+                higher="Skips low-contrast areas — avoids amplifying sky noise.",
+                lower="Sharpens everything, including faint noise; 0 = no gate.",
+            ),
         )
         self._um_preview_check = um.add_check("Show before/after preview")
         for _sl in (self._um_radius, self._um_amount, self._um_threshold):
@@ -2585,8 +2621,11 @@ class ToolsPanel(QWidget):
         )
         self._morph_iters  = mor.add_slider(
             "Iterations", 1, 1, 10, 1, 0,
-            help_text="How many times the operation is repeated. More "
-                      "iterations produce a stronger effect.",
+            help_text=param_help(
+                "How many times the operation is repeated.",
+                higher="A stronger effect (more shrink/grow).",
+                lower="A subtle, single-pass effect.",
+            ),
         )
         mor.add_run("▶ Apply Morphology", self.run_morphology.emit)
         lay.addWidget(mor)
@@ -2635,24 +2674,35 @@ class ToolsPanel(QWidget):
         )
         self._wshdr_scales = wshdr.add_spin(
             "Scales", 2, 10, 5,
-            help_text="How many detail sizes are processed. More scales "
-                      "reach larger structures but take longer.",
+            help_text=param_help(
+                "How many detail sizes are processed.",
+                higher="Reaches larger structures, but takes longer.",
+                lower="Focuses on finer core detail only.",
+            ),
         )
         self._wshdr_compression = wshdr.add_slider(
             "Strength", 1.5, 0.1, 5.0, 0.05, 2,
-            help_text="Local contrast boost inside the bright regions. "
-                      "Higher digs out more core detail.",
+            help_text=param_help(
+                "Local-contrast boost inside the bright regions.",
+                higher="Digs out more core detail — too high looks harsh.",
+                lower="A gentle recovery of core detail.",
+            ),
         )
         self._wshdr_mask_gamma = wshdr.add_slider(
             "Focus", 5.0, 0.1, 10.0, 0.1, 1,
-            help_text="Concentrates the effect on only the brightest areas. "
-                      "Higher = tighter around the core; lower spreads the "
-                      "effect into midtones.",
+            help_text=param_help(
+                "Concentrates the effect on the brightest areas.",
+                higher="Tighter around the very brightest cores.",
+                lower="Spreads the effect into midtones.",
+            ),
         )
         self._wshdr_decay = wshdr.add_slider(
             "Scale falloff", 0.5, 0.1, 1.0, 0.05, 2,
-            help_text="How quickly the boost fades from fine to coarse "
-                      "scales. Lower keeps it on fine detail only.",
+            help_text=param_help(
+                "How quickly the boost fades from fine to coarse scales.",
+                higher="Carries the boost out to coarser structure.",
+                lower="Keeps it on fine detail only.",
+            ),
         )
         wshdr.add_run("▶ Apply WaveScale HDR", self.run_wavescale_hdr.emit)
         lay.addWidget(wshdr)
@@ -2667,29 +2717,45 @@ class ToolsPanel(QWidget):
         )
         self._wsde_scales = wsde.add_spin(
             "Scales", 2, 10, 6,
-            help_text="How many detail sizes are analyzed for dark "
-                      "structure.",
+            help_text=param_help(
+                "How many detail sizes are analyzed for dark structure.",
+                higher="Captures larger dark features, but slower.",
+                lower="Focuses on fine dark detail.",
+            ),
         )
         self._wsde_boost = wsde.add_slider(
             "Boost", 5.0, 0.1, 10.0, 0.1, 1,
-            help_text="Strength of the dark-detail enhancement. 1.0 does "
-                      "nothing; higher makes dust lanes more pronounced.",
+            help_text=param_help(
+                "Strength of the dark-detail enhancement.",
+                higher="Makes dust lanes and dark nebulae more pronounced.",
+                lower="A subtle deepening; 1.0 does nothing.",
+            ),
         )
         self._wsde_mask_gamma = wsde.add_slider(
             "Focus", 1.0, 0.1, 10.0, 0.1, 1,
-            help_text="Concentrates the effect on only the faintest dips. "
-                      "Raise it if midtones start darkening.",
+            help_text=param_help(
+                "Concentrates the effect on the faintest dark dips.",
+                higher="Tighter on the darkest structure — raise if midtones "
+                       "start darkening.",
+                lower="Spreads the effect into the midtones.",
+            ),
         )
         self._wsde_iterations = wsde.add_spin(
             "Iterations", 1, 10, 2,
-            help_text="Number of enhancement passes. Each pass re-measures "
-                      "what is dark. More passes = stronger but slower.",
+            help_text=param_help(
+                "Number of enhancement passes (each re-measures what is dark).",
+                higher="Stronger, but slower.",
+                lower="A single, gentle pass.",
+            ),
         )
         self._wsde_decay = wsde.add_slider(
             "Scale falloff", 0.5, 0.1, 1.0, 0.05, 2,
-            help_text="How quickly the boost fades toward coarse scales. "
-                      "The finest scale is always skipped to avoid boosting "
-                      "noise.",
+            help_text=param_help(
+                "How quickly the boost fades toward coarse scales (the finest "
+                "scale is always skipped to avoid boosting noise).",
+                higher="Carries the enhancement out to broader dark structure.",
+                lower="Keeps it on smaller dark detail.",
+            ),
         )
         wsde.add_run("▶ Enhance Dark Structure", self.run_wavescale_dark.emit)
         lay.addWidget(wsde)
