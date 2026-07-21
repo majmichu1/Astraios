@@ -3,7 +3,7 @@
 import pytest
 import torch
 
-from astraios.ai.model_manager import ModelManager, ModelType, ModelInfo, MODEL_REGISTRY
+from astraios.ai.model_manager import MODEL_REGISTRY, ModelInfo, ModelManager, ModelType
 from astraios.ai.models.denoise_model import DenoiseUNet
 from astraios.ai.models.sharpen_model import SharpenUNet
 
@@ -36,6 +36,22 @@ class TestModelInfo:
 
 
 class TestModelManager:
+    @pytest.fixture(autouse=True)
+    def _isolate_from_bundled_models(self, tmp_path, monkeypatch):
+        """Point the bundled-models directory at an empty temp dir.
+
+        These tests describe the USER CACHE lifecycle (missing -> download ->
+        delete). Astraios now ships a denoise model inside the package, and
+        `get_model_path`/`is_available` correctly prefer that copy, so without
+        this isolation the tests would be asserting against the real shipped
+        file instead of the cache they set up.
+        """
+        import astraios.ai.model_manager as mm
+
+        empty = tmp_path / "_no_bundled_models"
+        empty.mkdir()
+        monkeypatch.setattr(mm, "_BUNDLED_MODELS_DIR", empty)
+
     def test_creation_creates_directory(self, tmp_path):
         models_dir = tmp_path / "models"
         assert not models_dir.exists()
@@ -197,3 +213,47 @@ class TestModelManager:
         size = manager.get_cache_size()
         assert size > 0
         assert size == model_path.stat().st_size
+
+
+class TestBundledModelsAreProtected:
+    """`delete_model` used to resolve through `get_model_path`, which prefers
+    the bundled copy, so deleting a "cached" model removed the model shipped
+    inside the installed package. It really happened: the first test run after
+    a model was bundled silently deleted it from the working tree.
+    """
+
+    def test_delete_model_never_touches_the_bundled_copy(self, tmp_path, monkeypatch):
+        import astraios.ai.model_manager as mm
+
+        bundled_dir = tmp_path / "bundled"
+        bundled_dir.mkdir()
+        info = MODEL_REGISTRY[ModelType.DENOISE]
+        bundled_file = bundled_dir / info.filename
+        bundled_file.write_bytes(b"pretend weights")
+        monkeypatch.setattr(mm, "_BUNDLED_MODELS_DIR", bundled_dir)
+
+        manager = ModelManager(models_dir=tmp_path / "cache")
+        manager.delete_model(ModelType.DENOISE)
+
+        assert bundled_file.exists(), "delete_model removed the bundled model"
+
+    def test_delete_model_still_removes_a_cached_copy(self, tmp_path, monkeypatch):
+        import astraios.ai.model_manager as mm
+
+        empty = tmp_path / "no_bundled"
+        empty.mkdir()
+        monkeypatch.setattr(mm, "_BUNDLED_MODELS_DIR", empty)
+
+        cache = tmp_path / "cache"
+        manager = ModelManager(models_dir=cache)
+        info = MODEL_REGISTRY[ModelType.DENOISE]
+        cached = cache / info.filename
+        cached.write_bytes(b"downloaded weights")
+
+        manager.delete_model(ModelType.DENOISE)
+        assert not cached.exists(), "a genuinely cached model should still be deletable"
+
+    def test_is_bundled_reports_the_shipped_denoise_model(self):
+        # The real package: the denoise model ships with Astraios.
+        manager = ModelManager()
+        assert manager.is_bundled(ModelType.DENOISE) is True

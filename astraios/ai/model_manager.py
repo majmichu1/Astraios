@@ -57,8 +57,11 @@ MODEL_REGISTRY: dict[ModelType, ModelInfo] = {
         model_type=ModelType.DENOISE,
         filename="cosmica_denoise_v1.pt",
         version="1.0.0",
-        sha256="0c357c0309bdfbcbf1e52d74167de1331b3d4c433ca542d4b1aebcf4d0355b9a",
-        size_bytes=7749069,
+        # Bundled with the package (see _BUNDLED_MODELS_DIR), so no download is
+        # needed. Hash and size describe the shipped file; the previous values
+        # described a model that was never published anywhere.
+        sha256="a0a258d297674eed1d12783e728b2ea213304023cf776cd452742d708981c3bd",
+        size_bytes=31114023,
         description="Astraios AI Denoiser v1 — Noise2Self U-Net for astronomical images",
     ),
     ModelType.SHARPEN: ModelInfo(
@@ -274,15 +277,37 @@ class ModelManager:
             self.download_model(model_type, progress=progress)
         return self.load_model(model_type, device=device)
 
+    def is_bundled(self, model_type: ModelType) -> bool:
+        """True if this model ships inside the package rather than being
+        downloaded into the user cache."""
+        info = MODEL_REGISTRY.get(model_type)
+        if info is None:
+            return False
+        return (_BUNDLED_MODELS_DIR / info.filename).exists()
+
     def delete_model(self, model_type: ModelType) -> None:
-        """Delete a cached model file."""
-        path = self.get_model_path(model_type)
+        """Delete a DOWNLOADED model from the user cache.
+
+        Only the user cache is touched. This used to call `get_model_path()`,
+        which prefers the bundled copy, so deleting a "cached" model actually
+        removed the model that ships inside the installed package -- gone
+        until the user reinstalled, and it silently deleted bundled weights
+        during the test run that first bundled one.
+        """
+        info = MODEL_REGISTRY.get(model_type)
+        if info is None:
+            raise ValueError(f"Unknown model type: {model_type}")
+        path = self._models_dir / info.filename
         if path.exists():
             path.unlink()
-            info = MODEL_REGISTRY[model_type]
             self._manifest.pop(info.filename, None)
             self._save_manifest()
-            log.info("Deleted model: %s", path)
+            log.info("Deleted cached model: %s", path)
+        elif self.is_bundled(model_type):
+            log.info(
+                "%s is bundled with Astraios and cannot be deleted; nothing to do",
+                info.filename,
+            )
 
     def get_cache_size(self) -> int:
         """Return total size of cached models in bytes."""
