@@ -5,7 +5,7 @@ __pycache__/
 *.egg-info/
 *.egg
 dist/
-build/output/
+build/
 *.whl
 
 # Virtual environments

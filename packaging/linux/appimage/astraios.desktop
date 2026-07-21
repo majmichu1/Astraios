@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Astraios
+GenericName=Astrophotography Image Processing
+Comment=GPU-accelerated astrophotography processing suite
+Exec=AppRun %F
+Icon=astraios
+Terminal=false
+Categories=Graphics;Science;Astronomy;RasterGraphics;
+Keywords=astronomy;astrophotography;FITS;stacking;deep-sky;
+MimeType=image/fits;application/fits;

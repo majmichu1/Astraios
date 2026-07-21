@@ -1,0 +1,59 @@
+#!/bin/bash
+# Astraios AppImage launcher.
+#
+# The AppImage bundles Python, PyQt6, numpy/scipy/astropy and Astraios itself,
+# but NOT PyTorch: a CUDA build is ~1.8 GB on its own, which would push the
+# asset past GitHub's 2 GiB release limit and force every user to download
+# CUDA even on a CPU-only machine. Instead the correct PyTorch for THIS
+# machine (CUDA when an NVIDIA GPU is present, CPU otherwise) is installed
+# once into a writable user directory on first launch, then reused.
+#
+# That keeps the AppImage a single portable file that still runs everything
+# on the GPU, and it works on immutable distros (Bazzite, Silverblue) where
+# nothing may be installed system-wide.
+
+set -e
+
+HERE="$(dirname "$(readlink -f "${0}")")"
+export APPDIR="${HERE}"
+
+# Bundled interpreter
+export PYTHONHOME="${HERE}/usr"
+export PATH="${HERE}/usr/bin:${PATH}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+PY="${HERE}/usr/bin/python3"
+
+# Where the machine-specific PyTorch lives (outside the read-only AppImage).
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+RUNTIME="${DATA_HOME}/Astraios/runtime"
+SITE="$(echo "${RUNTIME}"/lib/python*/site-packages 2>/dev/null | head -1)"
+
+# Make the provisioned torch importable (also covers a partially-built runtime;
+# the check below decides whether it is actually usable).
+if [ -d "${RUNTIME}" ]; then
+    for d in "${RUNTIME}"/lib/python*/site-packages; do
+        [ -d "$d" ] && export PYTHONPATH="${d}:${PYTHONPATH}"
+    done
+fi
+
+# Astraios itself ships inside the AppImage.
+export PYTHONPATH="${HERE}/usr/lib/astraios:${PYTHONPATH}"
+
+# Qt: use the bundled PyQt6 plugins, and prefer the host's graphics stack.
+export QT_PLUGIN_PATH="${HERE}/usr/lib/astraios/PyQt6/Qt6/plugins"
+unset QT_QPA_PLATFORM_PLUGIN_PATH
+
+if ! "${PY}" -c "import torch" >/dev/null 2>&1; then
+    # First launch (or a previous provisioning was interrupted).
+    echo "Astraios: setting up the compute runtime for this machine..."
+    if ! "${PY}" "${HERE}/usr/lib/astraios/_appimage_bootstrap.py"; then
+        echo "Astraios: runtime setup failed. See the message above." >&2
+        exit 1
+    fi
+    # Re-export: the bootstrap created the site-packages dir just now.
+    for d in "${RUNTIME}"/lib/python*/site-packages; do
+        [ -d "$d" ] && export PYTHONPATH="${d}:${PYTHONPATH}"
+    done
+fi
+
+exec "${PY}" -m astraios "$@"
