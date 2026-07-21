@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -48,17 +49,49 @@ def _migrate_legacy_settings() -> None:
     )
 
 
+# Libraries that log at DEBUG on import and drown out our own messages.
+# numcodecs alone emits one line per registered codec at every startup.
+_NOISY_LIBRARIES = (
+    "numcodecs",
+    "matplotlib",
+    "PIL",
+    "asyncio",
+    "urllib3",
+    "fsspec",
+    "dask",
+    "h5py",
+)
+
+
+def _configure_logging(argv: list[str]) -> None:
+    """Set up logging: our own messages at INFO, third-party noise at WARNING.
+
+    Debug logging is opt-in via ``--debug`` or ``ASTRAIOS_DEBUG=1``. Running
+    the root logger at DEBUG (as this used to) meant every dependency logged
+    its internals on every launch, which buried real warnings and cost time
+    formatting messages nobody reads.
+    """
+    debug = "--debug" in argv or os.environ.get("ASTRAIOS_DEBUG", "") not in ("", "0")
+
+    logging.basicConfig(
+        level=logging.DEBUG if debug else logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    # Our own package follows the requested level; chatty dependencies never
+    # drop below WARNING, even in debug runs, unless explicitly asked for.
+    logging.getLogger("astraios").setLevel(logging.DEBUG if debug else logging.INFO)
+    if not (debug and os.environ.get("ASTRAIOS_DEBUG_LIBS", "") not in ("", "0")):
+        for name in _NOISY_LIBRARIES:
+            logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def run_application(argv: list[str] | None = None) -> int:
     """Initialize and run the Astraios application."""
     if argv is None:
         argv = sys.argv
 
-    # Set up root logger
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    _configure_logging(argv)
 
     app = _AstraiosApp(argv)
     app.setApplicationName(astraios.__app_name__)
