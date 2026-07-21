@@ -108,14 +108,47 @@ def default_minor_body_dir() -> Path:
 
 
 def _solve_kepler(M: float, e: float, tol: float = 1e-10, max_iter: int = 50) -> float:
-    """Solve Kepler's equation ``M = E - e*sin(E)`` for E via Newton-Raphson."""
-    E = M if e < 0.8 else math.pi
+    """Solve Kepler's equation ``M = E - e*sin(E)`` for E via Newton-Raphson.
+
+    ``M`` may be any real angle. It is reduced to one revolution before
+    iterating and the whole revolutions are added back, so the returned ``E``
+    still satisfies ``M = E - e*sin(E)`` exactly.
+
+    Naive Newton from a fixed ``E = pi`` start diverges violently for
+    ``e >= 0.8`` once ``M`` falls outside a single revolution (it returned
+    ``E = -245012`` for ``e=0.95, M=9.11``), because ``1 - e*cos(E)`` gets
+    close to zero and the step explodes. The current caller happens to wrap
+    ``M`` into ``[0, 2*pi)`` first, so that was never reachable in practice,
+    but comets run at ``e`` near 1 and the guard costs nothing: use Danby's
+    starting value and clamp each step to one radian.
+    """
+    if e < 0.0:
+        raise ValueError(f"eccentricity must be non-negative, got {e}")
+
+    # Reduce to [-pi, pi], remembering how many full revolutions were removed.
+    revolutions = math.floor((M + math.pi) / (2.0 * math.pi))
+    m_reduced = M - 2.0 * math.pi * revolutions
+
+    if e < 0.8:
+        E = m_reduced
+    else:
+        # Danby's starter: biases the guess toward perihelion, where the
+        # curvature that breaks a fixed pi start actually lives.
+        E = m_reduced + 0.85 * e * math.copysign(1.0, math.sin(m_reduced) or 1.0)
+
     for _ in range(max_iter):
-        dE = (M - E + e * math.sin(E)) / (1.0 - e * math.cos(E))
+        denom = 1.0 - e * math.cos(E)
+        if abs(denom) < 1e-12:  # near-parabolic: keep the step finite
+            denom = math.copysign(1e-12, denom or 1.0)
+        dE = (m_reduced - E + e * math.sin(E)) / denom
+        # A full-radian cap still converges quadratically near the root but
+        # stops a single bad step from throwing the iteration to infinity.
+        dE = max(-1.0, min(1.0, dE))
         E += dE
         if abs(dE) < tol:
             break
-    return E
+
+    return E + 2.0 * math.pi * revolutions
 
 
 def _decode_packed_epoch(packed: str) -> float:

@@ -243,3 +243,47 @@ def test_deterministic(db_dir):
     for b1, b2 in zip(r1, r2, strict=True):
         assert b1.ra_deg == b2.ra_deg
         assert b1.dec_deg == b2.dec_deg
+
+
+class TestKeplerSolverRobustness:
+    """The solver must satisfy Kepler's equation for any real M, not just the
+    [0, 2*pi) range the current caller happens to feed it.
+
+    Regression: a fixed ``E = pi`` start diverged for high eccentricity once M
+    left a single revolution (e=0.95, M=9.11 returned E=-245012).
+    """
+
+    def test_residual_is_zero_over_wide_range(self):
+        import math
+
+        from astraios.core.minor_body_catalog import _solve_kepler
+
+        worst = 0.0
+        for e in (0.0, 0.3, 0.7, 0.8, 0.9, 0.95, 0.99):
+            for i in range(60):
+                m = -4.0 * math.pi + i * (10.0 * math.pi / 59.0)
+                ecc = _solve_kepler(m, e)
+                worst = max(worst, abs((ecc - e * math.sin(ecc)) - m))
+        assert worst < 1e-8, f"Kepler residual too large: {worst}"
+
+    def test_previously_divergent_case(self):
+        import math
+
+        from astraios.core.minor_body_catalog import _solve_kepler
+
+        ecc = _solve_kepler(9.1106, 0.95)
+        assert abs((ecc - 0.95 * math.sin(ecc)) - 9.1106) < 1e-9
+        assert abs(ecc - 9.26333) < 1e-4
+
+    def test_circular_orbit_is_identity(self):
+        from astraios.core.minor_body_catalog import _solve_kepler
+
+        assert abs(_solve_kepler(1.234, 0.0) - 1.234) < 1e-12
+
+    def test_negative_eccentricity_rejected(self):
+        import pytest
+
+        from astraios.core.minor_body_catalog import _solve_kepler
+
+        with pytest.raises(ValueError):
+            _solve_kepler(1.0, -0.1)
