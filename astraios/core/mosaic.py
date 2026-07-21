@@ -105,26 +105,52 @@ def mosaic_stitch(
         result = np.zeros(canvas_size, dtype=np.float32)
     weight_total = np.zeros(canvas_size, dtype=np.float32)
 
+    multiband = params.blend_method == BlendMethod.MULTIBAND
+    mb_panels: list[np.ndarray] = []
+    mb_weights: list[np.ndarray] = []
+
     for i, (panel, transform, offset) in enumerate(zip(panels, transforms, offsets, strict=True)):
         frac = 0.5 + 0.5 * i / max(len(panels) - 1, 1)
         progress(frac, f"Blending panel {i + 1}/{len(panels)}...")
 
         warped, mask = _warp_panel(panel, transform, offset, canvas_size)
-        weight = _compute_blend_weight(mask, params.feather_width)
+        weight = _panel_weight(mask, params)
 
-        if is_color:
+        if multiband:
+            # Multiband needs every panel at once, so hold them until the end.
+            mb_panels.append(warped)
+            mb_weights.append(weight)
+        elif is_color:
             for ch in range(panel.shape[0]):
                 result[ch] += warped[ch] * weight
         else:
             result += warped * weight
         weight_total += weight
 
-    valid = weight_total > 0
-    if is_color:
-        for ch in range(result.shape[0]):
-            result[ch][valid] /= weight_total[valid]
-    else:
-        result[valid] /= weight_total[valid]
+    if multiband:
+        levels = _pyramid_levels(canvas_size)
+        if levels < 1:
+            log.info("Canvas too small for multiband blending; feathering instead")
+            multiband = False
+        else:
+            progress(0.9, f"Multiband blending ({levels} levels)...")
+            if is_color:
+                for ch in range(result.shape[0]):
+                    result[ch] = _multiband_blend_plane(
+                        [p[ch] for p in mb_panels], mb_weights, levels
+                    )
+            else:
+                result = _multiband_blend_plane(mb_panels, mb_weights, levels)
+            # Blending already normalized per level; only mask the empty area.
+            result = np.where(weight_total > 0, result, 0.0).astype(np.float32)
+
+    if not multiband:
+        valid = weight_total > 0
+        if is_color:
+            for ch in range(result.shape[0]):
+                result[ch][valid] /= weight_total[valid]
+        else:
+            result[valid] /= weight_total[valid]
 
     if params.clip_negative:
         result = np.maximum(result, 0)
@@ -251,6 +277,98 @@ def _compute_blend_weight(
     dist = cv2.distanceTransform(binary, cv2.DIST_L2, 3)
     weight = np.clip(dist / max(feather_width, 1), 0, 1).astype(np.float32)
     return weight
+
+
+def _panel_weight(mask: np.ndarray, params: MosaicParams) -> np.ndarray:
+    """Per-panel blend weight for the selected blend method.
+
+    AVERAGE uses a flat weight so overlapping panels are simply averaged;
+    FEATHER (and MULTIBAND, whose per-level weights come from these) ramps
+    the weight up over `feather_width` pixels from the panel edge.
+    """
+    if params.blend_method == BlendMethod.AVERAGE:
+        return (mask > 0.5).astype(np.float32)
+    return _compute_blend_weight(mask, params.feather_width)
+
+
+def _pyramid_levels(shape: tuple[int, int], requested: int = 5) -> int:
+    """How many pyramid levels the canvas can support (>=16 px at the top)."""
+    smallest = max(min(shape), 1)
+    possible = int(np.floor(np.log2(smallest / 16.0))) if smallest >= 32 else 0
+    return int(max(0, min(requested, possible)))
+
+
+def _laplacian_pyramid(img: np.ndarray, levels: int) -> list[np.ndarray]:
+    gaussian = [img.astype(np.float32)]
+    for _ in range(levels):
+        gaussian.append(cv2.pyrDown(gaussian[-1]))
+    pyramid = []
+    for i in range(levels):
+        up = cv2.pyrUp(gaussian[i + 1], dstsize=(gaussian[i].shape[1], gaussian[i].shape[0]))
+        pyramid.append(gaussian[i] - up)
+    pyramid.append(gaussian[-1])
+    return pyramid
+
+
+def _gaussian_pyramid(img: np.ndarray, levels: int) -> list[np.ndarray]:
+    pyramid = [img.astype(np.float32)]
+    for _ in range(levels):
+        pyramid.append(cv2.pyrDown(pyramid[-1]))
+    return pyramid
+
+
+def _fill_outside(plane: np.ndarray, valid: np.ndarray) -> np.ndarray:
+    """Extrapolate a panel past its footprint using the nearest valid pixel.
+
+    A warped panel is zero outside its own footprint. Feeding that straight
+    into a Laplacian pyramid puts a cliff at the panel border, and the coarse
+    levels smear that black across the seam -- which made multiband blending
+    *worse* than feathering for narrow overlaps. Filling with the nearest
+    real pixel removes the artificial edge, so only genuine image content
+    enters the pyramid; the weight maps still decide what is actually used.
+    """
+    if valid.all():
+        return plane.astype(np.float32)
+    if not valid.any():
+        return plane.astype(np.float32)
+    from scipy import ndimage
+
+    idx = ndimage.distance_transform_edt(~valid, return_distances=False,
+                                         return_indices=True)
+    return plane[tuple(idx)].astype(np.float32)
+
+
+def _multiband_blend_plane(
+    planes: list[np.ndarray],
+    weights: list[np.ndarray],
+    levels: int,
+) -> np.ndarray:
+    """Burt-Adelson multiband blend of N aligned planes with N weight maps.
+
+    Each frequency band is blended with the weight map smoothed to that
+    band's scale. Low frequencies therefore cross the seam gradually (hiding
+    residual brightness differences between panels) while high frequencies
+    stay local, so detail is not smeared the way a wide feather would.
+    """
+    filled = [_fill_outside(p, w > 0) for p, w in zip(planes, weights, strict=True)]
+    laplacians = [_laplacian_pyramid(p, levels) for p in filled]
+    gaussians = [_gaussian_pyramid(w, levels) for w in weights]
+
+    blended: list[np.ndarray] = []
+    for level in range(levels + 1):
+        num = np.zeros_like(laplacians[0][level])
+        den = np.zeros_like(gaussians[0][level])
+        for lap, gauss in zip(laplacians, gaussians, strict=True):
+            num += lap[level] * gauss[level]
+            den += gauss[level]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            blended.append(np.where(den > 1e-6, num / np.maximum(den, 1e-6), 0.0))
+
+    out = blended[-1]
+    for level in range(levels - 1, -1, -1):
+        out = cv2.pyrUp(out, dstsize=(blended[level].shape[1], blended[level].shape[0]))
+        out = out + blended[level]
+    return out.astype(np.float32)
 
 
 def _normalize_photometric(

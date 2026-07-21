@@ -147,14 +147,16 @@ def reduce_stars(
         morph_type, (params.kernel_size, params.kernel_size)
     )
 
+    sm = star_mask.data
+    if params.protect_core:
+        sm = sm * (1.0 - _core_weight(image, sm))
+
     if image.ndim == 2:
         eroded = _erode_channel(image, kernel, params.iterations)
         # Blend: within star mask, use eroded version proportional to amount
-        sm = star_mask.data
         result = image * (1 - sm * params.amount) + eroded * (sm * params.amount)
     else:
         result = np.empty_like(image)
-        sm = star_mask.data
         for ch in range(image.shape[0]):
             eroded = _erode_channel(image[ch], kernel, params.iterations)
             result[ch] = image[ch] * (1 - sm * params.amount) + eroded * (sm * params.amount)
@@ -167,3 +169,34 @@ def reduce_stars(
 def _erode_channel(channel: np.ndarray, kernel: np.ndarray, iterations: int) -> np.ndarray:
     """Erode a single channel. OpenCV morphology operates on uint8/float."""
     return cv2.erode(channel, kernel, iterations=iterations)
+
+
+def _core_weight(image: np.ndarray, star_mask: np.ndarray) -> np.ndarray:
+    """Per-pixel weight in [0, 1] that is 1 at bright star cores, 0 in halos.
+
+    Erosion pulls a star's peak down along with its wings, which hollows out
+    bright stars into a doughnut. `protect_core` holds the peak back: the
+    erosion blend is scaled by ``1 - core_weight``, so the brightest centre
+    keeps its original value while the surrounding halo is still reduced.
+
+    The bright/faint split is taken from the distribution of the masked star
+    pixels themselves (not a fixed level), so it adapts to linear as well as
+    stretched data.
+    """
+    lum = image if image.ndim == 2 else image.max(axis=0)
+    inside = star_mask > 0.05
+    if not np.any(inside):
+        return np.zeros(lum.shape, dtype=np.float32)
+
+    values = lum[inside]
+    # Halo reference vs core reference. The 99.5th percentile rather than the
+    # max keeps a single hot pixel from defining the whole scale.
+    lo = float(np.percentile(values, 80.0))
+    hi = float(np.percentile(values, 99.5))
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return np.zeros(lum.shape, dtype=np.float32)
+
+    weight = np.clip((lum - lo) / (hi - lo), 0.0, 1.0)
+    # Square it so protection concentrates on the true peak and fades quickly
+    # through the wings, instead of shielding the whole star.
+    return (weight * weight).astype(np.float32)
