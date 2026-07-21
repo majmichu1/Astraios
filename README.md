@@ -38,7 +38,7 @@ Astraios is built as a modern, end-to-end workflow tool, from calibration to exp
 | Price | Free (GPL v3) | Free (GPL v3) | Paid (~EUR 290) |
 | GPU acceleration | Full (PyTorch) | Minimal | Some processes |
 | One-click GPU installer | Yes | n/a | n/a |
-| AI denoise | Built-in (Noise2Self) | No | Paid plugin (NoiseXTerminator) |
+| Denoise | TGV / wavelet / NLM built in; Noise2Self architecture present, weights not shipped yet | Built in | Paid plugin (NoiseXTerminator) |
 | Plate solve + photometric color cal. | Yes (astrometry.net / ASTAP) | Yes (PCC + SPCC) | Yes (PCC + SPCC) |
 | Multi-session stacking | Yes | Yes | Yes |
 | Spatially-varying deconvolution | Yes | No | Paid plugin (BlurXTerminator) |
@@ -47,7 +47,7 @@ Astraios is built as a modern, end-to-end workflow tool, from calibration to exp
 | Non-destructive history graph | Yes | No | Process containers / history |
 | Live stacking | Yes | Yes | No |
 
-Where Astraios actually stands apart: everything runs on the GPU, the GPU install is one click, and spatially-varying deconvolution and AI denoise are built in and free rather than paid plugins.
+Where Astraios actually stands apart: everything runs on the GPU, the GPU install is one click, and spatially-varying deconvolution is built in and free rather than a paid plugin.
 
 ## Features
 
@@ -78,11 +78,12 @@ Where Astraios actually stands apart: everything runs on the GPU, the GPU instal
 - **Alt/Az Field Rotation** -- Field-rotation rate and total rotation over an exposure for alt-az mounts, plus parallactic angle
 
 ### AI and Advanced Denoising
-Models download on first use; nothing runs in the cloud.
+Nothing runs in the cloud: any model you use is loaded and run on your own machine.
 
-- **AI Denoise** -- a Noise2Self U-Net trained on real astro images (the model downloads on first use)
+- **Denoising that works today** -- TGV, wavelet, non-local means and chroma denoise are all built in and need no model. These are what the Denoise tool uses.
+- **AI Denoise** -- the Noise2Self U-Net architecture and its training script are in the repository, but no trained weights ship yet, so selecting the AI backend currently falls back to the classical denoisers above. You can train your own (see AI Model Training) or point Preferences at your own weights.
 - **Star Removal** -- a built-in morphological remover that works immediately with no extra download, plus optional StarNet integration when you point Astraios at a StarNet binary you've installed
-- **Bring your own models** -- in Preferences you can point Astraios at a StarNet binary, a denoise model, or a Cosmic Clarity model folder you already have, so it uses those instead of downloading anything
+- **Bring your own models** -- in Preferences you can point Astraios at a StarNet binary, a denoise model, or a Cosmic Clarity model folder you already have
 
 For sharpening, see the deconvolution tools below (Richardson-Lucy and spatially-varying deconvolution).
 

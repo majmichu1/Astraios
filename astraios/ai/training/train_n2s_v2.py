@@ -20,7 +20,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-from astraios.ai.models.unet import UNet
+from astraios.ai.models.denoise_model import create_denoise_model
 
 log = logging.getLogger(__name__)
 
@@ -81,7 +81,20 @@ def train(resume_path: Path | None = None):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     log.info(f"Using device: {device}")
 
-    model = UNet(in_channels=1, out_channels=1, base_features=32, depth=4).to(device)
+    # Train the module that actually gets deployed, not a bare UNet.
+    #
+    # This used to build `UNet(...)` directly, which silently disagreed with
+    # inference: the loss here compares the network output against the clean
+    # target, so the UNet learns to predict the CLEAN IMAGE, while
+    # DenoiseUNet.forward treats its inner UNet's output as PREDICTED NOISE
+    # and returns `x - unet(x)`. Weights trained the old way therefore cannot
+    # be deployed -- loading them into the real model produces roughly the
+    # noise map instead of a denoised image, and the key names do not even
+    # match (`encoders.0...` vs `unet.encoders.0...`). Training the wrapper
+    # keeps the residual convention in the loop where it belongs.
+    model = create_denoise_model(
+        in_channels=1, base_features=32, depth=4
+    ).to(device)
     log.info(f"Model params: {sum(p.numel() for p in model.parameters()):,}")
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
@@ -176,6 +189,10 @@ def train(resume_path: Path | None = None):
         # ── Save best model ───────────────────────────────────────────────
         if avg_val < best_val:
             best_val = avg_val
+            # Bare state_dict under the registry filename: this is exactly
+            # what ModelManager.load_model expects (weights_only=True, strict
+            # load into create_denoise_model() defaults).
+            torch.save(model.state_dict(), output_dir / "cosmica_denoise_v1.pt")
             best_path = output_dir / "best_n2s_model.pt"
             torch.save({
                 "epoch": epoch,
