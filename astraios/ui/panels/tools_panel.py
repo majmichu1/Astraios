@@ -3182,17 +3182,21 @@ class ToolsPanel(QWidget):
         sl.addLayout(hdr_row)
 
         _model_statuses = [
-            ("AI Denoise (Noise2Self)",       "ready"),
+            # "Ready" must mean the thing actually runs. AI Denoise has no
+            # trained weights shipping yet, so it falls back to the classical
+            # denoisers; saying "Ready" there was simply untrue.
+            ("AI Denoise (Noise2Self)",       "no_weights"),
             ("AI Sharpen (Richardson-Lucy)",  "ready"),
             ("Star Removal (built-in)",       "ready"),
             ("StarNet (external binary)",     "optional"),
             ("CosmicClarity (your models)",   "optional"),
         ]
         _status_style = {
-            "ready":    (ACCENT_DARK, ACCENT, "Ready"),
-            "training": ("#2d1f00", ORANGE,  "Training…"),
-            "planned":  ("#1c1c2e", ACCENT_PURPLE, "Planned"),
-            "optional": ("#1c1c2e", ACCENT_PURPLE, "Optional"),
+            "ready":      (ACCENT_DARK, ACCENT, "Ready"),
+            "training":   ("#2d1f00", ORANGE,  "Training…"),
+            "planned":    ("#1c1c2e", ACCENT_PURPLE, "Planned"),
+            "optional":   ("#1c1c2e", ACCENT_PURPLE, "Optional"),
+            "no_weights": ("#2d1f00", ORANGE, "No weights yet"),
         }
         for name, status in _model_statuses:
             row = QHBoxLayout()
@@ -3212,25 +3216,27 @@ class ToolsPanel(QWidget):
         den = CollapsibleSection(
             "AI Denoise", accent=True,
             help_text="Runs a trained denoising model over the image in GPU "
-                      "tiles, instead of a classical noise-reduction filter. "
-                      "Noise2Self is a self-supervised model trained on real "
-                      "astro data and works out of the box; CosmicClarity uses "
-                      "your own separately obtained Cosmic Clarity models and "
-                      "does nothing until you point Preferences at them.",
+                      "tiles instead of a classical noise-reduction filter. "
+                      "No trained weights ship yet, so this currently falls "
+                      "back to the classical denoisers in the Detail tab; "
+                      "point Preferences at your own weights to use a real "
+                      "model. CosmicClarity likewise needs your own separately "
+                      "obtained model folder.",
         )
         den.add_info(
-            "Noise2Self: a self-supervised denoiser trained on real astro images, "
-            "built in and ready. CosmicClarity uses your own Cosmic Clarity models "
-            "(set their folder in Preferences); it does nothing until you do."
+            "No trained weights ship yet: this falls back to the classical "
+            "denoisers (TGV, wavelet, NLM) in the Detail tab, which work now. "
+            "Supply your own weights in Preferences > AI Models to run a model."
         )
         self._ai_denoise_backend = den.add_combo(
             "Backend",
             ["Noise2Self (built-in)", "CosmicClarity (your models)"],
             current="Noise2Self (built-in)",
-            help_text="Which denoising model runs. Noise2Self is built in and "
-                      "ready. CosmicClarity uses your own downloaded Cosmic "
-                      "Clarity model files — set their folder in Preferences "
-                      "> AI Models first.",
+            help_text="Which denoising model runs. Neither ships with weights: "
+                      "Noise2Self falls back to the classical denoisers until "
+                      "you supply a model, and CosmicClarity needs your own "
+                      "Cosmic Clarity model files. Set either in Preferences "
+                      "> AI Models.",
         )
         self._ai_denoise_strength = den.add_slider(
             "Strength", 0.7, 0.0, 1.0, 0.05, 2,
