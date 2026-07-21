@@ -19,6 +19,7 @@ Astraios installs through a smart installer: no Python setup, no manual CUDA. It
 |----------|-----------|
 | Windows | Download `Astraios-Setup-*.exe` and run it. |
 | Linux | Download `install-astraios.sh`, then run `bash install-astraios.sh`. Works on Fedora/Bazzite, Ubuntu, Arch, etc. No `apt` or system Python required. |
+| Linux (portable) | Download `Astraios-*-x86_64.AppImage`, then `chmod +x Astraios-*.AppImage && ./Astraios-*.AppImage`. Nothing is installed and no root is needed, which suits immutable systems like Bazzite and Silverblue. It still runs on the GPU: the first launch fetches the PyTorch matching your hardware into your home directory. |
 
 On first run the installer downloads PyTorch (a few minutes; it's the big piece), then Astraios launches from your Start Menu / application menu. Both installers are tested end-to-end on real Windows and Linux machines in CI on every change.
 

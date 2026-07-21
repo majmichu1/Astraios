@@ -14,7 +14,15 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "${HERE}/../../.." && pwd)"
-VERSION="${1:-$(python3 -c "import tomllib;print(tomllib.load(open('${REPO}/pyproject.toml','rb'))['project']['version'])")}"
+
+# Two different versions, and conflating them broke the first tagged build:
+#   PKG_VERSION  - what pyproject/the wheel actually carry ("0.1.23"). The
+#                  wheel filename and the bundled __version__ check use this.
+#   LABEL        - what to call the output file. A release tag adds a channel
+#                  suffix ("0.1.23-alpha") that never appears in the wheel
+#                  name, so it must not be used to look the wheel up.
+PKG_VERSION="$(python3 -c "import tomllib;print(tomllib.load(open('${REPO}/pyproject.toml','rb'))['project']['version'])")"
+LABEL="${1:-${PKG_VERSION}}"
 
 BUILD="${BUILD_DIR:-${REPO}/build/appimage}"
 APPDIR="${BUILD}/Astraios.AppDir"
@@ -27,7 +35,7 @@ PBS_FILE="cpython-3.12.13+${PBS_TAG}-x86_64-unknown-linux-gnu-install_only.tar.g
 PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/${PBS_FILE}"
 APPIMAGETOOL_URL="https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage"
 
-echo "==> Building Astraios ${VERSION} AppImage"
+echo "==> Building Astraios ${LABEL} AppImage (package version ${PKG_VERSION})"
 rm -rf "${APPDIR}"
 mkdir -p "${APPDIR}/usr/lib/astraios" "${CACHE}" "${REPO}/dist"
 
@@ -71,16 +79,16 @@ echo "==> Installing Astraios"
 # stale wheels from earlier releases -- picking one of those silently ships
 # months-old code in a correctly-named AppImage, so match on version and
 # rebuild if the right wheel is not already there.
-WHEEL_GLOB="${REPO}/dist/astraios-${VERSION}-*.whl"
+WHEEL_GLOB="${REPO}/dist/astraios-${PKG_VERSION}-*.whl"
 WHEEL="$(ls ${WHEEL_GLOB} 2>/dev/null | head -1 || true)"
 if [ -z "${WHEEL}" ]; then
-    echo "    no wheel for ${VERSION}, building one"
+    echo "    no wheel for ${PKG_VERSION}, building one"
     (cd "${REPO}" && python3 -m pip install --no-cache-dir poetry >/dev/null \
         && poetry build --format wheel >/dev/null)
     WHEEL="$(ls ${WHEEL_GLOB} 2>/dev/null | head -1 || true)"
 fi
 if [ -z "${WHEEL}" ]; then
-    echo "ERROR: could not produce a wheel for version ${VERSION}" >&2
+    echo "ERROR: could not produce a wheel for version ${PKG_VERSION}" >&2
     exit 1
 fi
 echo "    using ${WHEEL}"
@@ -140,7 +148,7 @@ du -sh "${APPDIR}"
 # runner). Import the whole stack with the bundled interpreter so a bad trim
 # fails the build here instead of shipping.
 echo "==> Verifying the bundled stack imports"
-PYTHONPATH="${SP}" EXPECTED_VERSION="${VERSION}" "${PY}" - <<'PYCHECK'
+PYTHONPATH="${SP}" EXPECTED_VERSION="${PKG_VERSION}" "${PY}" - <<'PYCHECK'
 import os
 import sys
 
@@ -183,7 +191,7 @@ if [ ! -f "${CACHE}/appimagetool" ]; then
     chmod +x "${CACHE}/appimagetool"
 fi
 
-OUT="${REPO}/dist/Astraios-${VERSION}-x86_64.AppImage"
+OUT="${REPO}/dist/Astraios-${LABEL}-x86_64.AppImage"
 echo "==> Packing ${OUT}"
 # --appimage-extract-and-run: works on CI and in containers without FUSE.
 ARCH=x86_64 "${CACHE}/appimagetool" --appimage-extract-and-run \
