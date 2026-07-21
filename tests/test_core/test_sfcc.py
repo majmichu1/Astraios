@@ -216,3 +216,65 @@ class TestApplySFCC:
         params = SFCCParams(catalog="offline_gaia")
         with pytest.raises(ValueError, match="BP/RP"):
             apply_sfcc(image, params=params, wcs_header={"ra": 10.0, "dec": 20.0})
+
+
+class TestGainInvariance:
+    """The defining property of a colour calibrator, independent of whatever
+    stellar model it uses internally: applying a per-channel gain to the input
+    must not change the calibrated COLOUR.
+
+    Overall brightness is deliberately not restored -- SFCC balances channels
+    relative to the reference channel, it is not an exposure correction -- so
+    the two results may differ by one uniform scale factor across all
+    channels, but never by a per-channel one.
+    """
+
+    @staticmethod
+    def _field():
+        rng = np.random.default_rng(3)
+        h = w = 300
+        yy, xx = np.mgrid[0:h, 0:w]
+        n = 45
+        xs = rng.uniform(30, w - 30, n)
+        ys = rng.uniform(30, h - 30, n)
+        bp_rp = rng.uniform(0.2, 2.0, n)
+        amps = rng.uniform(0.10, 0.35, n)
+        img = np.full((3, h, w), 0.02, np.float32)
+        for x, y, c, a in zip(xs, ys, bp_rp, amps):
+            g = np.exp(-(((xx - x) ** 2 + (yy - y) ** 2) / (2 * 2.0**2))).astype(np.float32)
+            rgb = np.array([0.5 + 0.35 * c, 1.0, 1.6 - 0.45 * c], np.float32)
+            rgb /= rgb.mean()
+            for ch in range(3):
+                img[ch] += a * rgb[ch] * g
+        cat = [(float(x), float(y), float(c)) for x, y, c in zip(xs, ys, bp_rp)]
+        return np.clip(img, 0, 1), cat
+
+    def test_colour_is_invariant_under_per_channel_gain(self):
+        img, cat = self._field()
+        params = SFCCParams(min_stars=10, detection_sigma=3.0,
+                            neutralize_background=False)
+        gain = np.array([0.9, 0.8, 0.7], np.float32)
+        gained = img * gain[:, None, None]
+        assert gained.max() <= 1.0, "test setup must not clip"
+
+        out_a = apply_sfcc(img, params=params, catalog_stars=cat)
+        out_b = apply_sfcc(gained, params=params, catalog_stars=cat)
+
+        # per-channel ratio between the two calibrated results
+        ratios = []
+        for ch in range(3):
+            sel = out_a[ch] > 0.05
+            ratios.append(float(np.median(out_b[ch][sel] / out_a[ch][sel])))
+
+        # all three channels must be scaled by the SAME factor: colour matched.
+        assert max(ratios) - min(ratios) < 0.02, (
+            f"per-channel ratios {ratios} differ: a colour cast survived calibration"
+        )
+
+    def test_identity_gain_is_a_no_op(self):
+        img, cat = self._field()
+        params = SFCCParams(min_stars=10, detection_sigma=3.0,
+                            neutralize_background=False)
+        a = apply_sfcc(img, params=params, catalog_stars=cat)
+        b = apply_sfcc(img.copy(), params=params, catalog_stars=cat)
+        assert np.allclose(a, b), "SFCC is not deterministic"
