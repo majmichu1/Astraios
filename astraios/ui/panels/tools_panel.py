@@ -3344,17 +3344,22 @@ class ToolsPanel(QWidget):
         star.add_run("▶ Remove Stars", self.run_starnet.emit)
         lay.addWidget(star)
 
-        # AI Super-Resolution
+        # Super-Resolution
         sr = CollapsibleSection(
-            "AI Super-Resolution",
-            help_text="Upscales the image using a Real-ESRGAN neural network "
-                      "that synthesizes plausible fine detail, rather than "
-                      "just interpolating pixels like Resize/Resample. Can "
-                      "make a low-resolution image look sharper for display, "
-                      "but the added detail is not new real signal — do not "
-                      "use it ahead of scientific measurement.",
+            "Super-Resolution",
+            help_text="Upscales the image for display. By default this is "
+                      "high-quality interpolation (a light denoise, then a "
+                      "bicubic/Lanczos enlarge). If you install the optional "
+                      "Real-ESRGAN weights (Preferences explains how), it "
+                      "switches to a neural model that synthesizes plausible "
+                      "fine detail instead. Either way the added detail is "
+                      "not new real signal, so do not use it ahead of "
+                      "scientific measurement.",
         )
-        sr.add_info("Upscale images with learned detail synthesis (Real-ESRGAN).")
+        sr.add_info(
+            "High-quality upscaling. Uses Real-ESRGAN if its weights are "
+            "installed, otherwise a denoise + interpolation enlarge."
+        )
         self._sr_scale = sr.add_combo(
             "Scale", ["2×", "4×"], current="2×",
             help_text="Output size multiplier. 4x takes noticeably longer "

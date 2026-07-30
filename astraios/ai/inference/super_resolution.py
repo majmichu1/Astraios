@@ -19,9 +19,12 @@ from astraios.core.device_manager import get_device_manager
 log = logging.getLogger(__name__)
 
 MODEL_DIR = Path.home() / ".astraios" / "models" / "super_resolution"
+# Official Real-ESRGAN weights (BSD-3-Clause, GPL-compatible). The previous
+# URLs (RealESRGAN_x2.pth / _x4.pth at tag v0.2.2.0) 404 -- those filenames
+# never existed. The real release assets are the "plus" checkpoints.
 MODEL_URLS = {
-    "real_esrgan_x2.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.0/RealESRGAN_x2.pth",
-    "real_esrgan_x4.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.2.0/RealESRGAN_x4.pth",
+    "real_esrgan_x2.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.1/RealESRGAN_x2plus.pth",
+    "real_esrgan_x4.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
 }
 
 

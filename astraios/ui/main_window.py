@@ -6652,7 +6652,7 @@ class MainWindow(QMainWindow):
         tile_text = self._tools_panel._sr_tile.currentText()
         tile = 0 if tile_text == "Full" else int(tile_text)
 
-        self._log_panel.log(f"Upscaling image {scale}× using AI super-resolution...", "info")
+        self._log_panel.log(f"Upscaling image {scale}×...", "info")
 
         from astraios.ai.inference.super_resolution import SuperResParams, upscale
 
