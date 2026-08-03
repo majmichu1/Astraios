@@ -12,6 +12,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -1137,7 +1138,6 @@ def align_from_paths(
         Paths of written aligned files, same order as input.
     """
     import gc
-    from pathlib import Path
 
     if params is None:
         params = StackingParams()
@@ -1391,8 +1391,6 @@ def align_from_paths(
 
 def _write_aligned_fits(img: ImageData, out_path) -> None:
     """Write an ImageData to a FITS file for aligned output."""
-    from pathlib import Path
-
     from astropy.io import fits as _fits
 
     out_path = Path(out_path)
@@ -1610,7 +1608,6 @@ def stack_from_paths(
         import dataclasses as _dc_mod
         import shutil
         import tempfile
-        from pathlib import Path
 
         from astraios.core.local_normalization import local_normalize_to_disk
 

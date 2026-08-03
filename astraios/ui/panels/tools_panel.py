@@ -32,6 +32,7 @@ from astraios.core.cosmetic import CosmeticParams
 from astraios.core.curves import CurvesParams
 from astraios.core.deconvolution import DeconvolutionParams, SpatialDeconvParams
 from astraios.core.denoise import DenoiseParams
+from astraios.core.drizzle import DrizzleParams
 from astraios.core.filters import UnsharpMaskParams
 from astraios.core.histogram_transform import HistogramTransformParams
 from astraios.core.local_contrast import LocalContrastParams
@@ -4477,7 +4478,6 @@ class ToolsPanel(QWidget):
         return ColorCalibrationParams(white_reference=white_ref, custom_rgb=custom_rgb)
 
     def get_drizzle_params(self) -> tuple[bool, "DrizzleParams"]:
-        from astraios.core.drizzle import DrizzleParams
         enabled = self._drizzle_check.isChecked()
         text = self._drizzle_scale_combo.currentText()
         scale = 3 if text.startswith("3") else 2

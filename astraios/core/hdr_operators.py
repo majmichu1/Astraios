@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Callable
 from enum import Enum
 
 import numpy as np

@@ -245,8 +245,10 @@ def stack_multi_session(
         sub_params = session.params or params.per_session_params
         base = i * per_session_frac
 
-        def _sub_progress(f: float, m: str, _base: float = base) -> None:
-            progress(_base + f * per_session_frac, f"[{session.name}] {m}")
+        def _sub_progress(
+            f: float, m: str, _base: float = base, _name: str = session.name,
+        ) -> None:
+            progress(_base + f * per_session_frac, f"[{_name}] {m}")
 
         progress(base, f"Stacking session {i + 1}/{n}: {session.name}…")
         try:

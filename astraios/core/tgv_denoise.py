@@ -17,6 +17,7 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
+import numpy as np
 import torch
 
 from astraios.core.device_manager import get_device_manager
@@ -209,8 +210,6 @@ def tgv_denoise(
     ndarray
         Denoised image, same shape and dtype as input.
     """
-    import numpy as np
-
     if params is None:
         params = TGVParams()
 
