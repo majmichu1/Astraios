@@ -127,6 +127,20 @@ class Project:
                 return True
         return False
 
+    def get_frame(self, path: Path | str) -> FrameEntry | None:
+        target = Path(path)
+        for entry in self.frames:
+            if entry.path == target:
+                return entry
+        try:
+            resolved = target.resolve()
+        except OSError:
+            return None
+        for entry in self.frames:
+            if entry.path == resolved:
+                return entry
+        return None
+
     def add_history(self, name: str, params: dict | None = None, output_path: Path | None = None):
         step = ProcessingStep(
             name=name,

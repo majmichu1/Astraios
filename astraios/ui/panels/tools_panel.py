@@ -3686,6 +3686,7 @@ class ToolsPanel(QWidget):
         )
         blink.add_info("Rapidly alternate between two images to spot differences.")
         btns = blink.add_btn_row([("Load A…", True), ("Load B…", True)])
+        self._blink_load_btns = btns
         btns[0].clicked.connect(self.blink_load_a.emit)
         btns[1].clicked.connect(self.blink_load_b.emit)
         btns2 = blink.add_btn_row([("Current → A", True), ("Current → B", True)])
@@ -3712,6 +3713,7 @@ class ToolsPanel(QWidget):
         )
         mac.add_info("Record, edit, and replay processing sequences.")
         btns = mac.add_btn_row([("⏺ Record", True), ("⏹ Stop", True), ("▶ Play", True)])
+        self._btn_macro_record, self._btn_macro_stop = btns[0], btns[1]
         btns[0].clicked.connect(self.start_macro_recording.emit)
         btns[1].clicked.connect(self.stop_macro_recording.emit)
         btns[2].clicked.connect(self.play_macro.emit)
@@ -3841,6 +3843,70 @@ class ToolsPanel(QWidget):
                 ACCENT, "#c93030" if self._blink_active else ACCENT
             )
         )
+
+    def toggle_blink(self) -> None:
+        """Toggle blink state programmatically (Shift+B shortcut)."""
+        self._btn_blink_toggle.click()
+
+    def set_blink_slot_label(self, slot: str, name: str) -> None:
+        idx = 0 if slot.lower().startswith("a") else 1
+        label = "A" if idx == 0 else "B"
+        self._blink_load_btns[idx].setText(f"Load {label}: {name}")
+
+    def reset_blink_toggle(self) -> None:
+        """Undo a blink toggle (e.g. images missing) by re-running the toggle."""
+        if self._blink_active:
+            self._on_blink_toggle()
+
+    def set_macro_recording(self, recording: bool) -> None:
+        self._btn_macro_record.setEnabled(not recording)
+        self._btn_macro_stop.setEnabled(recording)
+
+    def ms_add_session(self, name: str, n_frames: int) -> None:
+        self._ms_session_list.addItem(f"{name} ({n_frames} frames)")
+        self._btn_ms_stack.setEnabled(self._ms_session_list.count() > 0)
+
+    def get_multi_session_params(self) -> dict:
+        weight_map = {
+            "SNR (recommended)": "snr",
+            "Integration time": "time",
+            "Equal weight": "equal",
+        }
+        return {
+            "weight_mode": weight_map.get(self._ms_weight_combo.currentText(), "snr"),
+            "normalize_background": self._ms_normalize_check.isChecked(),
+            "align_sub_stacks": self._ms_align_check.isChecked(),
+        }
+
+    def get_calibration_sources(self) -> dict:
+        # The Folder…/Master… pickers are not wired to persistent state yet;
+        # return empty sources so MainWindow falls back to project frames.
+        return {
+            "bias_paths": [], "dark_paths": [], "flat_paths": [],
+            "bias_master": None, "dark_master": None, "flat_master": None,
+        }
+
+    def get_debayer_params(self) -> dict:
+        pattern = self._debayer_pattern_combo.currentText()
+        if pattern.lower().startswith("auto"):
+            pattern = ""
+        method_map = {
+            "VNG (best quality)": "vng",
+            "Edge-Aware (EA)": "ea",
+            "Superpixel (2× bin)": "superpixel",
+            "Bilinear (fastest)": "bilinear",
+        }
+        return {
+            "pattern": pattern,
+            "method": method_map.get(self._debayer_method_combo.currentText(), "vng"),
+        }
+
+    def get_lrgb_params(self):
+        from astraios.core.lrgb import LRGBParams
+        return LRGBParams()
+
+    def get_continuum_scale(self) -> float:
+        return 1.0
 
     # ── Public setters (called from main_window) ──────────
 

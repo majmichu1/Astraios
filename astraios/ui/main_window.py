@@ -2172,7 +2172,9 @@ class MainWindow(QMainWindow):
                 if self._project and self._current_image.file_path:
                     frame = self._project.get_frame(str(self._current_image.file_path))
                     if frame:
-                        frame.wcs = wcs
+                        # Store in metadata: it is the only FrameEntry field
+                        # that Project.save() serializes.
+                        frame.metadata["wcs"] = wcs
                         self._save_project()
                 # Fetch catalog stars and build overlays
                 self._update_overlays_from_wcs(wcs)
@@ -6932,7 +6934,7 @@ class MainWindow(QMainWindow):
                 )
                 self._tools_panel.reset_blink_toggle()
                 return
-            fps = max(1, self._tools_panel._blink_fps_spin.value())
+            fps = max(1, int(self._tools_panel._blink_fps.value()))
             self._blink_index = 0
             self._blink_timer.start(1000 // fps)
             self._log_panel.log(f"Blink Comparator started ({fps} fps)", "info")
@@ -6967,7 +6969,6 @@ class MainWindow(QMainWindow):
         if (event.key() == _Qt.Key.Key_B
                 and not event.isAutoRepeat()
                 and event.modifiers() == _Qt.KeyboardModifier.ShiftModifier):
-            btn = self._tools_panel._blink_toggle_btn
-            btn.setChecked(not btn.isChecked())
+            self._tools_panel.toggle_blink()
             return
         super().keyPressEvent(event)
