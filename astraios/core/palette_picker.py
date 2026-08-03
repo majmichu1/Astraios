@@ -52,9 +52,9 @@ yourself (e.g. at the dialog layer) if you need to combine mismatched frames.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Callable
 
 import numpy as np
 import torch
@@ -263,7 +263,7 @@ def _build_rgb_gpu(
     oo: np.ndarray,
     si_arr: np.ndarray,
     stars_rgb: np.ndarray | None,
-    params: "PalettePickerParams",
+    params: PalettePickerParams,
     dm,
 ) -> np.ndarray:
     """Fully device-resident palette build: mix + sanitize + normalize +

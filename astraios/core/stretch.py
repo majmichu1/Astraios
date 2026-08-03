@@ -230,7 +230,7 @@ def arcsinh_stretch(
 
     dm = get_device_manager()
 
-    def _stretch_channel(t: "torch.Tensor", beta: float) -> "torch.Tensor":
+    def _stretch_channel(t: torch.Tensor, beta: float) -> torch.Tensor:
         shifted = (t - params.black_point).clamp(0.0, None)
         if beta < 1e-6:
             return shifted.clamp(0.0, 1.0)

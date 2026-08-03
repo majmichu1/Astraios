@@ -111,7 +111,7 @@ class TestUIImports:
         assert MainWindow is not None
 
     def test_import_theme(self):
-        from astraios.ui.theme import get_dark_theme, DARK_THEME
+        from astraios.ui.theme import DARK_THEME
         assert isinstance(DARK_THEME, str)
         assert len(DARK_THEME) > 0
         assert "QMainWindow" in DARK_THEME

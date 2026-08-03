@@ -1,20 +1,16 @@
 """Tests for batch processing pipeline."""
 
-from pathlib import Path
-from unittest.mock import patch, MagicMock
 
 import numpy as np
-import pytest
 
 from astraios.core.batch import (
-    BatchResult,
+    _TOOL_REGISTRY,
     Pipeline,
     PipelineStep,
     apply_pipeline_to_image,
     batch_process,
-    register_tool,
     get_registered_tools,
-    _TOOL_REGISTRY,
+    register_tool,
 )
 
 

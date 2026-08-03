@@ -2,7 +2,6 @@
 
 import json
 
-import numpy as np
 import pytest
 
 from astraios.core.equipment import (
@@ -15,7 +14,6 @@ from astraios.core.equipment import (
     load_filter_database,
     load_telescope_database,
 )
-
 
 # ---------------------------------------------------------------------------
 #  Fixtures
@@ -396,7 +394,7 @@ class TestEquipmentProfile:
     def test_save_produces_valid_json(self, equipment, tmp_path):
         filepath = tmp_path / "profile.json"
         equipment.save(filepath)
-        with open(filepath, "r", encoding="utf-8") as fh:
+        with open(filepath, encoding="utf-8") as fh:
             data = json.load(fh)
         assert "camera" in data
         assert "telescope" in data

@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from astraios.core.statistics import compute_image_statistics, ImageStatistics
+from astraios.core.statistics import ImageStatistics, compute_image_statistics
 
 
 class TestComputeImageStatisticsMono:

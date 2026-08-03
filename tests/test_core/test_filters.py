@@ -1,7 +1,6 @@
 """Tests for image filters — unsharp mask and median filter."""
 
 import numpy as np
-import pytest
 
 from astraios.core.filters import (
     MedianFilterParams,
@@ -10,7 +9,6 @@ from astraios.core.filters import (
     unsharp_mask,
 )
 from astraios.core.masks import Mask
-
 
 # ---------------------------------------------------------------------------
 # Helpers

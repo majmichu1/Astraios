@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Callable
 
 import cv2
 import numpy as np

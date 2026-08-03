@@ -11,9 +11,9 @@ is already optimized native code and GPU NLM would require custom kernels.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable
 
 import cv2
 import numpy as np
@@ -200,7 +200,8 @@ def _denoise_median_channel(channel: np.ndarray, params: DenoiseParams) -> np.nd
 
 def _denoise_tgv(image: np.ndarray, params: DenoiseParams, progress: ProgressCallback) -> np.ndarray:
     """Apply TGV² denoising. Delegates to astraios.core.tgv_denoise.tgv_denoise."""
-    from astraios.core.tgv_denoise import TGVParams, tgv_denoise as _tgv
+    from astraios.core.tgv_denoise import TGVParams
+    from astraios.core.tgv_denoise import tgv_denoise as _tgv
 
     tgv_params = TGVParams(
         strength=max(0.01, params.strength * 0.5),

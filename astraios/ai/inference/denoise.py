@@ -14,8 +14,8 @@ nebula cores) and applies denoising primarily to background sky regions.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import torch

@@ -1,7 +1,6 @@
 """Tests for cosmetic correction."""
 
 import numpy as np
-import pytest
 
 from astraios.core.cosmetic import CosmeticParams, CosmeticResult, cosmetic_correction
 from astraios.core.masks import Mask

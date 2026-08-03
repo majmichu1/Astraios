@@ -1,7 +1,6 @@
 """Tests for wavelet decomposition and reconstruction."""
 
 import numpy as np
-import pytest
 
 from astraios.core.wavelets import (
     WaveletParams,

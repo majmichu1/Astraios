@@ -94,7 +94,7 @@ def plate_solve(
     )
 
 
-def _write_temp_mono_fits(image: np.ndarray, params: PlateSolveParams) -> "object | None":
+def _write_temp_mono_fits(image: np.ndarray, params: PlateSolveParams) -> object | None:
     """Write a mono uint16 FITS for an external solver. Returns a Path or None.
 
     Centralises the array→FITS conversion shared by the ASTAP and

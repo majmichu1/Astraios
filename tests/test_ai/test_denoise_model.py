@@ -1,6 +1,5 @@
 """Tests for AI denoise model architecture."""
 
-import pytest
 import torch
 
 from astraios.ai.models.denoise_model import (

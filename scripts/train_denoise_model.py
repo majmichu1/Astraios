@@ -17,8 +17,8 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from astraios.ai.training.train_n2s import train_model, export_for_inference
-from astraios.ai.training.prepare_data import prepare_dataset, load_dataset
+from astraios.ai.training.prepare_data import load_dataset, prepare_dataset
+from astraios.ai.training.train_n2s import export_for_inference, train_model
 
 logging.basicConfig(
     level=logging.INFO,

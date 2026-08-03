@@ -1,7 +1,6 @@
 """Tests for AI denoise inference."""
 
 import numpy as np
-import pytest
 
 from astraios.ai.inference.denoise import AIDenoiseParams, ai_denoise
 from astraios.ai.models.unet import UNet

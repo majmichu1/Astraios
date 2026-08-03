@@ -1,7 +1,6 @@
 """Tests for the star detection module."""
 
 import numpy as np
-import pytest
 
 from astraios.core.star_detection import (
     Star,

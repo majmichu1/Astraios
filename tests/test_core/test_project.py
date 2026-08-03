@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from astraios.core.image_io import FrameType
 from astraios.core.project import Project
 

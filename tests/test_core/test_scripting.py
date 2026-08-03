@@ -1,11 +1,10 @@
 """Tests for macro recording and playback."""
 
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from astraios.core.batch import Pipeline, PipelineStep, _TOOL_REGISTRY, register_tool
+from astraios.core.batch import _TOOL_REGISTRY, Pipeline, register_tool
 from astraios.core.scripting import MacroRecorder, load_macro, play_macro, save_macro
 
 

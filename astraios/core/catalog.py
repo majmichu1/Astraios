@@ -93,7 +93,7 @@ class CatalogDB:
             return
 
         log.info("Loading target catalog from %s", src)
-        with open(src, "r", encoding="utf-8") as fh:
+        with open(src, encoding="utf-8") as fh:
             raw: list[dict[str, Any]] = json.load(fh)
 
         for entry in raw:

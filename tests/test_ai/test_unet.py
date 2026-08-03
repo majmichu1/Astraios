@@ -1,7 +1,5 @@
 """Tests for U-Net model architecture."""
 
-import numpy as np
-import pytest
 import torch
 
 from astraios.ai.models.unet import DoubleConv, UNet

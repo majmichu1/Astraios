@@ -107,7 +107,7 @@ class TestSpatialDeconvolution:
         assert result.shape == img.shape
         assert result.dtype == np.float32
         assert np.all(np.isfinite(result))
-        assert 0.0 <= result.min() and result.max() <= 1.0
+        assert result.min() >= 0.0 and result.max() <= 1.0
 
     def test_color_shape(self):
         from astraios.core.deconvolution import SpatialDeconvParams, richardson_lucy_spatial

@@ -10,10 +10,10 @@ import hashlib
 import json
 import logging
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Callable
 
 import torch
 from platformdirs import user_data_dir

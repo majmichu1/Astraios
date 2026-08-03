@@ -7,7 +7,6 @@ component centroids (one sub-pixel star per blob), matching the CPU detector.
 """
 
 import numpy as np
-import pytest
 import torch
 
 from astraios.core.device_manager import get_device_manager

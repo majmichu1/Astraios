@@ -2,8 +2,6 @@
 
 import numpy as np
 import pytest
-import torch
-import torch.nn as nn
 
 from astraios.ai.inference.tiled import _create_blend_weight, tiled_inference
 from astraios.ai.models.unet import UNet

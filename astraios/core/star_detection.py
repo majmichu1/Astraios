@@ -209,8 +209,8 @@ def find_transform(
 
 
 def find_transform_triangle(
-    ref_stars: "StarField | np.ndarray",
-    target_stars: "StarField | np.ndarray",
+    ref_stars: StarField | np.ndarray,
+    target_stars: StarField | np.ndarray,
     n_stars: int = 60,
     n_triangles: int = 300,
     feature_tol: float = 0.025,

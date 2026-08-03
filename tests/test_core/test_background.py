@@ -1,7 +1,6 @@
 """Tests for background extraction."""
 
 import numpy as np
-import pytest
 
 from astraios.core.background import BackgroundParams, extract_background
 
@@ -62,7 +61,7 @@ class TestEdgeGradientArtifact:
     def _bg(kind, h=320, w=320):
         yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
         if kind == "vignette":
-            return (0.08 + 0.25 * (((xx / w - 0.5)) ** 2 + ((yy / h - 0.5)) ** 2)).astype(np.float32)
+            return (0.08 + 0.25 * (((xx / w - 0.5)) ** 2 + (yy / h - 0.5) ** 2)).astype(np.float32)
         return (0.1 + 0.3 * (xx / w)).astype(np.float32)
 
     @staticmethod

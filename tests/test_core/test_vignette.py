@@ -3,8 +3,8 @@
 import numpy as np
 import pytest
 
-from astraios.core.vignette import VignetteParams, correct_vignette
 from astraios.core.masks import Mask
+from astraios.core.vignette import VignetteParams, correct_vignette
 
 
 class TestVignetteParams:

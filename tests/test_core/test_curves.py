@@ -1,7 +1,6 @@
 """Tests for curves transformation."""
 
 import numpy as np
-import pytest
 
 from astraios.core.curves import (
     CurvePoints,

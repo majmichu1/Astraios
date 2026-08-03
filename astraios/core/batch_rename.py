@@ -63,7 +63,7 @@ import shutil
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -225,7 +225,7 @@ def render_pattern(
             try:
                 dt = datetime.fromisoformat(s)
                 if dt.tzinfo is None:
-                    dt = dt.replace(tzinfo=timezone.utc)
+                    dt = dt.replace(tzinfo=UTC)
                 out = dt.strftime(fmt)
             except Exception:
                 out = str(val)

@@ -4,8 +4,8 @@ import numpy as np
 
 from astraios.core.masks import Mask
 from astraios.core.morphology import (
-    MorphOp,
     MorphologyParams,
+    MorphOp,
     StructuringElement,
     morphology_mask,
     morphology_transform,

@@ -7,8 +7,8 @@ Requires a star mask to operate — either auto-generated or user-provided.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import cv2
 import numpy as np

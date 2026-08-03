@@ -38,7 +38,7 @@ def test_fetch_normalises(monkeypatch):
     out = fetch_reference_image(202.0, 47.0, 0.3, 64, 64)
     assert out is not None
     assert out.dtype == np.float32
-    assert 0.0 <= out.min() and out.max() <= 1.0
+    assert out.min() >= 0.0 and out.max() <= 1.0
 
 
 def test_fetch_network_error_returns_none(monkeypatch):

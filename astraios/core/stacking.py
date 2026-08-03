@@ -302,7 +302,7 @@ def normalize_stack_linear_fit(stack: np.ndarray) -> np.ndarray:
 
 
 def _compute_frame_norm_factors(
-    paths: "list",
+    paths: list,
     method: NormalizationMethod,
     sample_size: int = 256,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -343,7 +343,7 @@ def _compute_frame_norm_factors(
 
 
 def _compute_frame_norm_factors_exact(
-    paths: "list",
+    paths: list,
     method: NormalizationMethod,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-frame scale/shift from FULL frames, matching the in-memory
@@ -1491,7 +1491,7 @@ def _gpu_min_max(
 # ---------------------------------------------------------------------------
 
 
-def _open_fits_for_tiles(path: "Path"):
+def _open_fits_for_tiles(path: Path):
     """Open FITS for tile reads; disable memmap when BZERO/BSCALE are present."""
     from astropy.io import fits as _fits
 
@@ -1500,7 +1500,7 @@ def _open_fits_for_tiles(path: "Path"):
     return _fits.open(str(path), memmap=use_memmap)
 
 
-def _load_fits_tile(path: "Path", y0: int, y1: int) -> np.ndarray:
+def _load_fits_tile(path: Path, y0: int, y1: int) -> np.ndarray:
     """Load a horizontal tile [y0:y1, :] from a FITS file via memmap.
 
     Returns float32 array of shape (C, tile_h, w) or (tile_h, w).
@@ -1523,7 +1523,7 @@ def _load_fits_tile(path: "Path", y0: int, y1: int) -> np.ndarray:
     raise ValueError(f"No image data in {path}")
 
 
-def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
+def _sample_frame_crop(path: Path, sample_size: int = 256) -> np.ndarray:
     """Return a normalized float32 center crop from a FITS file."""
     from astraios.core.image_io import _normalize_fits_tile
 
@@ -1548,12 +1548,12 @@ def _sample_frame_crop(path: "Path", sample_size: int = 256) -> np.ndarray:
     return np.zeros((sample_size, sample_size), dtype=np.float32)
 
 
-def _sample_frame_background(path: "Path", sample_size: int = 256) -> float:
+def _sample_frame_background(path: Path, sample_size: int = 256) -> float:
     """Estimate frame background by sampling the center of a FITS file."""
     return float(np.median(_sample_frame_crop(path, sample_size)))
 
 
-def _get_fits_shape(path: "Path") -> tuple:
+def _get_fits_shape(path: Path) -> tuple:
     """Return the data shape (C,H,W) or (H,W) from a FITS header (no pixel read)."""
     from astropy.io import fits as _fits
 
@@ -1565,11 +1565,11 @@ def _get_fits_shape(path: "Path") -> tuple:
 
 
 def stack_from_paths(
-    paths: "list[Path]",
-    params: "StackingParams | None" = None,
+    paths: list[Path],
+    params: StackingParams | None = None,
     progress: ProgressCallback = _noop_progress,
     exact_normalization: bool = False,
-) -> "StackResult":
+) -> StackResult:
     """Stack frames from FITS file paths using tiled processing.
 
     Only one horizontal tile-strip is in memory at a time.  For N=50 frames
@@ -1709,7 +1709,7 @@ def stack_from_paths(
 
     # Pre-normalise per-frame weights once (reused every tile)
     _tile_weights_np: np.ndarray | None = None
-    _tile_weights_t: "torch.Tensor | None" = None
+    _tile_weights_t: torch.Tensor | None = None
     if params.frame_weights is not None:
         if len(params.frame_weights) != n:
             raise ValueError(

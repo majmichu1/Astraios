@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 class TestC1LiveStackPreview:
@@ -23,7 +22,6 @@ class TestC1LiveStackPreview:
         dlg = _FakeDialog()
         # We can't actually instantiate the dialog (needs Qt),
         # but we can verify the condition logic in the source
-        from ast import parse
         src = open(__import__("astraios.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__).read()
         assert "is None or not isinstance(arr, np.ndarray) or arr.size == 0" in src, \
             "C1 guard should check None, isinstance, and empty"
@@ -57,7 +55,6 @@ class TestC3DenoiseDispatch:
     """C3: All 4 denoise methods should map to distinct DenoiseMethod enum values."""
 
     def test_methods_map_correctly(self):
-        from astraios.ui.panels.tools_panel import ToolsPanel
         from astraios.core.denoise import DenoiseMethod
 
         # Test the dispatch table logic directly
@@ -75,7 +72,7 @@ class TestC3DenoiseDispatch:
         assert len(set(method_map.values())) == 4, "All 4 methods must be distinct"
 
     def test_each_method_produces_valid_params(self):
-        from astraios.core.denoise import DenoiseParams, DenoiseMethod, denoise
+        from astraios.core.denoise import DenoiseMethod, DenoiseParams, denoise
 
         img = np.random.rand(1, 64, 64).astype(np.float32) * 0.5
         for method in DenoiseMethod:
@@ -99,7 +96,6 @@ class TestC4PythonConsoleTimeout:
         w._write = lambda *a, **kw: None
         w._inspector = type("_Fake", (), {"refresh": lambda s, ns: None})()
 
-        import threading
         start = __import__("time").monotonic()
         w._execute("import time; time.sleep(10)")
         elapsed = __import__("time").monotonic() - start
@@ -124,8 +120,9 @@ class TestC9DagCache:
     """C9: DAG cache should invalidate on param changes."""
 
     def test_invalidation_on_update_params(self):
-        from astraios.core.processing_graph import ProcessingGraph
         import numpy as np
+
+        from astraios.core.processing_graph import ProcessingGraph
 
         g = ProcessingGraph()
         g.set_base(np.ones((10, 10), dtype=np.float32))
@@ -147,8 +144,9 @@ class TestC9DagCache:
         assert call_count == 2, "Should recompute after update_params"
 
     def test_hash_detects_mutation(self):
-        from astraios.core.processing_graph import ProcessingGraph
         import numpy as np
+
+        from astraios.core.processing_graph import ProcessingGraph
 
         g = ProcessingGraph()
         g.set_base(np.ones((10, 10), dtype=np.float32))

@@ -1,8 +1,9 @@
 """Tests for image export to TIFF, PNG, JPEG."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from astraios.core.image_io import ImageData, save_image
 

@@ -273,8 +273,8 @@ class PixelMathDialog(QDialog):
             "<b style='color:#d2a8ff;'>iif</b>(cond,a,b) "
             "<b style='color:#d2a8ff;'>mtf</b>(x,f) "
             "<b style='color:#d2a8ff;'>sin</b>(x) <b style='color:#d2a8ff;'>cos</b>(x) "
-            "<span style='color:{}'>Variables:</span> "
-            "<span style='color:#7ee787;'>T R G B L</span>".format(_TEXT_SECONDARY)
+            f"<span style='color:{_TEXT_SECONDARY}'>Variables:</span> "
+            "<span style='color:#7ee787;'>T R G B L</span>"
         )
         func_text.setWordWrap(True)
         func_text.setTextFormat(Qt.TextFormat.RichText)

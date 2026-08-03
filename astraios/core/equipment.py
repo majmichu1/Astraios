@@ -238,7 +238,7 @@ class EquipmentProfile:
     def load(cls, path: Path) -> EquipmentProfile:
         """Load a profile from a JSON file."""
         path = Path(path)
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
         log.info("Equipment profile loaded from %s", path)
         return cls.from_dict(data)
@@ -258,7 +258,7 @@ def load_camera_database(path: Path | None = None) -> list[CameraProfile]:
         inside ``astraios/resources/``.
     """
     path = path or (_RESOURCES_DIR / "cameras.json")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     cameras = [CameraProfile.from_dict(entry) for entry in raw]
     log.debug("Loaded %d cameras from %s", len(cameras), path)
@@ -298,7 +298,7 @@ def match_camera_by_name(name: str | None, path: Path | None = None) -> CameraPr
 def load_telescope_database(path: Path | None = None) -> list[TelescopeProfile]:
     """Load the built-in telescope database (or a custom one) from JSON."""
     path = path or (_RESOURCES_DIR / "telescopes.json")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     telescopes = [TelescopeProfile.from_dict(entry) for entry in raw]
     log.debug("Loaded %d telescopes from %s", len(telescopes), path)
@@ -308,7 +308,7 @@ def load_telescope_database(path: Path | None = None) -> list[TelescopeProfile]:
 def load_filter_database(path: Path | None = None) -> list[FilterProfile]:
     """Load the built-in filter database (or a custom one) from JSON."""
     path = path or (_RESOURCES_DIR / "filters.json")
-    with open(path, "r", encoding="utf-8") as fh:
+    with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     filters = [FilterProfile.from_dict(entry) for entry in raw]
     log.debug("Loaded %d filters from %s", len(filters), path)
@@ -474,8 +474,8 @@ def detect_from_fits_header(header: dict[str, Any]) -> dict[str, Any]:
     dec_val = header.get("DEC") or header.get("OBJCTDEC")
     if isinstance(ra_val, str) and isinstance(dec_val, str):
         try:
-            from astropy.coordinates import SkyCoord
             import astropy.units as u
+            from astropy.coordinates import SkyCoord
             c = SkyCoord(ra_val, dec_val, unit=(u.hourangle, u.deg), frame="icrs")
             info["ra"] = c.ra.deg
             info["dec"] = c.dec.deg

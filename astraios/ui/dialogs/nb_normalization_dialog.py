@@ -81,7 +81,7 @@ class _NormalizeWorker(QThread):
 class _ChannelRow(QHBoxLayout):
     """A single Browse.../path-label row for one narrowband channel."""
 
-    def __init__(self, dialog: "NBNormalizationDialog", label: str, attr: str):
+    def __init__(self, dialog: NBNormalizationDialog, label: str, attr: str):
         super().__init__()
         self._dialog = dialog
         self._attr = attr

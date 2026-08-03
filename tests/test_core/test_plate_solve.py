@@ -1,7 +1,7 @@
 """Tests for plate solving."""
 
-import pytest
 import numpy as np
+import pytest
 
 from astraios.core import plate_solve as ps
 from astraios.core.plate_solve import PlateSolveParams, PlateSolveResult, plate_solve

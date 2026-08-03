@@ -101,8 +101,8 @@ from astraios.core.transforms import (
 )
 from astraios.core.undo import AstraiosUndoStack
 from astraios.core.vignette import correct_vignette
-from astraios.core.wcs import normalise_wcs_dict
 from astraios.core.wavelets import wavelet_sharpen
+from astraios.core.wcs import normalise_wcs_dict
 from astraios.ui.panels.project_panel import ProjectPanel
 from astraios.ui.panels.tools_panel import ToolsPanel
 from astraios.ui.widgets.histogram import HistogramWidget
@@ -2359,7 +2359,7 @@ class MainWindow(QMainWindow):
         self._log_panel.set_busy(True, f"Loading {Path(path).name}...")
         self._start_worker(_load_work, path, on_done=_on_loaded)
 
-    def _display_image(self, image: ImageData, display_ref: "np.ndarray | None" = None):
+    def _display_image(self, image: ImageData, display_ref: np.ndarray | None = None):
         self._current_image = image
         self._image_ref[0] = image  # sync with undo ref
 
@@ -2400,7 +2400,7 @@ class MainWindow(QMainWindow):
         self._update_curves_histogram(hist_data)
         self._sync_console_image()
 
-    def _display_preview_only(self, data: "np.ndarray", label: str = "Preview"):
+    def _display_preview_only(self, data: np.ndarray, label: str = "Preview"):
         """Render pixels on the canvas WITHOUT touching the working image.
 
         _display_image assigns ``self._current_image``; routing previews
@@ -6904,7 +6904,7 @@ class MainWindow(QMainWindow):
         self._tools_panel.set_blink_slot_label("a" if slot == 0 else "b", name)
         self._log_panel.log(f"Blink {'A' if slot == 0 else 'B'}: set to {name}", "info")
 
-    def _make_display_rgb(self, data) -> "np.ndarray":
+    def _make_display_rgb(self, data) -> np.ndarray:
         """Convert image data to display-ready uint8 RGB (H,W,3) array."""
         import numpy as _np
 

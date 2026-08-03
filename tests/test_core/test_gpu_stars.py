@@ -1,6 +1,5 @@
 """Tests for GPU star detection and alignment."""
 
-import cv2
 import numpy as np
 import pytest
 import torch

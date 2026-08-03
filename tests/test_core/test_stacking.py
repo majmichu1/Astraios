@@ -10,7 +10,6 @@ from astraios.core.stacking import (
     RegistrationMode,
     RejectionMethod,
     StackingParams,
-    StackResult,
     _gpu_min_max,
     _gpu_percentile_clip,
     _integrate,
@@ -20,7 +19,6 @@ from astraios.core.stacking import (
     stack_from_paths,
     stack_images,
 )
-
 
 # ---------------------------------------------------------------------------
 # Normalization

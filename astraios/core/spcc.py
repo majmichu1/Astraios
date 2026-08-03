@@ -23,8 +23,8 @@ Workflow
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 
@@ -155,8 +155,8 @@ def _aperture_flux(data: np.ndarray, cx: float, cy: float,
     Y, X = np.ogrid[-ri:ri+1, -ri:ri+1]
     R = np.sqrt(X**2 + Y**2)
 
-    ap_mask   = R <= r
-    sky_mask  = (R > r * 1.5) & (R <= r * 2.5)
+    ap_mask   = r >= R
+    sky_mask  = (r * 1.5 < R) & (r * 2.5 >= R)
     if sky_mask.sum() < 10:
         return None
 

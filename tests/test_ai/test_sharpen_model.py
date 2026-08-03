@@ -1,6 +1,5 @@
 """Tests for AI sharpen model architecture."""
 
-import pytest
 import torch
 
 from astraios.ai.models.sharpen_model import (

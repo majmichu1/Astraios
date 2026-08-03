@@ -2,18 +2,17 @@
 
 import pytest
 
-from astraios.core.stretch import StretchParams
-from astraios.core.denoise import DenoiseParams, DenoiseMethod
+from astraios.core.denoise import DenoiseMethod, DenoiseParams
 from astraios.core.presets import (
     delete_preset,
     deserialize_params,
     list_presets,
     load_default_presets,
     load_preset,
-    register_tool,
     save_preset,
     serialize_params,
 )
+from astraios.core.stretch import StretchParams
 
 
 @pytest.fixture(autouse=True)
@@ -42,7 +41,7 @@ class TestSerializeParams:
         assert data["strength"] == 0.7
 
     def test_serialize_nested_dataclass(self):
-        from astraios.core.curves import CurvesParams, CurvePoints
+        from astraios.core.curves import CurvePoints, CurvesParams
 
         params = CurvesParams(
             master=CurvePoints(points=[(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]),
@@ -53,7 +52,7 @@ class TestSerializeParams:
         assert data["master"]["points"][0]["__tuple__"] == [0.0, 0.0]
 
     def test_roundtrip_nested_dataclass(self):
-        from astraios.core.curves import CurvesParams, CurvePoints
+        from astraios.core.curves import CurvePoints, CurvesParams
 
         original = CurvesParams(
             master=CurvePoints(points=[(0.0, 0.0), (0.5, 0.6), (1.0, 1.0)]),

@@ -12,7 +12,7 @@ from astraios.core.multi_session import (
     auto_group_sessions,
     stack_multi_session,
 )
-from astraios.core.stacking import StackingParams, RejectionMethod
+from astraios.core.stacking import RejectionMethod, StackingParams
 
 
 def _make_session(n_frames=3, shape=(3, 32, 32), offset=0.0, name="S") -> SessionGroup:
@@ -38,7 +38,7 @@ class TestMultiSession:
         result = stack_multi_session([s1, s2], params)
         assert result.n_sessions == 2
         assert result.image.data.shape == (3, 32, 32)
-        assert 0.0 <= result.image.data.min()
+        assert result.image.data.min() >= 0.0
         assert result.image.data.max() <= 1.0
 
     def test_weights_sum_to_one(self):

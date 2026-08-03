@@ -57,12 +57,28 @@ from astraios.core.vignette import VignetteParams
 from astraios.core.wavelets import WaveletParams
 from astraios.ui.widgets.curves_widget import CurveEditor
 from astraios.ui.widgets.ui_kit import (
-    ACCENT, ACCENT_DARK, ACCENT_HOVER, ACCENT_PURPLE, BG_HOVER, BG_PRIMARY, BG_SECONDARY,
-    BG_TERTIARY, BLUE, BORDER, FONT_MONO, ORANGE, RED,
-    TEXT_PRIMARY, TEXT_SECONDARY,
-    CollapsibleSection, InfoLabel, RunBtn, SliderRow,
-    divider, field_row, help_dot, make_label, param_help, scrollable_tab,
-    styled_check, styled_combo, styled_spin,
+    ACCENT,
+    ACCENT_DARK,
+    ACCENT_PURPLE,
+    BG_HOVER,
+    BG_PRIMARY,
+    BG_SECONDARY,
+    BG_TERTIARY,
+    BORDER,
+    FONT_MONO,
+    ORANGE,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+    CollapsibleSection,
+    RunBtn,
+    SliderRow,
+    field_row,
+    help_dot,
+    make_label,
+    param_help,
+    scrollable_tab,
+    styled_combo,
+    styled_spin,
 )
 
 # Tab-bar stylesheet
@@ -3804,7 +3820,7 @@ class ToolsPanel(QWidget):
         except Exception:
             pass  # keep the hardcoded defaults if database fails to load
 
-    def _fire_preview(self, tool_name: str, check: "QCheckBox") -> None:
+    def _fire_preview(self, tool_name: str, check: QCheckBox) -> None:
         if check.isChecked():
             self.preview_requested.emit(tool_name)
 
@@ -4104,7 +4120,7 @@ class ToolsPanel(QWidget):
             tile_size=512,
         )
 
-    def get_deconvolution_params(self) -> "DeconvolutionParams | SpatialDeconvParams":
+    def get_deconvolution_params(self) -> DeconvolutionParams | SpatialDeconvParams:
         method = self._deconv_method_combo.currentText()
         iters = int(self._deconv_iter.value())
         reg = float(self._deconv_reg.value())
@@ -4477,7 +4493,7 @@ class ToolsPanel(QWidget):
         )
         return ColorCalibrationParams(white_reference=white_ref, custom_rgb=custom_rgb)
 
-    def get_drizzle_params(self) -> tuple[bool, "DrizzleParams"]:
+    def get_drizzle_params(self) -> tuple[bool, DrizzleParams]:
         enabled = self._drizzle_check.isChecked()
         text = self._drizzle_scale_combo.currentText()
         scale = 3 if text.startswith("3") else 2
@@ -4541,7 +4557,7 @@ class ToolsPanel(QWidget):
         return self._split_check.isChecked()
 
     @property
-    def curve_editor(self) -> "CurveEditor":
+    def curve_editor(self) -> CurveEditor:
         return self._curve_editor
 
     @property

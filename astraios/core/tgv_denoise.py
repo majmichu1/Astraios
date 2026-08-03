@@ -14,8 +14,8 @@ Reference:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import torch
@@ -192,10 +192,10 @@ def _tgv_channel(f: torch.Tensor, params: TGVParams,
 
 
 def tgv_denoise(
-    data: "np.ndarray",
+    data: np.ndarray,
     params: TGVParams | None = None,
     progress: ProgressCallback | None = None,
-) -> "np.ndarray":
+) -> np.ndarray:
     """Apply TGV² denoising to an astrophotography image.
 
     Parameters

@@ -8,8 +8,8 @@ using sigma-clipped median analysis.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 from scipy.ndimage import median_filter

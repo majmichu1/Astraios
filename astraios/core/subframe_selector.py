@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 

@@ -63,7 +63,7 @@ def test_reset_methods_exist(panel):
 
 
 def test_curves_params_assigns_to_channel(panel):
-    from astraios.core.curves import CurvesParams, CurvePoints
+    from astraios.core.curves import CurvePoints, CurvesParams
 
     p = panel.get_curves_params()
     assert isinstance(p, CurvesParams)

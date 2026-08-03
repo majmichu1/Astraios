@@ -1,9 +1,9 @@
 """Tests for calibration pipeline."""
 
+
 import numpy as np
 import pytest
 from astropy.io import fits
-from pathlib import Path
 
 from astraios.core.calibration import (
     calibrate_light,
@@ -11,7 +11,7 @@ from astraios.core.calibration import (
     create_master_dark,
     create_master_flat,
 )
-from astraios.core.image_io import FrameType, ImageData
+from astraios.core.image_io import ImageData
 
 
 def _make_fits(tmp_path, name, data, image_type="Light"):

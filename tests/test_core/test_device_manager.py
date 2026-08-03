@@ -1,8 +1,8 @@
 """Tests for the GPU device manager."""
 
 import torch
-import pytest
-from astraios.core.device_manager import Backend, DeviceManager, get_device_manager
+
+from astraios.core.device_manager import Backend, get_device_manager
 
 
 class TestDeviceManager:

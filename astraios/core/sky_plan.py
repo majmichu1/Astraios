@@ -55,7 +55,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -200,7 +200,7 @@ def _find_crossing(alts: np.ndarray, times, tz: ZoneInfo, rising: bool) -> str |
             t0, t1 = times[ci].to_datetime(), times[ci + 1].to_datetime()
             frac = (0.0 - alts[ci]) / (alts[ci + 1] - alts[ci])
             dt = t0 + (t1 - t0) * frac
-            return _to_local_hhmm(dt.replace(tzinfo=timezone.utc), tz)
+            return _to_local_hhmm(dt.replace(tzinfo=UTC), tz)
     return None
 
 
@@ -358,7 +358,7 @@ def plan_sky(
     moon_set = _find_crossing(moon_alts, times, tz, rising=False)
     moon_transit_idx = int(np.argmax(moon_alts))
     moon_transit = _to_local_hhmm(
-        times[moon_transit_idx].to_datetime().replace(tzinfo=timezone.utc), tz
+        times[moon_transit_idx].to_datetime().replace(tzinfo=UTC), tz
     )
 
     # Moon phase at local midnight (the middle of the noon-to-noon grid).
@@ -434,7 +434,7 @@ def plan_sky(
         if hours_visible[i] <= 0:
             continue
         ti = int(transit_idx[i])
-        transit_dt = times[ti].to_datetime().replace(tzinfo=timezone.utc)
+        transit_dt = times[ti].to_datetime().replace(tzinfo=UTC)
         transit_local = _to_local_hhmm(transit_dt, tz)
         moon_sep = float(moon_seps_all[i, ti])
         results.append(

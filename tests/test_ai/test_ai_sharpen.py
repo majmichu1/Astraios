@@ -1,7 +1,6 @@
 """Tests for AI sharpen inference."""
 
 import numpy as np
-import pytest
 
 from astraios.ai.inference.sharpen import AISharpenParams, ai_sharpen
 from astraios.ai.models.unet import UNet

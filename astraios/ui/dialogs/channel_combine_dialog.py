@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import QTimer, Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
