@@ -1983,10 +1983,14 @@ class MainWindow(QMainWindow):
         directory = QFileDialog.getExistingDirectory(self, "Choose New Project Location")
         if not directory:
             return
+        previous_path = self._project.path
         self._project.path = Path(directory) / self._project.name
         try:
             self._project.save()
         except Exception as e:
+            # Keep the project pointing at its old location so a plain Save
+            # does not silently retry the destination that just failed.
+            self._project.path = previous_path
             self._log_panel.log(f"Save As failed: {type(e).__name__}: {e}", "error")
             QMessageBox.warning(self, "Save Failed", f"Could not save project:\n\n{e}")
             return

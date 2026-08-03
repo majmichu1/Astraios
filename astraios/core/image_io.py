@@ -552,7 +552,7 @@ def _load_common_image(path: Path) -> ImageData:
             data = _normalize01_inplace(data)
             return ImageData(data=data, file_path=path, frame_type=FrameType.UNKNOWN)
         except Exception:
-            pass  # fall through to Pillow
+            log.debug("tifffile could not read %s, falling back to Pillow", path, exc_info=True)
 
     from PIL import Image
 
