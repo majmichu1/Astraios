@@ -11,11 +11,8 @@ Thank you for your interest in contributing! Astraios is a community-driven proj
 git clone https://github.com/majmichu1/astraios.git
 cd astraios
 
-# Install dependencies
-poetry install
-
-# Install dev dependencies (tests, linters)
-poetry install --with dev
+# Install dependencies, including dev tools (pytest, ruff, mypy)
+poetry install --extras dev
 ```
 
 ### 2. Run the application
@@ -29,7 +26,7 @@ poetry run python -m astraios
 ### 3. Run tests
 
 ```bash
-poetry run pytest  # 729+ tests
+poetry run pytest  # 2000+ tests
 poetry run ruff check .  # Lint
 poetry run mypy astraios  # Type check
 ```

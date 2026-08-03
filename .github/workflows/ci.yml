@@ -1,0 +1,57 @@
+name: Quality Gate
+
+# Runs on every push to main and every PR: lint (bug classes), type check
+# (non-blocking while debt remains), and the full test suite. The release
+# workflow (build.yml) only builds installers on tags — this job is what
+# stops regressions from reaching a release.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Same library set validate-installer.yml needs for PyQt6 to import
+      # offscreen on a bare runner.
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libgl1 libegl1 libxcb-cursor0 libxkbcommon0 libxinerama1 \
+            libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
+            libxcb-render-util0 libxcb-shape0 >/dev/null
+
+      - name: Install dependencies
+        run: |
+          pip install --no-cache-dir poetry
+          poetry install --extras dev
+
+      # Tighten the selection (towards the full pyproject config) as the
+      # remaining style debt is paid down. E9+F is the bug-hunting core:
+      # syntax errors, undefined names, unused imports/locals.
+      - name: Ruff — bug classes (E9 + F)
+        run: poetry run ruff check --select E9,F .
+
+      - name: Mypy (non-blocking until the type debt is paid down)
+        continue-on-error: true
+        run: poetry run mypy astraios --ignore-missing-imports
+
+      - name: Test suite
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: poetry run pytest -q
