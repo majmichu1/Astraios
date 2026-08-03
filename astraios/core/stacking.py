@@ -472,7 +472,7 @@ def _reject_esd(
 
     Parameters
     ----------
-    stack : ndarray (N, H, W)
+    stack : ndarray (N, H, W) or (N, C, H, W)
     alpha : float
         Significance level (lower = less aggressive).
     max_outliers : int
@@ -484,10 +484,12 @@ def _reject_esd(
     if max_outliers is None:
         max_outliers = max(1, n // 3)
 
-    mask = np.zeros_like(stack, dtype=bool)
-    h, w = stack.shape[1], stack.shape[2]
-    rows = np.arange(h)[:, None]
-    cols = np.arange(w)[None, :]
+    # Flatten all trailing dims so mono (N,H,W) and color (N,C,H,W)
+    # share one code path; every trailing element is one "pixel".
+    trailing = stack.shape[1:]
+    flat = stack.reshape(n, -1)
+    mask = np.zeros_like(flat, dtype=bool)
+    pix = np.arange(flat.shape[1])
 
     for i in range(1, max_outliers + 1):
         ni = n - (i - 1)
@@ -500,7 +502,7 @@ def _reject_esd(
         lambda_i = t_crit * (ni - 1) / ((ni - 2 + t_crit**2) * ni)**0.5
 
         # Per-pixel stats excluding already-masked values
-        vals = np.where(mask, np.nan, stack)
+        vals = np.where(mask, np.nan, flat)
         mu = np.nanmean(vals, axis=0)
         sig = np.nanstd(vals, axis=0, ddof=1) + 1e-10
 
@@ -508,17 +510,17 @@ def _reject_esd(
         abs_dev = np.where(mask, -1.0, abs_dev)
 
         # Frame with largest deviation per pixel
-        max_frame = np.argmax(abs_dev, axis=0)  # (H, W)
-        max_dev = abs_dev[max_frame, rows, cols]
+        max_frame = np.argmax(abs_dev, axis=0)  # (P,)
+        max_dev = abs_dev[max_frame, pix]
 
         outlier_pixels = max_dev > lambda_i
         if not np.any(outlier_pixels):
             break
 
-        py, px = np.where(outlier_pixels)
-        mask[max_frame[py, px], py, px] = True
+        (out_idx,) = np.where(outlier_pixels)
+        mask[max_frame[out_idx], out_idx] = True
 
-    return np.ma.array(stack, mask=mask)
+    return np.ma.array(stack, mask=mask.reshape(n, *trailing))
 
 
 def _reject_min_max(stack: np.ndarray, n_reject: int) -> np.ma.MaskedArray:
@@ -531,21 +533,24 @@ def _reject_min_max(stack: np.ndarray, n_reject: int) -> np.ma.MaskedArray:
     """
     n = stack.shape[0]
     if n_reject * 2 >= n:
-        n_reject = max(1, (n - 1) // 2)
+        # Clamp so at least one frame survives per pixel; rejecting both
+        # extremes of a 2-frame stack would leave an all-black result.
+        n_reject = max(0, (n - 1) // 2)
 
-    sorted_indices = np.argsort(stack, axis=0)  # (N, H, W)
-    mask = np.zeros_like(stack, dtype=bool)
+    # Flatten all trailing dims so mono (N,H,W) and color (N,C,H,W)
+    # share one code path.
+    trailing = stack.shape[1:]
+    flat = stack.reshape(n, -1)
+    sorted_indices = np.argsort(flat, axis=0)  # (N, P)
+    mask = np.zeros_like(flat, dtype=bool)
+    pix = np.arange(flat.shape[1])
 
     # Mark n_reject lowest and n_reject highest frames per pixel
     for k in range(n_reject):
-        lo_frames = sorted_indices[k]          # (H, W)
-        hi_frames = sorted_indices[n - 1 - k]  # (H, W)
-        h, w = stack.shape[1], stack.shape[2]
-        ys, xs = np.mgrid[0:h, 0:w]
-        mask[lo_frames, ys, xs] = True
-        mask[hi_frames, ys, xs] = True
+        mask[sorted_indices[k], pix] = True
+        mask[sorted_indices[n - 1 - k], pix] = True
 
-    return np.ma.array(stack, mask=mask)
+    return np.ma.array(stack, mask=mask.reshape(n, *trailing))
 
 
 def _get_mask(masked_data: np.ma.MaskedArray, shape: tuple) -> np.ndarray:

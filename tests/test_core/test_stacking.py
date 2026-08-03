@@ -13,6 +13,8 @@ from astraios.core.stacking import (
     _gpu_min_max,
     _gpu_percentile_clip,
     _integrate,
+    _reject_esd,
+    _reject_min_max,
     align_from_paths,
     normalize_stack,
     normalize_stack_linear_fit,
@@ -165,6 +167,39 @@ class TestStackImages:
         # After rejecting min and max, remaining 4 frames all have 0.3
         assert abs(result.image.data[5, 5] - 0.3) < 0.05
         assert result.total_rejected > 0
+
+    def test_esd_rejects_outlier_color(self):
+        """Regression: ESD indexed shape[1]/shape[2] as H/W and crashed on
+        color (N, C, H, W) stacks with an IndexError."""
+        data = np.full((3, 15, 15), 0.3, dtype=np.float32)
+        images = [ImageData(data=data.copy()) for _ in range(15)]
+        bad = data.copy()
+        bad[:, 7, 7] = 8.0
+        images[0] = ImageData(data=bad)
+        params = StackingParams(rejection=RejectionMethod.ESD)
+        result = stack_images(images, params=params, align=False)
+        assert result.image.data.shape == (3, 15, 15)
+        assert abs(result.image.data[0, 7, 7] - 0.3) < 0.5
+
+    def test_min_max_rejects_extremes_color(self):
+        """Regression: MIN_MAX mgrid indexing crashed on color stacks."""
+        data = np.full((3, 10, 10), 0.3, dtype=np.float32)
+        images = [ImageData(data=data.copy()) for _ in range(6)]
+        images[0].data[:, 5, 5] = 0.0
+        images[5].data[:, 5, 5] = 1.0
+        params = StackingParams(rejection=RejectionMethod.MIN_MAX, min_max_reject=1)
+        result = stack_images(images, params=params, align=False)
+        assert result.image.data.shape == (3, 10, 10)
+        assert abs(result.image.data[0, 5, 5] - 0.3) < 0.05
+
+    def test_min_max_two_frames_not_black(self):
+        """Regression: with 2 frames MIN_MAX rejected both extremes per
+        pixel and returned an all-black image."""
+        data = np.full((10, 10), 0.3, dtype=np.float32)
+        images = [ImageData(data=data.copy()) for _ in range(2)]
+        params = StackingParams(rejection=RejectionMethod.MIN_MAX, min_max_reject=1)
+        result = stack_images(images, params=params, align=False)
+        np.testing.assert_allclose(result.image.data, 0.3, atol=1e-6)
 
     def test_median_integration(self):
         data = np.full((20, 20), 0.4, dtype=np.float32)
@@ -482,3 +517,25 @@ def test_weighted_integrate_zero_weights_no_nan():
         assert np.isfinite(out).all(), "degenerate weights produced non-finite output"
         # Equal-weight fallback == plain mean of the three frames.
         assert np.allclose(out, np.mean([0.1, 0.5, 0.9]), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# Rejection kernels on color stacks (deterministic, device-independent)
+# ---------------------------------------------------------------------------
+
+
+class TestRejectionColorStacks:
+    def test_esd_accepts_color_stack(self):
+        stack = np.random.rand(8, 3, 16, 16).astype(np.float32)
+        result = _reject_esd(stack)
+        assert result.shape == stack.shape
+
+    def test_min_max_accepts_color_stack(self):
+        stack = np.random.rand(8, 3, 16, 16).astype(np.float32)
+        result = _reject_min_max(stack, 1)
+        assert result.shape == stack.shape
+
+    def test_min_max_two_frames_keeps_pixels(self):
+        stack = np.full((2, 8, 8), 0.3, dtype=np.float32)
+        result = _reject_min_max(stack, 1)
+        assert result.mask is np.ma.nomask or not result.mask.any()
