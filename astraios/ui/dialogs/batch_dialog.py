@@ -166,7 +166,7 @@ class BatchDialog(QDialog):
 
     def _add_step(self):
         tool = self._tool_combo.currentText()
-        step = self._pipeline.add_step(tool)
+        self._pipeline.add_step(tool)
         self._step_list.addItem(f"{len(self._pipeline.steps)}. {tool}")
 
     def _remove_step(self):

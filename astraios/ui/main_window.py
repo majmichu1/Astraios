@@ -3272,7 +3272,8 @@ class MainWindow(QMainWindow):
             self._project.add_history("Alignment", {"n_frames": len(result_paths)})
             self._save_project()
         try:
-            import gc as _gc; _gc.collect()
+            import gc as _gc
+            _gc.collect()
             get_device_manager().empty_cache()
         except Exception:
             log.debug("GPU cache flush failed")
@@ -3311,7 +3312,8 @@ class MainWindow(QMainWindow):
 
         # *** Free aligned_lights from RAM and VRAM — stacking reads from disk ***
         del aligned_lights
-        import gc as _gc; _gc.collect()
+        import gc as _gc
+        _gc.collect()
         try:
             get_device_manager().empty_cache()
         except Exception:
@@ -3504,7 +3506,8 @@ class MainWindow(QMainWindow):
         self._display_image(result.image)
         # Flush GPU allocator — alignment tensors accumulate during stack+align
         try:
-            import gc as _gc; _gc.collect()
+            import gc as _gc
+            _gc.collect()
             get_device_manager().empty_cache()
         except Exception:
             log.debug("GPU cache flush failed")
@@ -4375,7 +4378,6 @@ class MainWindow(QMainWindow):
 
         sky_fn = _make_pixel_to_sky(wcs, w, h)
         scale_deg = (wcs.get("scale") or 1.0) / 3600.0
-        match_radius = max(scale_deg * 10, 0.005)
 
         overlay = []
         for cat in catalog_stars:

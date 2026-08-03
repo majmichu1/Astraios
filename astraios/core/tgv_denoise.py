@@ -174,7 +174,6 @@ def _tgv_channel(f: torch.Tensor, params: TGVParams,
         eta = _proj_ball(eta + sigma * _sym_grad(p),          params.alpha0)
 
         u_old = u
-        p_old = p
 
         # ── primal updates ───────────────────────────────────────────
         u = (u + tau * _div(xi) + tau * lam * f) / (1.0 + tau * lam)

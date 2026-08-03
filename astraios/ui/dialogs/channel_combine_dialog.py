@@ -230,8 +230,6 @@ class ChannelCombineDialog(QDialog):
         self._preview_timer.start()
 
     def _update_preview(self):
-        palette = self._palette_combo.currentText()
-        definition = PALETTES.get(palette, PALETTES["RGB"])
         channels: dict[str, np.ndarray] = {}
         channel_counts: dict[str, int] = {}
 

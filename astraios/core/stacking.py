@@ -418,10 +418,9 @@ def _reject_winsorized_sigma(
     Clips the most extreme values to get robust location/scale estimates,
     then rejects pixels that deviate beyond kappa sigmas from those estimates.
     """
+    from scipy.stats import norm
     from scipy.stats.mstats import winsorize
 
-    n = stack.shape[0]
-    from scipy.stats import norm
     limit = min(0.40, float(norm.cdf(-winsorize_cutoff)))
     limit = max(0.01, limit)
 
@@ -1203,7 +1202,6 @@ def align_from_paths(
     if _ref_for_detection.ndim == 3:
         _ref_for_detection = _ref_for_detection.mean(axis=0).astype(np.float32)
 
-    t_ref = None
     if gpu_available:
         # Upload luminance-only for detection (saves VRAM; warp uses full color tensor later).
         t_ref_lum = dm.from_numpy(_ref_for_detection)

@@ -314,7 +314,7 @@ class TestBatchProcess:
         assert not output_dir.exists()
 
         pipeline = Pipeline(name="Dir Test")
-        result = batch_process(
+        _result = batch_process(  # noqa: F841 — run for directory creation
             input_paths=[],
             pipeline=pipeline,
             output_dir=output_dir,

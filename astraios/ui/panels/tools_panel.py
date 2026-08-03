@@ -982,7 +982,7 @@ class ToolsPanel(QWidget):
                 lower="Stricter rejection; keeps only clean background samples.",
             ),
         )
-        btn_grid = bg.add_run(
+        bg.add_run(
             "⊞ Add Auto-Grid Samples",
             lambda: self.add_bg_grid.emit(
                 int(self._bg_grid_rows_spin.value()),
@@ -998,7 +998,7 @@ class ToolsPanel(QWidget):
         bg.add_widget(self._btn_place_samples)
 
         self._bg_sample_label = bg.add_status_label("0 manual samples")
-        btn_clear = bg.add_run("Clear Samples", self.clear_bg_samples.emit, flat=True)
+        bg.add_run("Clear Samples", self.clear_bg_samples.emit, flat=True)
         bg.add_run("▶ Extract Background", self.run_background.emit)
         lay.addWidget(bg)
 

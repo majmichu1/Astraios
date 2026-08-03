@@ -642,7 +642,9 @@ class TestFinalQualityPass:
         out = processor_no_equipment._final_quality_pass(img.copy(), self._analysis())
 
         def bg(a, c):
-            ch = a[c]; thr = np.percentile(ch, 15); return float(np.median(ch[ch <= thr]))
+            ch = a[c]
+            thr = np.percentile(ch, 15)
+            return float(np.median(ch[ch <= thr]))
         before = max(bg(img, c) for c in range(3)) - min(bg(img, c) for c in range(3))
         after = max(bg(out, c) for c in range(3)) - min(bg(out, c) for c in range(3))
         assert after < before
@@ -667,7 +669,7 @@ class TestFinalQualityPass:
         rng = np.random.default_rng(2)
         base = np.abs(rng.normal(0, 0.02, (48, 48))).astype(np.float32) + 0.05
         img = np.stack([base * 1.5, base, base * 0.7]).astype(np.float32)
-        out = processor_no_equipment._final_quality_pass(
+        _out = processor_no_equipment._final_quality_pass(  # noqa: F841 — run for side effects
             img.copy(), self._analysis(InputType.NARROWBAND_SHO)
         )
         # No background neutralization applied for narrowband.

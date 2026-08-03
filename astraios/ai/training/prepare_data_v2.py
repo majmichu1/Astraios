@@ -115,10 +115,6 @@ def prepare_dataset_strict_split(input_dir: Path, output_dir: Path):
 
 def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
     """Helper to extract patches from a list of files and save to memmap."""
-    # First pass: count patches to size memmap
-    total_patches = 0
-    temp_patches = [] # Store temporarily as lists of arrays (memory heavy but safe for counting)
-
     # Better approach: dynamic resizing memmap or just list append then concat
     # Since we have plenty of RAM, let's collect them.
     # If OOM, we switch to memmap append mode.

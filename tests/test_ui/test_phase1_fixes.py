@@ -12,14 +12,14 @@ class TestC1LiveStackPreview:
         from astraios.ui.dialogs.live_stack_dialog import LiveStackDialog
 
         # The _display_preview method skips None/empty via early return
-        method = LiveStackDialog._display_preview
+        _method = LiveStackDialog._display_preview  # noqa: F841 — attribute access is the check
 
         # Calling with None would raise AttributeError before fix —
         # verify the early-return guard works by checking it returns None
         class _FakeDialog:
             pass
 
-        dlg = _FakeDialog()
+        _dlg = _FakeDialog()  # noqa: F841 — construction is the check
         # We can't actually instantiate the dialog (needs Qt),
         # but we can verify the condition logic in the source
         src = open(__import__("astraios.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__).read()

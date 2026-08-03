@@ -55,7 +55,7 @@ class TestModelManager:
     def test_creation_creates_directory(self, tmp_path):
         models_dir = tmp_path / "models"
         assert not models_dir.exists()
-        manager = ModelManager(models_dir=models_dir)
+        _manager = ModelManager(models_dir=models_dir)  # noqa: F841 — keep ref alive
         assert models_dir.exists()
         assert models_dir.is_dir()
 

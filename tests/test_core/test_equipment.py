@@ -336,7 +336,7 @@ class TestEquipmentProfile:
 
     def test_is_oversampled_with_measured_fwhm(self, equipment):
         """Over-sampled when plate_scale < fwhm / 2."""
-        ps = equipment.plate_scale()  # ~1.99 arcsec/px
+        _ps = equipment.plate_scale()  # ~1.99 arcsec/px
         # A seeing of 5 arcsec means FWHM/2 = 2.5 -- plate scale 1.99 < 2.5 -> oversampled
         assert equipment.is_oversampled(5.0) is True
         # A seeing of 2 arcsec means FWHM/2 = 1.0 -- plate scale 1.99 > 1.0 -> not oversampled

@@ -186,7 +186,6 @@ class ImageCanvas(QWidget):
         self._info_chip.move(m, m)
         bh = self._overlay_undo_btn.sizeHint().height()
         bw_u = self._overlay_undo_btn.sizeHint().width()
-        bw_r = self._overlay_redo_btn.sizeHint().width()
         y_bottom = self.height() - bh - m
         self._overlay_undo_btn.move(m, y_bottom)
         self._overlay_redo_btn.move(m + bw_u + 4, y_bottom)
