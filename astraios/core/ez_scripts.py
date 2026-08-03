@@ -84,8 +84,9 @@ def run_preset(
         elif name == "background":
             if isinstance(params, dict):
                 params = BackgroundParams(**params)
-            bg_model = extract_background(data, params)
-            data = data - bg_model
+            # extract_background returns (corrected, model); the corrected
+            # image already has the background subtracted.
+            data = extract_background(data, params)[0]
         elif name == "neutralize":
             if isinstance(params, dict):
                 params = BackgroundNeutralizationParams(**params)

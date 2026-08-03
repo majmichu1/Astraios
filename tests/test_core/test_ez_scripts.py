@@ -17,6 +17,16 @@ def test_each_preset_runs(preset_name: str, test_image):
     assert result is not None
     assert np.all(np.isfinite(result))
     assert result.dtype == np.float32
+    # Regression: the "background" step once subtracted the whole
+    # (corrected, model) return tuple, silently broadcasting mono (H,W)
+    # input into a garbage 2-channel array.
+    assert result.shape == test_image.shape
+
+
+def test_background_step_preserves_color_shape():
+    img = np.random.rand(3, 48, 48).astype(np.float32) * 0.5 + 0.1
+    result = run_preset(img, "OSC Quick Processing")
+    assert result.shape == img.shape
 
 
 def test_unknown_preset_raises(test_image):

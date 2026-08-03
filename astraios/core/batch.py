@@ -145,7 +145,7 @@ def _register_default_tools():
         return cls(**filtered) if filtered else None
 
     from astraios.core.abe import ABEParams, abe_extract
-    from astraios.core.background import extract_background
+    from astraios.core.background import BackgroundParams, extract_background
     from astraios.core.background_neutralization import (
         BackgroundNeutralizationParams,
         background_neutralization,
@@ -153,7 +153,7 @@ def _register_default_tools():
     from astraios.core.banding import BandingParams, banding_reduction
     from astraios.core.chromatic_aberration import CAParams, correct_chromatic_aberration
     from astraios.core.color_tools import ColorAdjustParams, SCNRParams, color_adjust, scnr
-    from astraios.core.cosmetic import cosmetic_correction
+    from astraios.core.cosmetic import CosmeticParams, cosmetic_correction
     from astraios.core.curves import CurvePoints, CurvesParams, curves_transform
     from astraios.core.deconvolution import DeconvolutionParams, richardson_lucy
     from astraios.core.denoise import DenoiseParams, denoise
@@ -208,8 +208,14 @@ def _register_default_tools():
     register_tool("ghs", lambda data, **kw: generalized_hyperbolic_stretch(
         data, _p(GHSParams, kw) if kw else None
     ))
-    register_tool("background_extraction", lambda data, **kw: extract_background(data)[0])
-    register_tool("cosmetic_correction", lambda data, **kw: cosmetic_correction(data).data)
+    register_tool(
+        "background_extraction",
+        lambda data, **kw: extract_background(data, _p(BackgroundParams, kw))[0],
+    )
+    register_tool(
+        "cosmetic_correction",
+        lambda data, **kw: cosmetic_correction(data, _p(CosmeticParams, kw)).data,
+    )
     register_tool(
         "banding_reduction", lambda data, **kw: banding_reduction(data, _p(BandingParams, kw))
     )
