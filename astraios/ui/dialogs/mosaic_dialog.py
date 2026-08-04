@@ -38,15 +38,24 @@ class MosaicWorker(QThread):
     finished = pyqtSignal(object)
     error = pyqtSignal(str)
 
-    def __init__(self, panels: list[np.ndarray], params: MosaicParams):
+    def __init__(self, panel_paths: list[Path], params: MosaicParams):
         super().__init__()
-        self._panels = panels
+        self._paths = panel_paths
         self._params = params
 
     def run(self):
         try:
+            # Loading used to happen on the GUI thread before this worker
+            # started — N full-resolution decodes froze the dialog.
+            n = len(self._paths)
+            panels = []
+            for i, p in enumerate(self._paths):
+                if self.isInterruptionRequested():
+                    return
+                self._emit_progress(0.15 * i / max(n, 1), f"Loading panel {i + 1}/{n}...")
+                panels.append(load_image(str(p)).data)
             result = mosaic_stitch(
-                self._panels,
+                panels,
                 params=self._params,
                 progress=self._emit_progress,
             )
@@ -203,13 +212,6 @@ class MosaicDialog(QDialog):
         self._progress_bar.setValue(0)
         self._status_label.setText("Loading panels...")
 
-        try:
-            panels = [load_image(str(p)).data for p in self._panel_paths]
-        except Exception as e:
-            self._status_label.setText(f"Error loading panels: {e}")
-            self._run_btn.setEnabled(True)
-            return
-
         method_map = {
             0: BlendMethod.FEATHER,
             1: BlendMethod.MULTIBAND,
@@ -233,7 +235,7 @@ class MosaicDialog(QDialog):
             clip_negative=self._clip_check.isChecked(),
         )
 
-        self._worker = MosaicWorker(panels, params)
+        self._worker = MosaicWorker(list(self._panel_paths), params)
         self._worker.progress.connect(self._on_progress)
         self._worker.finished.connect(self._on_finished)
         self._worker.error.connect(self._on_error)

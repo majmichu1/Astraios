@@ -6555,33 +6555,49 @@ class MainWindow(QMainWindow):
         if getattr(self, "_processing_graph", None) is None or self._current_image is None:
             return
         self._skip_graph_auto_add = True
-        try:
-            img = self._processing_graph.evaluate(
-                up_to=index, process_fn=self._process_graph_step
-            )
-        finally:
-            self._skip_graph_auto_add = False
-        if img is None:
-            self._log_panel.log(
-                "Cannot reconstruct this stage (an earlier step is not replayable yet)",
-                "warning",
-            )
-            return
-        stage = "original" if index < 0 else f"step {index + 1}"
-        self._display_preview_only(img, f"History preview ({stage})")
+
+        # Replaying a stage re-runs every tool up to it — that used to
+        # freeze the GUI for minutes; run it on the worker thread.
+        def _work(progress=None):
+            try:
+                return self._processing_graph.evaluate(
+                    up_to=index, process_fn=self._process_graph_step
+                )
+            finally:
+                self._skip_graph_auto_add = False
+
+        def _done(img):
+            if img is None:
+                self._log_panel.log(
+                    "Cannot reconstruct this stage (an earlier step is not replayable yet)",
+                    "warning",
+                )
+                return
+            stage = "original" if index < 0 else f"step {index + 1}"
+            self._display_preview_only(img, f"History preview ({stage})")
+
+        self._start_worker(_work, on_done=_done)
 
     def _on_history_changed(self):
         """Recompute the final result after the history was edited, and commit it."""
         if getattr(self, "_processing_graph", None) is None:
             return
         self._skip_graph_auto_add = True
-        try:
-            result = self._processing_graph.evaluate(process_fn=self._process_graph_step)
+
+        # A single checkbox edit re-ran the ENTIRE pipeline synchronously on
+        # the GUI thread; move the replay to the worker thread.
+        def _work(progress=None):
+            try:
+                return self._processing_graph.evaluate(process_fn=self._process_graph_step)
+            finally:
+                self._skip_graph_auto_add = False
+
+        def _done(result):
             if result is not None:
                 self._update_current_image(result, "Processing history updated")
-        finally:
-            self._skip_graph_auto_add = False
-        self._sync_history_to_project()
+            self._sync_history_to_project()
+
+        self._start_worker(_work, on_done=_done)
 
     def _on_history_export_macro(self):
         """Export the replayable history steps as a reusable macro."""

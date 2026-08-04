@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -19,6 +19,36 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.hdr import HDRMethod, HDRParams, hdr_compose
 from astraios.core.image_io import load_image
+from astraios.ui.dialogs.dialog_workers import stop_worker
+
+
+class _HDRWorker(QThread):
+    """Loads the exposures and composes the HDR off the GUI thread — both
+    used to run synchronously in the dialog's button handler."""
+
+    status = pyqtSignal(str)
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, paths: list[Path], params: HDRParams):
+        super().__init__()
+        self._paths = paths
+        self._params = params
+
+    def run(self):
+        try:
+            n = len(self._paths)
+            images = []
+            for i, p in enumerate(self._paths):
+                if self.isInterruptionRequested():
+                    return
+                self.status.emit(f"Loading image {i + 1}/{n}...")
+                images.append(load_image(str(p)).data)
+            self.status.emit("Composing HDR...")
+            result = hdr_compose(images, self._params)
+            self.done.emit(result)
+        except Exception as e:
+            self.failed.emit(str(e))
 
 
 class HDRDialog(QDialog):
@@ -32,6 +62,7 @@ class HDRDialog(QDialog):
         self.setMinimumSize(450, 350)
 
         self._image_paths: list[Path] = []
+        self._worker: _HDRWorker | None = None
 
         layout = QVBoxLayout(self)
 
@@ -105,24 +136,31 @@ class HDRDialog(QDialog):
             self._status.setText("Need at least 2 images")
             return
 
-        self._status.setText("Loading images...")
-        try:
-            images = [load_image(str(p)).data for p in self._image_paths]
-        except Exception as e:
-            self._status.setText(f"Error loading: {e}")
-            return
-
         method_map = {0: HDRMethod.MERTENS, 1: HDRMethod.WEIGHTED_AVERAGE}
         params = HDRParams(
             method=method_map.get(self._method_combo.currentIndex(), HDRMethod.MERTENS),
             contrast_weight=self._contrast_spin.value(),
         )
 
-        self._status.setText("Composing HDR...")
-        try:
-            result = hdr_compose(images, params)
-            self.result_ready.emit(result)
-            self._status.setText("HDR composition complete")
-            self.accept()
-        except Exception as e:
-            self._status.setText(f"Error: {e}")
+        self._status.setText("Loading images...")
+        self._worker = _HDRWorker(list(self._image_paths), params)
+        self._worker.status.connect(self._status.setText)
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_done(self, result):
+        self.result_ready.emit(result)
+        self._status.setText("HDR composition complete")
+        self.accept()
+
+    def _on_failed(self, message: str):
+        self._status.setText(f"Error: {message}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -43,6 +43,13 @@ class MaskDialog(QDialog):
         self._image_data = image_data
         self._current_mask: Mask | None = None
 
+        # Debounce slider drags: a full-resolution mask rebuild + blur per
+        # tick used to lock the GUI for seconds on large images.
+        self._debounce_timer = QTimer(self)
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(200)
+        self._debounce_timer.timeout.connect(self._update_preview)
+
         layout = QVBoxLayout(self)
 
         # Type selector
@@ -50,7 +57,7 @@ class MaskDialog(QDialog):
         type_row.addWidget(QLabel("Mask type:"))
         self._type_combo = QComboBox()
         self._type_combo.addItems(["Luminance Mask", "Range Mask"])
-        self._type_combo.currentIndexChanged.connect(self._update_preview)
+        self._type_combo.currentIndexChanged.connect(self._schedule_preview)
         type_row.addWidget(self._type_combo)
         layout.addLayout(type_row)
 
@@ -72,7 +79,7 @@ class MaskDialog(QDialog):
         self._low_slider = QSlider(Qt.Orientation.Horizontal)
         self._low_slider.setRange(0, 1000)
         self._low_slider.setValue(0)
-        self._low_slider.valueChanged.connect(self._update_preview)
+        self._low_slider.valueChanged.connect(self._schedule_preview)
         self._low_label = QLabel("0.000")
         row.addWidget(self._low_slider)
         row.addWidget(self._low_label)
@@ -84,7 +91,7 @@ class MaskDialog(QDialog):
         self._high_slider = QSlider(Qt.Orientation.Horizontal)
         self._high_slider.setRange(0, 1000)
         self._high_slider.setValue(1000)
-        self._high_slider.valueChanged.connect(self._update_preview)
+        self._high_slider.valueChanged.connect(self._schedule_preview)
         self._high_label = QLabel("1.000")
         row.addWidget(self._high_slider)
         row.addWidget(self._high_label)
@@ -95,7 +102,7 @@ class MaskDialog(QDialog):
         row.addWidget(QLabel("Channel:"))
         self._channel_combo = QComboBox()
         self._channel_combo.addItems(["Luminance", "Red", "Green", "Blue"])
-        self._channel_combo.currentIndexChanged.connect(self._update_preview)
+        self._channel_combo.currentIndexChanged.connect(self._schedule_preview)
         row.addWidget(self._channel_combo)
         self._channel_row = row
         params_layout.addLayout(row)
@@ -108,14 +115,14 @@ class MaskDialog(QDialog):
         self._blur_spin.setValue(0.0)
         self._blur_spin.setSingleStep(0.5)
         self._blur_spin.setToolTip("Gaussian blur radius to soften mask edges")
-        self._blur_spin.valueChanged.connect(self._update_preview)
+        self._blur_spin.valueChanged.connect(self._schedule_preview)
         row.addWidget(self._blur_spin)
         params_layout.addLayout(row)
 
         # Invert checkbox
         from PyQt6.QtWidgets import QCheckBox
         self._invert_check = QCheckBox("Invert mask")
-        self._invert_check.stateChanged.connect(self._update_preview)
+        self._invert_check.stateChanged.connect(self._schedule_preview)
         params_layout.addWidget(self._invert_check)
 
         layout.addWidget(self._params_group)
@@ -145,6 +152,12 @@ class MaskDialog(QDialog):
 
     def _get_high(self) -> float:
         return self._high_slider.value() / 1000.0
+
+    def _schedule_preview(self, *_args):
+        """Instant label feedback; the heavy mask recompute is debounced."""
+        self._low_label.setText(f"{self._get_low():.3f}")
+        self._high_label.setText(f"{self._get_high():.3f}")
+        self._debounce_timer.start()
 
     def _update_preview(self):
         low = self._get_low()

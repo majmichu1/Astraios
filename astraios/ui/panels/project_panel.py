@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -175,6 +175,59 @@ class _FrameRow(QFrame):
         if not self._selected:
             self._apply_style(False)
         super().leaveEvent(event)
+
+
+class _AutoImportWorker(QThread):
+    """Scans a folder for FITS/XISF frames and classifies them by header.
+
+    Globbing recursively and opening every header used to run on the GUI
+    thread — with hundreds of frames the UI hung long before any result
+    was visible.
+    """
+
+    scan_done = pyqtSignal(object, object)  # (groups dict, unknown list)
+
+    def __init__(self, folder: Path):
+        super().__init__()
+        self._folder = folder
+
+    def run(self):
+        from astraios.core.image_io import _guess_frame_type
+
+        extensions = ("*.fits", "*.fit", "*.fts", "*.xisf",
+                      "*.FITS", "*.FIT", "*.FTS", "*.XISF")
+        files = []
+        for ext in extensions:
+            files.extend(self._folder.glob(ext))
+            files.extend(self._folder.rglob(ext))
+        files = sorted(set(files))
+
+        groups: dict[FrameType, list[Path]] = {}
+        unknown: list[Path] = []
+        for path in files:
+            if self.isInterruptionRequested():
+                return
+            try:
+                header = {}
+                if path.suffix.lower() in (".fits", ".fit", ".fts"):
+                    try:
+                        from astropy.io import fits as _fits
+                        with _fits.open(str(path), memmap=True) as hdul:
+                            for hdu in hdul:
+                                if hdu.data is not None:
+                                    header = dict(hdu.header)
+                                    break
+                    except Exception:
+                        pass
+                ft = _guess_frame_type(header, path)
+                if ft == FrameType.UNKNOWN:
+                    unknown.append(path)
+                else:
+                    groups.setdefault(ft, []).append(path)
+            except Exception:
+                unknown.append(path)
+
+        self.scan_done.emit(groups, unknown)
 
 
 class ProjectPanel(QWidget):
@@ -654,50 +707,25 @@ class ProjectPanel(QWidget):
         menu.exec(self.cursor().pos())
 
     def _import_folder_auto(self):
-        from PyQt6.QtWidgets import QMessageBox
-
-        from astraios.core.image_io import _guess_frame_type
-
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Auto-Import", "")
         if not folder:
             return
-
-        folder = Path(folder)
-        extensions = ("*.fits", "*.fit", "*.fts", "*.xisf",
-                      "*.FITS", "*.FIT", "*.FTS", "*.XISF")
-        files = []
-        for ext in extensions:
-            files.extend(folder.glob(ext))
-            files.extend(folder.rglob(ext))
-        files = sorted(set(files))
-
-        if not files:
-            QMessageBox.information(self, "Auto-Import", f"No FITS/XISF files found in:\n{folder}")
+        if getattr(self, "_import_worker", None) is not None and self._import_worker.isRunning():
             return
+        self._import_folder_path = Path(folder)
+        self._import_worker = _AutoImportWorker(Path(folder))
+        self._import_worker.scan_done.connect(self._on_auto_import_scan)
+        self._import_worker.start()
 
-        groups: dict[FrameType, list[Path]] = {}
-        unknown: list[Path] = []
+    def _on_auto_import_scan(self, groups, unknown):
+        from PyQt6.QtWidgets import QMessageBox
 
-        for path in files:
-            try:
-                header = {}
-                if path.suffix.lower() in (".fits", ".fit", ".fts"):
-                    try:
-                        from astropy.io import fits as _fits
-                        with _fits.open(str(path), memmap=True) as hdul:
-                            for hdu in hdul:
-                                if hdu.data is not None:
-                                    header = dict(hdu.header)
-                                    break
-                    except Exception:
-                        pass
-                ft = _guess_frame_type(header, path)
-                if ft == FrameType.UNKNOWN:
-                    unknown.append(path)
-                else:
-                    groups.setdefault(ft, []).append(path)
-            except Exception:
-                unknown.append(path)
+        if not groups and not unknown:
+            QMessageBox.information(
+                self, "Auto-Import",
+                f"No FITS/XISF files found in:\n{self._import_folder_path}",
+            )
+            return
 
         total = 0
         for ft, paths in groups.items():
