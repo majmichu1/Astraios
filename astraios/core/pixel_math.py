@@ -111,7 +111,7 @@ def validate_expression(expression: str) -> str | None:
     """
     try:
         tree = ast.parse(expression, mode="eval")
-        _check_node(tree.body)
+        _check_node(tree.body, _FUNCTIONS)
         return None
     except PixelMathError as e:
         return str(e)
@@ -143,7 +143,9 @@ def evaluate(
     """
     try:
         tree = ast.parse(expression, mode="eval")
-        _check_node(tree.body)
+        # Both function tables expose identical names, so validating against
+        # the numpy table covers the GPU table too.
+        _check_node(tree.body, _FUNCTIONS)
     except SyntaxError as e:
         raise PixelMathError(f"Syntax error: {e.msg}") from e
 
@@ -158,13 +160,10 @@ def evaluate(
         import torch as _torch
         for k, v in variables.items():
             env[k] = dm.from_numpy(v.astype(np.float32, copy=False)) if isinstance(v, np.ndarray) else v
-        global _FUNCTIONS
-        saved_funcs = _FUNCTIONS
-        try:
-            _FUNCTIONS = _get_torch_functions()
-            result = _eval_node(tree.body, env)
-        finally:
-            _FUNCTIONS = saved_funcs
+        # Pass the function table explicitly: swapping the module global here
+        # was not thread-safe — concurrent workers could observe each other's
+        # swapped table mid-evaluation.
+        result = _eval_node(tree.body, env, _get_torch_functions())
         if isinstance(result, (int, float)):
             for v in variables.values():
                 if isinstance(v, np.ndarray):
@@ -174,7 +173,7 @@ def evaluate(
             result = result.cpu().numpy()
     else:
         env.update(variables)
-        result = _eval_node(tree.body, env)
+        result = _eval_node(tree.body, env, _FUNCTIONS)
         if isinstance(result, (int, float)):
             for v in variables.values():
                 if isinstance(v, np.ndarray):
@@ -226,63 +225,63 @@ def prepare_variables(
     return variables
 
 
-def _check_node(node: ast.AST) -> None:
+def _check_node(node: ast.AST, funcs: dict) -> None:
     """Recursively validate that an AST node only uses whitelisted operations."""
     if isinstance(node, ast.Expression):
-        _check_node(node.body)
+        _check_node(node.body, funcs)
     elif isinstance(node, ast.BinOp):
         if type(node.op) not in _BINOPS:
             raise PixelMathError(f"Unsupported operator: {type(node.op).__name__}")
-        _check_node(node.left)
-        _check_node(node.right)
+        _check_node(node.left, funcs)
+        _check_node(node.right, funcs)
     elif isinstance(node, ast.UnaryOp):
         if type(node.op) not in _UNARYOPS:
             raise PixelMathError(f"Unsupported unary operator: {type(node.op).__name__}")
-        _check_node(node.operand)
+        _check_node(node.operand, funcs)
     elif isinstance(node, ast.Compare):
-        _check_node(node.left)
+        _check_node(node.left, funcs)
         for op in node.ops:
             if type(op) not in _CMPOPS:
                 raise PixelMathError(f"Unsupported comparison: {type(op).__name__}")
         for comp in node.comparators:
-            _check_node(comp)
+            _check_node(comp, funcs)
     elif isinstance(node, ast.Call):
         if isinstance(node.func, ast.Name):
-            if node.func.id not in _FUNCTIONS:
+            if node.func.id not in funcs:
                 raise PixelMathError(f"Unknown function: {node.func.id}")
         else:
             raise PixelMathError("Only simple function calls are allowed")
         for arg in node.args:
-            _check_node(arg)
+            _check_node(arg, funcs)
     elif isinstance(node, ast.Name):
         pass  # variable reference, checked at eval time
     elif isinstance(node, (ast.Constant,)):
         if not isinstance(node.value, (int, float)):
             raise PixelMathError(f"Only numeric constants allowed, got {type(node.value).__name__}")
     elif isinstance(node, ast.IfExp):
-        _check_node(node.test)
-        _check_node(node.body)
-        _check_node(node.orelse)
+        _check_node(node.test, funcs)
+        _check_node(node.body, funcs)
+        _check_node(node.orelse, funcs)
     else:
         raise PixelMathError(f"Unsupported expression type: {type(node).__name__}")
 
 
-def _eval_node(node: ast.AST, env: dict) -> np.ndarray | float:
+def _eval_node(node: ast.AST, env: dict, funcs: dict) -> np.ndarray | float:
     """Recursively evaluate an AST node."""
     if isinstance(node, ast.BinOp):
-        left = _eval_node(node.left, env)
-        right = _eval_node(node.right, env)
+        left = _eval_node(node.left, env, funcs)
+        right = _eval_node(node.right, env, funcs)
         op = _BINOPS[type(node.op)]
         return op(left, right)
     elif isinstance(node, ast.UnaryOp):
-        operand = _eval_node(node.operand, env)
+        operand = _eval_node(node.operand, env, funcs)
         op = _UNARYOPS[type(node.op)]
         return op(operand)
     elif isinstance(node, ast.Compare):
-        left = _eval_node(node.left, env)
+        left = _eval_node(node.left, env, funcs)
         result = None
         for op, comp in zip(node.ops, node.comparators):
-            right = _eval_node(comp, env)
+            right = _eval_node(comp, env, funcs)
             cmp = _CMPOPS[type(op)](left, right)
             if isinstance(cmp, np.ndarray):
                 cmp = cmp.astype(np.float32)
@@ -290,8 +289,8 @@ def _eval_node(node: ast.AST, env: dict) -> np.ndarray | float:
             left = right
         return result
     elif isinstance(node, ast.Call):
-        func = _FUNCTIONS[node.func.id]
-        args = [_eval_node(a, env) for a in node.args]
+        func = funcs[node.func.id]
+        args = [_eval_node(a, env, funcs) for a in node.args]
         return func(*args)
     elif isinstance(node, ast.Name):
         name = node.id
@@ -301,11 +300,19 @@ def _eval_node(node: ast.AST, env: dict) -> np.ndarray | float:
     elif isinstance(node, ast.Constant):
         return float(node.value)
     elif isinstance(node, ast.IfExp):
-        test = _eval_node(node.test, env)
-        body = _eval_node(node.body, env)
-        orelse = _eval_node(node.orelse, env)
+        test = _eval_node(node.test, env, funcs)
+        body = _eval_node(node.body, env, funcs)
+        orelse = _eval_node(node.orelse, env, funcs)
         if isinstance(test, np.ndarray):
             return np.where(test > 0.5, body, orelse)
+        try:
+            import torch as _torch
+        except ImportError:
+            _torch = None
+        if _torch is not None and isinstance(test, _torch.Tensor):
+            # Multi-element tensors have no truth value — select per element,
+            # exactly like the numpy branch above (used to crash on GPU).
+            return _torch.where(test > 0.5, body, orelse)
         return body if test > 0.5 else orelse
     else:
         raise PixelMathError(f"Cannot evaluate: {type(node).__name__}")

@@ -48,3 +48,32 @@ class TestHDRCompose:
         result = hdr_compose(imgs)
         assert result.min() >= 0.0
         assert result.max() <= 1.0
+
+
+class TestTonemapOperators:
+    def test_drago_maps_black_to_black(self):
+        """Regression: the Drago curve started at log10(2) ~= 0.30, lifting
+        all blacks by 30% and compressing the image into [0.30, 1]."""
+        from astraios.core.hdr_operators import tonemap_drago
+
+        data = np.linspace(0.0, 100.0, 64 * 64, dtype=np.float32).reshape(64, 64)
+        tone = tonemap_drago(data)
+        assert tone.min() < 0.05, f"black lifted to {tone.min()}"
+        assert abs(tone.max() - 1.0) < 1e-5
+        assert np.all(np.diff(tone.ravel()) >= -1e-6)  # monotonic
+        assert np.all(np.isfinite(tone))
+
+    def test_drago_color(self):
+        from astraios.core.hdr_operators import tonemap_drago
+
+        data = np.random.rand(3, 32, 32).astype(np.float32) * 10.0
+        tone = tonemap_drago(data)
+        assert tone.shape == data.shape
+        assert tone.min() >= 0.0 and tone.max() <= 1.0
+
+    def test_reinhard_in_range(self):
+        from astraios.core.hdr_operators import tonemap_reinhard
+
+        data = np.random.rand(32, 32).astype(np.float32) * 50.0
+        tone = tonemap_reinhard(data)
+        assert tone.min() >= 0.0 and tone.max() <= 1.0

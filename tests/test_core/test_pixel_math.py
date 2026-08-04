@@ -115,3 +115,30 @@ class TestPrepareVariables:
         extra = {"ref": np.zeros((50, 50), dtype=np.float32)}
         v = prepare_variables(img, extra)
         assert "ref" in v
+
+
+class TestConditionalExpressions:
+    def test_ifexp_selects_per_pixel(self):
+        img = np.linspace(0, 1, 2500, dtype=np.float32).reshape(50, 50)
+        result = evaluate("T if T > 0.5 else 0.0", prepare_variables(img))
+        assert result.shape == img.shape
+        assert np.all(result[img > 0.5] > 0.45)
+        assert np.all(result[img <= 0.5] == 0.0)
+
+    def test_ifexp_on_tensors(self):
+        """Regression: on the GPU branch the IfExp test is a torch.Tensor;
+        the old code took the truth value of a multi-element tensor and
+        crashed with 'Boolean value of Tensor with more than one value is
+        ambiguous'."""
+        import ast
+
+        import torch
+
+        from astraios.core.pixel_math import _eval_node, _get_torch_functions
+
+        tree = ast.parse("T if T > 0.5 else 0.0", mode="eval")
+        t = torch.linspace(0, 1, 16).reshape(4, 4)
+        result = _eval_node(tree.body, {"T": t}, _get_torch_functions())
+        assert isinstance(result, torch.Tensor)
+        assert torch.all(result[t > 0.5] > 0.45)
+        assert torch.all(result[t <= 0.5] == 0.0)

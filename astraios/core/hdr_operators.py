@@ -107,15 +107,17 @@ def tonemap_drago(
         d = data[ch] if is_color else data
         l_max = float(np.max(d))
         l_max = max(l_max, 1e-10)
-        l_scaled = d / l_max
-        # Drago normalisation = the curve evaluated at the max luminance
-        # (l_scaled = 1) → log10(2 + 8) = 1.0. The old code recomputed this
-        # per-pixel (it divided l_scaled by l_max a second time), which both
-        # mis-scaled the curve and made the next line's max(denom, 1e-10) crash
-        # with "truth value of an array is ambiguous".
-        denom = max(float(np.log10(10.0)), 1e-10)
-        log_base = np.log10(2.0 + 8.0 * l_scaled ** (1.0 / max(bias, 1e-6)))
-        tone = np.clip(log_base / denom, 0.0, 1.0)
+        l_scaled = np.maximum(d, 0.0) / l_max
+        # Drago et al. 2003: Ld ∝ [log10(1+L) / log10(1+Lmax)] · ld(L/Lmax),
+        # where ld(w) = log10(2 + 8·w^b) is the bias curve with ld(1) = 1,
+        # so the bias term needs no extra denominator. Without the log-ratio
+        # factor the curve started at log10(2) ≈ 0.30 — blacks were lifted by
+        # 30% and the whole image compressed into [0.30, 1].
+        log_term = np.log10(1.0 + np.maximum(d, 0.0)) / max(
+            float(np.log10(1.0 + l_max)), 1e-10
+        )
+        bias_term = np.log10(2.0 + 8.0 * l_scaled ** (1.0 / max(bias, 1e-6)))
+        tone = np.clip(log_term * bias_term, 0.0, 1.0)
         if gamma != 1.0:
             tone = tone ** gamma
         if is_color:
