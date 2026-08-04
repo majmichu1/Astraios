@@ -309,7 +309,9 @@ def plate_solve_astrometry_net(
         Max seconds to wait for solve (default 120).
     """
     import io
-    BASE = "http://nova.astrometry.net/api"
+    # HTTPS: the API key and the uploaded frame must not cross the network
+    # in plaintext (nova.astrometry.net supports TLS).
+    BASE = "https://nova.astrometry.net/api"
 
     def _request_with_retry(url, data=None, headers=None, max_retries=3, base_delay=1.0, timeout=30):
         for attempt in range(max_retries):
@@ -444,7 +446,7 @@ def plate_solve_astrometry_net(
     # 4. Download and parse WCS FITS
     log.info("Downloading WCS from astrometry.net job %s...", job_id)
     try:
-        wcs_url = f"http://nova.astrometry.net/wcs_file/{job_id}"
+        wcs_url = f"https://nova.astrometry.net/wcs_file/{job_id}"
         for attempt in range(3):
             try:
                 req = urllib.request.Request(wcs_url, headers={"User-Agent": "Astraios/1.0"})

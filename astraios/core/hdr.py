@@ -116,6 +116,9 @@ def _weighted_average(images: list[np.ndarray], params: HDRParams) -> np.ndarray
     # the full-image buffer sizes.
     result = np.zeros_like(images[0], dtype=np.float32)
     weight_sum = np.zeros(images[0].shape[-2:], dtype=np.float32)
+    # sigma = 0 zeroed every weight and the 1e-10 floor then clipped the
+    # division result to an all-white image.
+    sigma = max(float(params.sigma), 1e-3)
 
     for img in images:
         if img.ndim == 3:
@@ -124,7 +127,7 @@ def _weighted_average(images: list[np.ndarray], params: HDRParams) -> np.ndarray
             lum = img
 
         # Well-exposedness weight: Gaussian centered at 0.5
-        w = np.exp(-0.5 * ((lum - 0.5) / params.sigma) ** 2)
+        w = np.exp(-0.5 * ((lum - 0.5) / sigma) ** 2)
         weight_sum += w
 
         if img.ndim == 3:

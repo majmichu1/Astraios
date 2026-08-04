@@ -70,6 +70,11 @@ def _deserialize_value(value: Any, field_type: type | None = None) -> Any:
             enum_class = _get_enum_class(enum_name)
             if enum_class:
                 return enum_class[value["name"]]
+            # A bare string deserializes "successfully" but every
+            # `params.x == SomeEnum.Y` comparison is then False, silently
+            # switching tools to fallback behavior — make it visible.
+            log.warning("Unknown enum class %r in preset; keeping name %r",
+                        enum_name, value["name"])
             return value["name"]  # fallback
         if "__ndarray__" in value:
             dtype = value.get("dtype", "float32")
@@ -94,6 +99,9 @@ def _get_enum_class(enum_name: str) -> type[Enum] | None:
         "StructuringElement": "astraios.core.morphology",
         "NarrowbandPalette": "astraios.core.narrowband",
         "BlendMethod": "astraios.core.mosaic",
+        "NormalizeMethod": "astraios.core.mosaic",
+        "RegistrationMode": "astraios.core.stacking",
+        "NormalizationMethod": "astraios.core.stacking",
         "RotateAngle": "astraios.core.transforms",
         "FlipAxis": "astraios.core.transforms",
         "InterpolationMethod": "astraios.core.transforms",
@@ -145,7 +153,12 @@ def deserialize_params(cls: type, data: dict) -> Any:
     field_infos = {f.name: f for f in fields(cls)}
     deserialized = {}
     for key, value in data.items():
-        raw_type = field_infos[key].type if key in field_infos else None
+        if key not in field_infos:
+            # Tolerate presets saved by other versions: skip renamed/removed
+            # fields instead of crashing cls(**deserialized) with TypeError.
+            log.warning("Preset field %r unknown for %s; ignoring", key, cls.__name__)
+            continue
+        raw_type = field_infos[key].type
         actual_type = _resolve_type(raw_type)
         deserialized[key] = _deserialize_value(value, actual_type)
 
@@ -247,9 +260,15 @@ def load_preset(tool_name: str, preset_name: str) -> Any | None:
     for preset_dir in search_dirs:
         path = preset_dir / f"{safe_name}.json"
         if path.exists():
-            with open(path) as f:
-                data = json.load(f)
-            return deserialize_params(cls, data["params"])
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                return deserialize_params(cls, data["params"])
+            except (OSError, ValueError, KeyError, TypeError) as e:
+                # Corrupt/truncated preset files must not take the caller
+                # down — report and treat the preset as missing.
+                log.warning("Failed to load preset %s/%s: %s", tool_name, preset_name, e)
+                return None
 
     return None
 

@@ -57,6 +57,11 @@ def _create_gaussian_psf(fwhm: float, size: int | None = None) -> np.ndarray:
     ndarray
         Normalized PSF kernel.
     """
+    if fwhm <= 0:
+        # A zero/negative FWHM made sigma 0, the Gaussian became 0/0 = NaN
+        # and every RL iteration smeared NaN across the whole image.
+        log.warning("Invalid PSF FWHM %.3g, clamping to 0.5 px", fwhm)
+        fwhm = 0.5
     sigma = fwhm / 2.3548  # FWHM to sigma
     if size is None:
         size = int(np.ceil(fwhm * 3)) | 1  # ensure odd
@@ -207,10 +212,13 @@ def _rl_channel(
     h, w = t_img.shape
     psf_fft = _padded_kernel_fft(t_psf, h, w)
     psf_flip_fft = _padded_kernel_fft(t_psf_flip, h, w)
+    # iterations <= 0 made the loop a silent no-op that returned the
+    # unchanged image as if it had been deconvolved.
+    iterations = max(1, int(params.iterations))
     with torch.no_grad():
-        for i in range(params.iterations):
-            frac = ch_offset + ch_scale * (i / params.iterations)
-            progress(frac, f"Deconvolution ch{ch_idx + 1} iter {i + 1}/{params.iterations}")
+        for i in range(iterations):
+            frac = ch_offset + ch_scale * (i / iterations)
+            progress(frac, f"Deconvolution ch{ch_idx + 1} iter {i + 1}/{iterations}")
 
             # Convolution of estimate with PSF. The intermediates are fresh
             # tensors owned by this loop, so the clamp/div/mul run in place —
