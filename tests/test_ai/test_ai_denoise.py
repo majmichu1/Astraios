@@ -115,3 +115,51 @@ class TestAIDenoise:
             calls.append((frac, msg))
         ai_denoise(data, model=model, params=AIDenoiseParams(tile_size=64, overlap=16), progress=progress)
         assert len(calls) > 0
+
+
+class TestRegressionFixes:
+    def test_full_tile_size_does_not_crash(self):
+        """Regression: the UI's "Full" tile size maps to tile_size=0, which
+        produced an empty tile range and IndexError on ys[-1]."""
+        model = _small_model()
+        data = _noisy_mono(h=48, w=48)
+        result = ai_denoise(data, model=model,
+                            params=AIDenoiseParams(tile_size=0, overlap=32, n_passes=1))
+        assert result.shape == data.shape
+        assert np.all(np.isfinite(result))
+
+    def test_degenerate_overlap_does_not_crash(self):
+        model = _small_model()
+        data = _noisy_mono(h=64, w=64)
+        result = ai_denoise(data, model=model,
+                            params=AIDenoiseParams(tile_size=32, overlap=32, n_passes=1))
+        assert result.shape == data.shape
+
+    def test_model_for_state_dict_detects_denoise_unet(self):
+        """Regression: the bundled weights are a DenoiseUNet state dict with
+        unet./noise_mlp. prefixes; loading them into a bare UNet failed and
+        AI Denoise silently fell back to wavelets."""
+        from astraios.ai.inference.denoise import _model_for_state_dict
+        from astraios.ai.models.denoise_model import DenoiseUNet
+
+        wrapped = DenoiseUNet(in_channels=1, base_features=8, depth=2,
+                              use_noise_conditioning=True)
+        state = wrapped.state_dict()
+        rebuilt = _model_for_state_dict(state)
+        rebuilt.load_state_dict(state)  # must not raise
+
+    def test_registry_hash_matches_bundled_model(self):
+        """Regression: a stale sha256/size made every re-download fail the
+        integrity check."""
+        import hashlib
+        from pathlib import Path
+
+        from astraios.ai.model_manager import MODEL_REGISTRY, ModelType
+
+        bundled = Path(__file__).resolve().parents[2] / "astraios" / "ai" / "models" / "cosmica_denoise_v1.pt"
+        if not bundled.exists():
+            return
+        info = MODEL_REGISTRY[ModelType.DENOISE]
+        assert bundled.stat().st_size == info.size_bytes
+        digest = hashlib.sha256(bundled.read_bytes()).hexdigest()
+        assert digest == info.sha256

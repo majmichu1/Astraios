@@ -58,10 +58,11 @@ MODEL_REGISTRY: dict[ModelType, ModelInfo] = {
         filename="cosmica_denoise_v1.pt",
         version="1.0.0",
         # Bundled with the package (see _BUNDLED_MODELS_DIR), so no download is
-        # needed. Hash and size describe the shipped file; the previous values
-        # described a model that was never published anywhere.
-        sha256="a0a258d297674eed1d12783e728b2ea213304023cf776cd452742d708981c3bd",
-        size_bytes=31114023,
+        # needed. Hash and size MUST describe the shipped file — the previous
+        # values were stale and made every re-download fail the integrity
+        # check, so an install without the bundled file could never get one.
+        sha256="9e416e846b0a3ec330d276a9cba238c31b9f007b6bb04637a957cabc9aab1b3d",
+        size_bytes=31117003,
         description="Astraios AI Denoiser v1 — Noise2Self U-Net for astronomical images",
     ),
     ModelType.SHARPEN: ModelInfo(

@@ -50,10 +50,44 @@ class AIDenoiseParams:
 # Cache the loaded model by source path so a multi-channel run (and repeated
 # tool invocations) reuse one instance instead of re-reading + rebuilding the
 # UNet on every call.
-_MODEL_CACHE: dict[str, UNet] = {}
+_MODEL_CACHE: dict[str, torch.nn.Module] = {}
 
 
-def _load_trained_model(prefer_best: bool = True) -> UNet | None:
+def _model_for_state_dict(state: dict) -> torch.nn.Module:
+    """Build the right model architecture for a raw state dict.
+
+    The bundled v1 weights are a noise-conditioned residual DenoiseUNet
+    (keys ``unet.*`` + ``noise_mlp.*``); older exports are a bare UNet.
+    Depth is derived from the number of encoder levels so the shapes
+    always match.
+    """
+    if any(k.startswith("unet.") for k in state):
+        from astraios.ai.models.denoise_model import DenoiseUNet
+
+        enc_levels = {
+            int(k.split(".")[2]) for k in state if k.startswith("unet.encoders.")
+        }
+        first_conv = state.get("unet.encoders.0.net.0.weight")
+        base_features = int(first_conv.shape[0]) if first_conv is not None else 32
+        return DenoiseUNet(
+            in_channels=1,
+            base_features=base_features,
+            depth=max(len(enc_levels), 1),
+            use_noise_conditioning=any(k.startswith("noise_mlp.") for k in state),
+        )
+    # Bare UNet export — derive width/depth the same way.
+    first_conv = state.get("encoders.0.net.0.weight")
+    base_features = int(first_conv.shape[0]) if first_conv is not None else 32
+    enc_levels = {int(k.split(".")[1]) for k in state if k.startswith("encoders.")}
+    return UNet(
+        in_channels=1,
+        out_channels=1,
+        base_features=base_features,
+        depth=max(len(enc_levels), 1),
+    )
+
+
+def _load_trained_model(prefer_best: bool = True) -> torch.nn.Module | None:
     """Load the best available trained N2S model from disk (cached by path)."""
     from pathlib import Path
 
@@ -71,6 +105,9 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
     # Try checkpoints newest first (up to epoch 30)
     for i in range(30, 0, -1):
         candidates.append(models_dir / f"checkpoint_epoch_{i}.pt")
+    # The model bundled with the package — without this entry production
+    # installs never found it and AI Denoise silently fell back to wavelets.
+    candidates.append(models_dir / "cosmica_denoise_v1.pt")
     candidates.append(models_dir / "cosmica_denoise_n2s_v1.pt")
 
     for path in candidates:
@@ -93,8 +130,7 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
                 model.load_state_dict(state_dict)
                 log.info("Loaded AI denoise model: %s (val_loss=%.3e)", path.name, raw.get("val_loss", float("nan")))
             else:
-                # Plain state dict (v1 format, depth=3)
-                model = UNet(in_channels=1, out_channels=1, base_features=32, depth=3)
+                model = _model_for_state_dict(raw)
                 model.load_state_dict(raw)
                 log.info("Loaded AI denoise model (plain state dict): %s", path.name)
             model.eval()
@@ -110,8 +146,8 @@ def _load_trained_model(prefer_best: bool = True) -> UNet | None:
         model_path = mm.get_cache_path(ModelType.DENOISE)
         if model_path and model_path.exists():
             raw = torch.load(model_path, map_location="cpu", weights_only=True)
-            model = UNet(in_channels=1, out_channels=1, base_features=32, depth=4)
-            state = raw["model_state_dict"] if isinstance(raw, dict) else raw
+            state = raw["model_state_dict"] if isinstance(raw, dict) and "model_state_dict" in raw else raw
+            model = _model_for_state_dict(state)
             model.load_state_dict(state)
             model.eval()
             return model
@@ -159,6 +195,14 @@ def _jinvariant_channel(
     h, w = data.shape
     tile_size = params.tile_size
     overlap = params.overlap
+
+    # tile_size <= 0 means "Full" in the UI — process the channel in one
+    # shot. Unclamped, the range() below got a negative step, produced an
+    # empty tile list, and ys[-1] crashed with IndexError.
+    if tile_size <= 0:
+        tile_size = max(h, w)
+    # overlap >= tile_size degenerates the tiling the same way.
+    overlap = max(0, min(overlap, tile_size // 2))
 
     # If image fits comfortably, process in one shot
     if h <= tile_size and w <= tile_size:
