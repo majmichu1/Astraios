@@ -110,7 +110,10 @@ def morphology_transform(
     # no copy: op never mutates the input; apply_mask reads data directly
     dm = get_device_manager()
 
-    use_gpu = dm.is_gpu and params.element != StructuringElement.DIAMOND
+    # The GPU path is a square max_pool window, which is only exact for
+    # SQUARE elements: CIRCLE used to dilate/erode with the square on GPU
+    # but with cv2.MORPH_ELLIPSE on CPU — different shapes per hardware.
+    use_gpu = dm.is_gpu and params.element == StructuringElement.SQUARE
 
     if use_gpu:
         result = _morphology_gpu(data, params.operation, params.kernel_size, params.iterations)

@@ -172,6 +172,9 @@ def _wavelet_threshold_scale(
 
 def _denoise_nlm_channel(channel: np.ndarray, params: DenoiseParams) -> np.ndarray:
     """Apply OpenCV Non-Local Means denoising to a single channel (CPU)."""
+    # OpenCV's single-image fastNlMeansDenoising only accepts CV_8U in
+    # current builds (uint16 needs the multi-frame API), so this path
+    # quantizes; the wavelet/TGV methods are the full-depth options.
     img_u8 = np.clip(channel * 255, 0, 255).astype(np.uint8)
     h = params.nlm_h * params.strength
     denoised = cv2.fastNlMeansDenoising(
@@ -193,9 +196,14 @@ def _denoise_median_channel(channel: np.ndarray, params: DenoiseParams) -> np.nd
     k = max(3, int(round(3 + 12 * params.strength)))
     if k % 2 == 0:
         k += 1
-    img_u8 = np.clip(channel * 255, 0, 255).astype(np.uint8)
-    denoised_u8 = cv2.medianBlur(img_u8, k)
-    denoised = denoised_u8.astype(np.float32) / 255.0
+    # uint16 keeps linear signal from quantizing to 8 bits. cv2.medianBlur
+    # only supports uint16 for ksize <= 5, so use scipy (same replicate
+    # border behaviour) which handles any odd kernel at full depth.
+    from scipy.ndimage import median_filter
+
+    img_u16 = np.clip(channel * 65535, 0, 65535).astype(np.uint16)
+    denoised_u16 = median_filter(img_u16, size=k, mode="nearest")
+    denoised = denoised_u16.astype(np.float32) / 65535.0
     if params.detail_preservation > 0:
         blend = params.detail_preservation
         denoised = denoised * (1.0 - blend) + channel * blend

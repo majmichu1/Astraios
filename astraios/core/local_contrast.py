@@ -104,19 +104,19 @@ def _apply_clahe_color(
     amount: float,
 ) -> np.ndarray:
     """Apply CLAHE to luminance channel of a color image, preserving chrominance."""
-    # Convert (C, H, W) RGB -> (H, W, C) BGR for OpenCV
-    bgr = np.transpose(data, (1, 2, 0))[:, :, ::-1].copy()
-    bgr_u8 = (bgr * 255).clip(0, 255).astype(np.uint8)
+    # Float Lab keeps the pipeline at full depth — the old path quantized
+    # color images to 8 bits (the mono path already used uint16), so deep-sky
+    # gradients banded after enhancement.
+    bgr = np.transpose(data, (1, 2, 0))[:, :, ::-1].astype(np.float32)
+    lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2Lab)  # L in 0..100
 
-    # Convert to Lab color space
-    lab = cv2.cvtColor(bgr_u8, cv2.COLOR_BGR2LAB)
-
-    # Apply CLAHE to L channel only
-    lab[:, :, 0] = clahe.apply(lab[:, :, 0])
+    # Apply CLAHE to L channel only (uint16, like the mono path)
+    l_u16 = (lab[:, :, 0] / 100.0 * 65535).clip(0, 65535).astype(np.uint16)
+    lab[:, :, 0] = clahe.apply(l_u16).astype(np.float32) / 65535.0 * 100.0
 
     # Convert back to BGR
-    result_bgr = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-    result_f = result_bgr.astype(np.float32) / 255.0
+    result_bgr = cv2.cvtColor(lab, cv2.COLOR_Lab2BGR)
+    result_f = np.clip(result_bgr, 0, 1)
 
     # BGR -> RGB -> (C, H, W)
     result = np.transpose(result_f[:, :, ::-1], (2, 0, 1)).copy()
