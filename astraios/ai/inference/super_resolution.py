@@ -27,6 +27,44 @@ MODEL_URLS = {
     "real_esrgan_x4.pth": "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth",
 }
 
+# Pinned SHA-256 of each official weight file — downloads are rejected on
+# mismatch or when a pin is missing.
+MODEL_SHA256 = {
+    "real_esrgan_x2.pth": "49fafd45f8fd7aa8d31ab2a22d14d91b536c34494a5cfe31eb5d89c2fa266abb",
+    "real_esrgan_x4.pth": "4fa0d38905f75ac06eb49a7951b426670021be3018265fd191d2125df9d682f1",
+}
+
+
+def _download_weights(url: str, tmp_path: Path, expected_sha256: str) -> None:
+    """Stream *url* into *tmp_path* with a timeout, retries and a pinned
+    SHA-256 check. Raises on any integrity failure — a partial or tampered
+    weight file must never reach the cache."""
+    import hashlib
+    import urllib.request
+
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            sha = hashlib.sha256()
+            with urllib.request.urlopen(url, timeout=30) as resp, open(tmp_path, "wb") as f:
+                while True:
+                    chunk = resp.read(1 << 16)
+                    if not chunk:
+                        break
+                    sha.update(chunk)
+                    f.write(chunk)
+            digest = sha.hexdigest()
+            if digest != expected_sha256:
+                raise ValueError(
+                    f"SHA-256 mismatch: expected {expected_sha256}, got {digest}"
+                )
+            return
+        except Exception as e:
+            last_error = e
+            tmp_path.unlink(missing_ok=True)
+            log.warning("Model download attempt %d failed: %s", attempt + 1, e)
+    raise RuntimeError(f"Model download failed after 3 attempts: {last_error}")
+
 
 @dataclass
 class SuperResParams:
@@ -165,11 +203,13 @@ def _load_model(scale: int) -> Any | None:
         if url:
             log.info("Downloading super-resolution model: %s", url)
             try:
-                import urllib.request
                 # Download to a temp name and rename: writing straight to the
                 # final path let an interrupted download poison the cache.
+                # urlretrieve had no timeout and could hang the worker
+                # forever; _download_weights streams with a timeout, retries,
+                # and verifies the pinned SHA-256.
                 tmp_path = model_path.with_suffix(".tmp")
-                urllib.request.urlretrieve(url, tmp_path)
+                _download_weights(url, tmp_path, MODEL_SHA256[model_name])
                 tmp_path.replace(model_path)
                 log.info("Model downloaded: %s", model_path)
             except Exception as e:
