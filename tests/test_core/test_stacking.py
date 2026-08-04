@@ -10,6 +10,7 @@ from astraios.core.stacking import (
     RegistrationMode,
     RejectionMethod,
     StackingParams,
+    _gpu_integrate,
     _gpu_min_max,
     _gpu_percentile_clip,
     _integrate,
@@ -473,8 +474,9 @@ class TestGpuRejectionHelpers:
 
         stack = torch.full((10, 4, 4), 0.3)
         stack[9, 2, 2] = 5.0
-        result, n_rej = _gpu_percentile_clip(stack, 5.0, 5.0)
+        mask, n_rej = _gpu_percentile_clip(stack, 5.0, 5.0)
         assert n_rej > 0
+        result = _gpu_integrate(stack, mask, IntegrationMethod.AVERAGE)
         assert abs(float(result[2, 2]) - 0.3) < 0.1
 
     def test_gpu_min_max_counts_rejected(self):
@@ -483,6 +485,42 @@ class TestGpuRejectionHelpers:
         stack = torch.linspace(0, 1, 6).view(6, 1, 1).expand(6, 2, 2)
         _, n_rej = _gpu_min_max(stack, 1)
         assert n_rej == 8
+
+    def test_gpu_integrate_matches_cpu_weighted(self):
+        """Regression: the GPU path silently dropped frame weights."""
+        import torch
+
+        stack_np = np.stack([
+            np.full((4, 4), 0.2, dtype=np.float32),
+            np.full((4, 4), 0.4, dtype=np.float32),
+            np.full((4, 4), 0.9, dtype=np.float32),
+        ])
+        weights = np.array([1.0, 2.0, 1.0], dtype=np.float32)
+        masked = np.ma.array(stack_np, mask=False)
+        cpu = _integrate(masked, IntegrationMethod.WEIGHTED_AVERAGE, weights=weights)
+
+        t = torch.from_numpy(stack_np)
+        w = torch.from_numpy(weights)
+        mask = torch.ones_like(t, dtype=torch.bool)
+        gpu = _gpu_integrate(t, mask, IntegrationMethod.WEIGHTED_AVERAGE, w).numpy()
+        np.testing.assert_allclose(gpu, cpu, atol=1e-6)
+
+    def test_gpu_integrate_matches_cpu_median(self):
+        """Regression: the GPU path ignored the MEDIAN integration method."""
+        import torch
+
+        stack_np = np.stack([
+            np.full((4, 4), 0.2, dtype=np.float32),
+            np.full((4, 4), 0.4, dtype=np.float32),
+            np.full((4, 4), 0.9, dtype=np.float32),
+        ])
+        masked = np.ma.array(stack_np, mask=False)
+        cpu = _integrate(masked, IntegrationMethod.MEDIAN)
+
+        t = torch.from_numpy(stack_np)
+        mask = torch.ones_like(t, dtype=torch.bool)
+        gpu = _gpu_integrate(t, mask, IntegrationMethod.MEDIAN).numpy()
+        np.testing.assert_allclose(gpu, cpu, atol=1e-6)
 
 
 def test_weighted_integrate_normal_weights():

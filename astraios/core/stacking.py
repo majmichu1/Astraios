@@ -1431,15 +1431,20 @@ def _gpu_sigma_clip(
     max_iter: int = 5,
 ) -> tuple[torch.Tensor, int]:
     """Iterative sigma clipping on GPU. stack shape: (N, ...).
-    Returns (mean of kept pixels, n_rejected).
+
+    Returns (boolean mask of KEPT pixels, n_rejected). The center is the
+    median of kept values — astropy's SigmaClip on the CPU path defaults
+    to median-centering, and mean-centering inflates the std around
+    outliers so the two paths would reject different pixels.
     """
     mask = torch.ones_like(stack, dtype=torch.bool)  # True = keep
 
     for _ in range(max_iter):
+        vals = stack.masked_fill(~mask, float("nan"))
+        center = torch.nanmedian(vals, dim=0).values.unsqueeze(0)
+        # Variance of kept pixels around the median center
+        diff = stack - center
         count = mask.sum(dim=0, keepdim=True).float().clamp(min=1)
-        mean = (stack * mask).sum(dim=0, keepdim=True) / count
-        # Variance of kept pixels
-        diff = stack - mean
         var = (diff ** 2 * mask).sum(dim=0, keepdim=True) / count
         std = var.sqrt().clamp(min=1e-8)
 
@@ -1448,10 +1453,8 @@ def _gpu_sigma_clip(
             break
         mask = new_mask
 
-    count = mask.sum(dim=0).float().clamp(min=1)
-    result = (stack * mask).sum(dim=0) / count
     n_rejected = int((~mask).sum().item())
-    return result, n_rejected
+    return mask, n_rejected
 
 
 @torch.no_grad()
@@ -1460,14 +1463,15 @@ def _gpu_percentile_clip(
     pct_low: float,
     pct_high: float,
 ) -> tuple[torch.Tensor, int]:
-    """Percentile clip on GPU — reject out-of-range pixels, mean survivors."""
+    """Percentile clip on GPU — reject out-of-range pixels.
+
+    Returns (boolean mask of KEPT pixels, n_rejected).
+    """
     lo = torch.quantile(stack, pct_low / 100.0, dim=0)
     hi = torch.quantile(stack, 1.0 - pct_high / 100.0, dim=0)
     mask = (stack >= lo.unsqueeze(0)) & (stack <= hi.unsqueeze(0))
-    count = mask.sum(dim=0).float().clamp(min=1)
-    result = (stack * mask).sum(dim=0) / count
     n_rejected = int((~mask).sum().item())
-    return result, n_rejected
+    return mask, n_rejected
 
 
 @torch.no_grad()
@@ -1475,18 +1479,68 @@ def _gpu_min_max(
     stack: torch.Tensor,
     n_reject: int,
 ) -> tuple[torch.Tensor, int]:
-    """Min/Max rejection on GPU — reject n_reject lowest and highest per pixel."""
+    """Min/Max rejection on GPU — reject n_reject lowest and highest per pixel.
+
+    Returns (boolean mask of KEPT pixels, n_rejected).
+    """
     n = stack.shape[0]
     if n_reject * 2 >= n:
-        n_reject = max(1, (n - 1) // 2)
+        # Keep at least one frame per pixel; rejecting both extremes of a
+        # 2-frame stack would leave nothing (the CPU path has the same guard).
+        n_reject = max(0, (n - 1) // 2)
 
-    sorted_s, _ = stack.sort(dim=0)
-    kept = sorted_s[n_reject: n - n_reject]
-    if kept.shape[0] == 0:
-        kept = sorted_s
-    result = kept.mean(dim=0)
-    n_rejected = 2 * n_reject * int(stack[0].numel())
-    return result, n_rejected
+    order = stack.argsort(dim=0)
+    mask = torch.ones_like(stack, dtype=torch.bool)
+    grid = torch.meshgrid(
+        *(torch.arange(s, device=stack.device) for s in stack.shape[1:]),
+        indexing="ij",
+    )
+    for k in range(n_reject):
+        mask[order[k], *grid] = False
+        mask[order[n - 1 - k], *grid] = False
+    n_rejected = int((~mask).sum().item())
+    return mask, n_rejected
+
+
+@torch.no_grad()
+def _gpu_integrate(
+    stack: torch.Tensor,
+    mask: torch.Tensor,
+    method: IntegrationMethod,
+    weights: torch.Tensor | None = None,
+) -> torch.Tensor:
+    """Combine kept pixels on GPU — mirrors the CPU ``_integrate`` semantics.
+
+    The rejection kernels only decide WHICH pixels survive; the integration
+    method and per-frame weights must be applied identically on GPU and CPU,
+    otherwise the same parameters produce different stacks depending on the
+    hardware.
+    """
+    kept = mask.float()
+    if method == IntegrationMethod.MEDIAN:
+        vals = stack.masked_fill(~mask, float("nan"))
+        result = torch.nanquantile(vals, 0.5, dim=0)
+        # Fully-rejected pixels come out NaN — fall back to their plain mean.
+        bad = torch.isnan(result)
+        if bool(bad.any()):
+            count = kept.sum(dim=0).clamp(min=1.0)
+            result[bad] = (stack * kept).sum(dim=0)[bad] / count[bad]
+        return result
+    if method == IntegrationMethod.WEIGHTED_AVERAGE and weights is not None:
+        w = weights.float()
+        w_sum = w.sum()
+        if w_sum <= 1e-10:
+            # All-zero or cancelling weights would normalize to NaN and
+            # corrupt the whole result — fall back to equal weighting.
+            w = torch.full_like(w, 1.0 / w.numel())
+        else:
+            w = w / w_sum
+        w_view = w.view(-1, *([1] * (stack.dim() - 1)))
+        w_kept = kept * w_view
+        denom = w_kept.sum(dim=0).clamp(min=1e-10)
+        return (stack * w_kept).sum(dim=0) / denom
+    count = kept.sum(dim=0).clamp(min=1.0)
+    return (stack * kept).sum(dim=0) / count
 
 
 # ---------------------------------------------------------------------------
@@ -1771,24 +1825,21 @@ def stack_from_paths(
             del tile_stack
 
             if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
-                result_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
+                mask_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-                result_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
+                mask_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
             elif params.rejection == RejectionMethod.MIN_MAX:
-                result_t, n_rej = _gpu_min_max(t, params.min_max_reject)
+                mask_t, n_rej = _gpu_min_max(t, params.min_max_reject)
             else:  # NONE
-                if (params.integration == IntegrationMethod.WEIGHTED_AVERAGE
-                        and _tile_weights_t is not None):
-                    # Broadcast weights over spatial dims: (N,) → (N, 1, ..., 1)
-                    w_view = _tile_weights_t.view(-1, *([1] * (t.dim() - 1)))
-                    result_t = (t * w_view).sum(dim=0)
-                else:
-                    result_t = t.mean(dim=0)
+                mask_t = torch.ones_like(t, dtype=torch.bool)
                 n_rej = 0
 
+            # Integration method and frame weights apply to every rejection
+            # mode, NONE included (the old code only honored them for NONE).
+            result_t = _gpu_integrate(t, mask_t, params.integration, _tile_weights_t)
             total_rejected += n_rej
             tile_result = result_t.cpu().numpy()
-            del t, result_t
+            del t, mask_t, result_t
             if use_gpu and tile_idx % 10 == 9:
                 dm.empty_cache()
         else:
@@ -1924,7 +1975,7 @@ def stack_images(
     total_rejected = 0
     mask = None
     dm = get_device_manager()
-    use_gpu = dm.is_gpu and params.rejection in (
+    use_gpu = params.use_gpu and dm.is_gpu and params.rejection in (
         RejectionMethod.SIGMA_CLIP, RejectionMethod.PERCENTILE_CLIP,
         RejectionMethod.MIN_MAX, RejectionMethod.LINEAR_FIT,
     )
@@ -1938,17 +1989,23 @@ def stack_images(
         try:
             stack_t = dm.from_numpy(data_stack)
             if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
-                result_t, total_rejected = _gpu_sigma_clip(
+                mask_t, total_rejected = _gpu_sigma_clip(
                     stack_t, params.kappa_low, params.kappa_high, params.max_iterations
                 )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-                result_t, total_rejected = _gpu_percentile_clip(
+                mask_t, total_rejected = _gpu_percentile_clip(
                     stack_t, params.percentile_low, params.percentile_high
                 )
             elif params.rejection == RejectionMethod.MIN_MAX:
-                result_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
+                mask_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
+            weights_t = None
+            if params.frame_weights:
+                weights_t = torch.as_tensor(
+                    params.frame_weights, dtype=torch.float32, device=stack_t.device
+                )
+            result_t = _gpu_integrate(stack_t, mask_t, params.integration, weights_t)
             result = result_t.cpu().numpy().astype(np.float32)
-            del stack_t, result_t
+            del stack_t, mask_t, result_t
             dm.empty_cache()
         except (RuntimeError, MemoryError) as exc:
             log.warning(
