@@ -59,6 +59,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+#### Full-codebase audit fixes
+- **Silent image corruption in EZ presets** (`astraios/core/ez_scripts.py`): The "background" step subtracted the whole `(corrected, model)` return tuple from the image — mono input became a garbage 2-channel array, every later step ran on it. 4 of the 6 built-in presets affected. Now takes the corrected image, like `batch.py` always did.
+- **GPU stacking ignored parameters** (`astraios/core/stacking.py`): The GPU path always returned a plain mean — MEDIAN integration and WEIGHTED_AVERAGE frame weights were silently discarded whenever a GPU was present, and `params.use_gpu` was ignored. Rejection kernels now return kept-masks and a shared `_gpu_integrate` applies the method/weights identically to CPU.
+- **GPU sigma-clip centered on mean** (`astraios/core/stacking.py`): astropy's CPU `SigmaClip` centers on the median; the two paths rejected different pixels for the same kappa. GPU now median-centers.
+- **Stacking crashed on color stacks** (`astraios/core/stacking.py`): ESD and MIN_MAX rejection indexed frames as `(N, H, W)` — every OSC stack hit `IndexError` on the CPU path, and MIN_MAX with 2 frames rejected everything into an all-black result. Both kernels now handle `(N, C, H, W)`.
+- **Horizontal banding in tiled stacking** (`astraios/core/image_io.py`, `stacking.py`): Foreign float FITS tiles were min-max stretched by each tile's own range. Whole-file range is now computed once per frame and applied to all tiles.
+- **AI Denoise never used its model** (`astraios/ai/inference/denoise.py`, `model_manager.py`): The bundled `cosmica_denoise_v1.pt` wasn't in the candidate list, its DenoiseUNet keys didn't fit a bare UNet, and the registry sha256/size were stale (re-download always failed integrity). All three fixed; architecture is now detected from the weights. "Full" tile size (0) and `overlap >= tile_size` no longer crash with `IndexError`.
+- **Wavelet denoise GPU/CPU divergence** (`astraios/core/denoise.py`): GPU left the finest (most noise-dominated) scale unthresholded; now thresholded with the strongest factor like the CPU path.
+- **Drago tonemap lifted blacks 30%** (`astraios/core/hdr_operators.py`): Missing the `log10(1+L)/log10(1+Lmax)` factor from Drago et al. 2003 — output was compressed into [0.30, 1].
+- **pixel math crashed on GPU conditionals** (`astraios/core/pixel_math.py`): `T if T > 0.5 else X` took the truth value of a multi-element tensor; now uses `torch.where`. The module-global function-table swap (not thread-safe) is replaced by an explicit table parameter.
+- **XISF writer produced unparseable files** (`astraios/core/image_io.py`): Header values with `&`/`<`/quotes weren't XML-escaped, and the attachment-offset patch desynced when the digit count changed. Escaping + fixed-point offset loop.
+- **Re-saving FITS deleted astrometry** (`astraios/core/image_io.py`): `save_fits` copied a 9-key whitelist only; all WCS keywords (CRVAL/CD/SIP/…) are now preserved. `EXPTIME = 0.0` (bias) no longer treated as missing.
+- **Preset round-trip lost enums** (`astraios/core/presets.py`): `NormalizeMethod`, `RegistrationMode`, `NormalizationMethod` were missing from the enum map — loaded presets silently switched tools to fallback behaviour. Unknown fields and corrupt JSON are now tolerated with warnings.
+- **Click-and-crash, round 2** (`astraios/ui/main_window.py`, `tools_panel.py`, `project.py`): Implemented 10 missing panel/project APIs (Run Calibration, Debayer, LRGB, Continuum, Multi-Session, Blink incl. Shift+B, Macro record/stop, plate-solve callback).
+- **Exit crash + stale results** (`astraios/ui/main_window.py`): `closeEvent` now stops running workers and timers; a generation counter drops results from superseded workers; Ctrl+O collision between Open Image button and Open Project action removed; export/macro/blink slots no longer terminate the app on I/O errors.
+- **Project file corruption on crash** (`astraios/core/project.py`): Save is now atomic (temp file + fsync + rename); load reports which field is broken in hand-edited files.
+- **Live stack crashed on mixed frame sizes** (`astraios/core/live_stack.py`); **multi-session crashed on mono+color mixes** (`astraios/core/multi_session.py`) — both now handled.
+- **Star mask was a no-op** (`astraios/ui/main_window.py`): The generated mask was discarded after a success message; it is now registered and activated.
+- **Degenerate parameter guards**: deconvolution `psf_fwhm <= 0` (all-NaN output) and `iterations <= 0` (silent no-op); HDR Mertens `sigma = 0` (all-white output).
+- **Security**: astrometry.net API key/uploads/WCS downloads moved from plaintext HTTP to HTTPS.
+- **CI**: New quality-gate workflow (ruff bug-classes + mypy + full test suite) runs on every push/PR; previously nothing ran between releases. Fixed `poetry install --with dev` → `--extras dev` in CONTRIBUTING.md.
+
 #### Click-and-crash (Phase 1)
 - **Live stack** (`astraios/ui/dialogs/live_stack_dialog.py`): Guard `None`/non-ndarray/empty before accessing `.shape`.
 - **Smart process dialog** (`astraios/ui/dialogs/smart_process_dialog.py`): `error` signal, `try/except` in `run()`, Cancel button, `request_cancel()`, `requestInterruption()` for thread-safe cancel.
