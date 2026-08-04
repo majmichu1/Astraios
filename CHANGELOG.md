@@ -57,6 +57,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Object SNR
 - **Smart Processor** (`astraios/ai/smart_processor.py`): `object_snr` now uses `bg + 3σ` object mask (was P95 global threshold, which was background-biased). Object SNR = `max(0, (obj_median − bg) / noise)`.
 
+### Changed
+
+#### Audit round 2 — hardening and debt
+- **Licensing removed entirely**: Astraios is free open-source software — no license checks, no Pro tier, no subscriptions.
+- **Updater hardened**: fail-closed SHA-256 verification (unverified installers are rejected), checksum sidecars are never picked as the installer, notify-only update check 5 s after startup on a background thread.
+- **Super-resolution weights**: downloaded with a 30 s timeout, 3 retries and pinned SHA-256 of the official Real-ESRGAN checkpoints.
+- **Thread hygiene**: processing-history replay, HDR compose, mosaic panel loading, auto-import header scan all moved off the GUI thread; mask preview debounced.
+- **Full-depth processing**: median denoise at uint16, color CLAHE via float Lab + uint16 L (no more 8-bit banding), morphology CIRCLE/DIAMOND use exact CPU kernels (GPU max-pool is square-only).
+- **Lint**: 646 → ~270 (style-only remainder); every `zip()` is now `strict=True`; pep8-naming deselected and UP042 ignored by documented config decision.
+- **Tests**: the 10 skipped dialog construction tests are now real tests (UI suite runs with zero skips); updater verification tests added.
+
 ### Fixed
 
 #### Full-codebase audit fixes
