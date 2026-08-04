@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape, quoteattr
 
 import numpy as np
 from astropy.io import fits
@@ -69,11 +70,19 @@ class ImageData:
 
     @property
     def exposure(self) -> float | None:
-        return self.header.get("EXPTIME") or self.header.get("EXPOSURE")
+        # Explicit None checks: a legitimate 0.0 (bias frames) used to fall
+        # through the `or` to the fallback key or None.
+        val = self.header.get("EXPTIME")
+        if val is None:
+            val = self.header.get("EXPOSURE")
+        return val
 
     @property
     def temperature(self) -> float | None:
-        return self.header.get("CCD-TEMP") or self.header.get("SET-TEMP")
+        val = self.header.get("CCD-TEMP")
+        if val is None:
+            val = self.header.get("SET-TEMP")
+        return val
 
     @property
     def filter_name(self) -> str | None:
@@ -323,6 +332,24 @@ def save_fits(image: ImageData, path: Path, overwrite: bool = True) -> None:
             except (ValueError, KeyError):
                 pass
 
+    # Preserve astrometry: re-saving a plate-solved frame used to discard
+    # every WCS keyword. Copy by prefix so CD matrix, CDELT/CROTA, PC
+    # matrix and SIP distortion terms all round-trip.
+    wcs_prefixes = (
+        "CRPIX", "CRVAL", "CTYPE", "CUNIT", "CD1", "CD2", "CD3",
+        "CDELT", "CROTA", "PC0", "PC1", "PC2", "WCSAXES", "RADESYS",
+        "EQUINOX", "EPOCH", "LONPOLE", "LATPOLE", "A_", "B_", "AP_",
+        "BP_", "PV1", "PV2",
+    )
+    for key, val in image.header.items():
+        if not key or key in hdu.header or key.startswith(("COMMENT", "HISTORY")):
+            continue
+        if key.startswith(wcs_prefixes):
+            try:
+                hdu.header[key] = val
+            except (ValueError, KeyError):
+                pass
+
     hdu.header["CREATOR"] = "Astraios"
     hdu.header["HISTORY"] = "Processed with Astraios"
     hdu.writeto(str(path), overwrite=overwrite)
@@ -449,7 +476,10 @@ def _build_xisf_xml(image: ImageData) -> tuple[bytes, int]:
     for key in known_keys:
         if key in image.header:
             val = image.header[key]
-            fits_keywords += f'<FITSKeyword name="{key}" value="{val}"/>\n'
+            # Escape header values: OBJECT/comments containing &, < or "
+            # produced malformed XML that neither Astraios nor PixInsight
+            # could parse again.
+            fits_keywords += f'<FITSKeyword name="{key}" value={quoteattr(str(val))}/>\n'
 
     # Always add creator
     fits_keywords += '<FITSKeyword name="CREATOR" value="Astraios"/>\n'
@@ -461,7 +491,7 @@ def _build_xisf_xml(image: ImageData) -> tuple[bytes, int]:
         for step in history.split("||"):
             step = step.strip()
             if step:
-                history_xml += f'<Process identifier="astraios">{step}</Process>\n'
+                history_xml += f'<Process identifier="astraios">{escape(step)}</Process>\n'
 
     # Color space properties
     color_props = ""
@@ -477,11 +507,11 @@ def _build_xisf_xml(image: ImageData) -> tuple[bytes, int]:
     # Image properties (resolution, etc.)
     properties = ""
     if image.exposure:
-        properties += f'<Property name="Exposure Time">{image.exposure}</Property>\n'
+        properties += f'<Property name="Exposure Time">{escape(str(image.exposure))}</Property>\n'
     if image.temperature:
-        properties += f'<Property name="CCD Temperature">{image.temperature}</Property>\n'
+        properties += f'<Property name="CCD Temperature">{escape(str(image.temperature))}</Property>\n'
     if image.filter_name:
-        properties += f'<Property name="Filter">{image.filter_name}</Property>\n'
+        properties += f'<Property name="Filter">{escape(str(image.filter_name))}</Property>\n'
 
     location = f"attachment:{{OFFSET}}:{data.nbytes}"
     xml = (
@@ -497,23 +527,27 @@ def _build_xisf_xml(image: ImageData) -> tuple[bytes, int]:
         "</xisf>"
     )
 
-    xml_bytes = xml.encode("utf-8")
-    # Pad header to 16-byte boundary
-    pad_len = (16 - (len(xml_bytes) % 16)) % 16
-    xml_bytes += b"\x00" * pad_len
-    data_offset = 16 + len(xml_bytes)
-
-    # Replace offset placeholder
-    offset_str = str(data_offset).encode("utf-8")
-    xml_bytes = xml_bytes.replace(b"{OFFSET}", offset_str)
-    # If replacement changed length, re-pad and update offset in XML
-    if len(xml_bytes) % 16 != 0:
-        pad_len = (16 - (len(xml_bytes) % 16)) % 16
-        xml_bytes += b"\x00" * pad_len
-        data_offset = 16 + len(xml_bytes)
-        # Update the offset in the XML to match the new header size
-        new_offset_str = str(data_offset).encode("utf-8")
-        xml_bytes = xml_bytes.replace(offset_str, new_offset_str, 1)
+    # Replace the {OFFSET} placeholder and pad to a 16-byte boundary. The
+    # offset depends on the padded length and the padded length depends on
+    # the offset's digit count, so iterate to a fixed point — the old
+    # one-shot re-patch desynced whenever the digit count changed (e.g.
+    # 9988 -> 10000), leaving the attachment offset pointing into the
+    # middle of the XML header.
+    template = xml.encode("utf-8")
+    data_offset = 0
+    xml_bytes = template.replace(b"{OFFSET}", b"0")
+    for _ in range(8):
+        padded = template.replace(b"{OFFSET}", str(data_offset).encode("utf-8"))
+        pad_len = (16 - (len(padded) % 16)) % 16
+        padded += b"\x00" * pad_len
+        new_offset = 16 + len(padded)
+        if new_offset == data_offset:
+            xml_bytes = padded
+            break
+        data_offset = new_offset
+        xml_bytes = padded
+    else:
+        raise ValueError("XISF header offset did not converge")
 
     return xml_bytes, data_offset
 

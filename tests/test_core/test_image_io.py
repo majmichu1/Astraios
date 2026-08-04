@@ -172,3 +172,45 @@ class TestFitsAbsoluteScale:
         fits.PrimaryHDU(u16).writeto(str(p))
         got = load_fits(p).data
         assert np.max(np.abs(got - u16.astype(np.float32) / 65535.0)) < 1e-4
+
+
+class TestXisfEscapingAndOffset:
+    def test_xml_hostile_header_round_trip(self, tmp_path):
+        """Regression: header values with &, < or quotes produced malformed
+        XML that could not be parsed back."""
+        from astraios.core.image_io import ImageData, load_xisf, save_xisf
+
+        img = ImageData(
+            data=np.random.rand(32, 32).astype(np.float32),
+            header={"OBJECT": 'M42 & "quotes" <tag>', "TELESCOP": "AT72ED"},
+        )
+        path = tmp_path / "hostile.xisf"
+        save_xisf(img, path)
+        back = load_xisf(path)
+        assert back.data.shape == img.data.shape
+        np.testing.assert_allclose(back.data, img.data, atol=1e-6)
+
+
+class TestFitsWcsPreservation:
+    def test_save_fits_keeps_wcs_keywords(self, tmp_path):
+        """Regression: save_fits copied only a 9-key whitelist, so re-saving
+        a plate-solved frame silently deleted its astrometry."""
+        from astraios.core.image_io import ImageData, load_fits, save_fits
+
+        hdr = {"CRVAL1": 83.82, "CRVAL2": -5.39, "CD1_1": -1e-4, "A_ORDER": 2}
+        img = ImageData(data=np.random.rand(16, 16).astype(np.float32), header=hdr)
+        path = tmp_path / "wcs.fits"
+        save_fits(img, path)
+        back = load_fits(path)
+        assert back.header.get("CRVAL1") == 83.82
+        assert back.header.get("CD1_1") == -1e-4
+        assert back.header.get("A_ORDER") == 2
+
+    def test_exposure_zero_not_treated_as_missing(self):
+        """Regression: EXPTIME = 0.0 (bias frames) fell through the `or`
+        fallback as if it were absent."""
+        from astraios.core.image_io import ImageData
+
+        img = ImageData(data=np.zeros((4, 4), dtype=np.float32),
+                        header={"EXPTIME": 0.0})
+        assert img.exposure == 0.0
