@@ -107,10 +107,27 @@ def cosmetic_correction(
         cold_mask = diff < -params.cold_sigma * sigma
         total_cold += int(cold_mask.sum())
 
-        # Dead pixels: exactly zero
+        # Dead pixels: exactly zero — but exclude zero regions connected to
+        # the frame border. On aligned/derotated frames the area outside the
+        # rotated footprint is filled with zeros; repairing it would smear
+        # the local median across the whole border.
         dead_mask = np.zeros_like(hot_mask)
         if params.detect_dead:
-            dead_mask = ch_data == 0.0
+            from scipy.ndimage import label as _label_regions
+
+            zero_mask = ch_data == 0.0
+            labeled, n_regions = _label_regions(zero_mask)
+            if n_regions:
+                border_labels = set(
+                    np.unique(labeled[0, :]).tolist()
+                    + np.unique(labeled[-1, :]).tolist()
+                    + np.unique(labeled[:, 0]).tolist()
+                    + np.unique(labeled[:, -1]).tolist()
+                )
+                border_labels.discard(0)
+                if border_labels:
+                    zero_mask = zero_mask & ~np.isin(labeled, sorted(border_labels))
+            dead_mask = zero_mask
             total_dead += int(dead_mask.sum())
 
         # Replace defective pixels with local median

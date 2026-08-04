@@ -67,3 +67,24 @@ class TestCosmeticCorrection:
         image[30, 30] = 0.0
         result = cosmetic_correction(image)
         assert result.total_corrected == result.hot_pixels + result.cold_pixels + result.dead_pixels
+
+
+class TestAlignmentBorder:
+    def test_border_connected_zeros_are_not_dead_pixels(self):
+        """Regression: the zero fill outside an aligned/derotated footprint
+        touches the frame border and used to be 'repaired' — smearing the
+        local median across the whole edge."""
+        image = np.ones((60, 60), dtype=np.float32) * 0.3
+        image[0, :] = 0.0
+        image[:, 0] = 0.0
+        result = cosmetic_correction(image)
+        assert result.dead_pixels == 0
+        np.testing.assert_array_equal(result.data[0, :], 0.0)
+        np.testing.assert_array_equal(result.data[:, 0], 0.0)
+
+    def test_isolated_zero_still_repaired(self):
+        image = np.ones((60, 60), dtype=np.float32) * 0.3
+        image[30, 30] = 0.0
+        result = cosmetic_correction(image)
+        assert result.dead_pixels == 1
+        assert result.data[30, 30] != 0.0
