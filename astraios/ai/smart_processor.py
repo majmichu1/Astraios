@@ -1551,19 +1551,29 @@ class SmartProcessor:
             else:
                 working = color_adjust(working, cp)
 
-        # HDR local contrast: single very gentle CLAHE pass for extreme-DR
-        # objects.  Reveals faint outer structure without amplifying noise.
+        # HDR stage for extreme-DR objects. The operator offered in the
+        # dialog (Core Blend / Reinhard / Drago) used to be stored in the
+        # plan and then ignored — this stage always ran a gentle CLAHE pass.
+        # Route through the operator the user actually chose.
         if plan.needs_hdr_merge and "hdr_merge" in self._enabled_stages:
-            progress(0.96, "HDR local contrast enhancement...")
-            self._log_msg("HDR: gentle single-pass local contrast")
-            hdr_lce = LocalContrastParams(
-                clip_limit=1.8,
-                tile_size=8,
-                amount=0.25,
+            progress(0.96, "HDR enhancement...")
+            operator = plan.hdr_operator or "core_blend"
+            self._log_msg(f"HDR: applying {operator} operator")
+            from astraios.core.hdr_operators import (
+                CoreBlendParams,
+                DragoParams,
+                ReinhardParams,
+                apply_hdr,
             )
-            working = self._bg_preserving_local_contrast(
-                working, hdr_lce, "HDR LCE", region_mask=plan.object_mask
-            )
+            hdr_params = plan.hdr_params
+            if isinstance(hdr_params, dict):
+                cls = {
+                    "reinhard": ReinhardParams,
+                    "drago": DragoParams,
+                    "core_blend": CoreBlendParams,
+                }.get(operator)
+                hdr_params = cls(**hdr_params) if cls is not None else None
+            working = apply_hdr(working, operator, hdr_params)
 
         # Star-aware enhancement: separate stars, enhance the starless nebula,
         # then screen the stars back. Done last (on the stretched image) because
