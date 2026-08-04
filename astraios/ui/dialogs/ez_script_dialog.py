@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -14,6 +15,41 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.ez_scripts import list_presets, run_preset
+from astraios.ui.dialogs.dialog_workers import stop_worker
+
+
+class _EZWorker(QThread):
+    """Runs the preset pipeline off the GUI thread — it used to run
+    synchronously in the Ok handler, freezing the whole UI for minutes."""
+
+    progress = pyqtSignal(float, str)
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, img: np.ndarray, name: str):
+        super().__init__()
+        self._img = img
+        self._name = name
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+    def run(self) -> None:
+        def _progress(p: float, msg: str) -> None:
+            if self._cancelled:
+                raise InterruptedError("cancelled")
+            self.progress.emit(p, msg)
+
+        try:
+            result = run_preset(self._img, self._name, _progress)
+        except InterruptedError:
+            return
+        except Exception as e:
+            self.failed.emit(f"{type(e).__name__}: {e}")
+            return
+        if not self._cancelled:
+            self.done.emit(result)
 
 
 class EZScriptDialog(QDialog):
@@ -23,6 +59,7 @@ class EZScriptDialog(QDialog):
         super().__init__(parent)
         self._image_provider = image_provider
         self._result: np.ndarray | None = None
+        self._worker: _EZWorker | None = None
         self.setWindowTitle("EZ Script Suite")
         self.setMinimumWidth(500)
         self.setModal(True)
@@ -93,20 +130,34 @@ class EZScriptDialog(QDialog):
         self._progress.setVisible(True)
         self._progress.setValue(0)
 
-        def progress(p, msg):
-            self._progress.setValue(int(p * 100))
-            self._log_output.appendPlainText(f"[{int(p*100):3d}%] {msg}")
+        self._worker = _EZWorker(np.asarray(img), name)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
 
-        try:
-            result = run_preset(img, name, progress)
-            self._log_output.appendPlainText(f"Done. Output shape: {result.shape}")
-            self._progress.setValue(100)
-            self._result = result
-            self.accept()
-        except Exception as e:
-            self._log_output.appendPlainText(f"Error: {e}")
-            self._progress.setVisible(False)
-            self._btn_box.setEnabled(True)
+    def _on_progress(self, p: float, msg: str):
+        self._progress.setValue(int(p * 100))
+        self._log_output.appendPlainText(f"[{int(p * 100):3d}%] {msg}")
+
+    def _on_done(self, result):
+        self._log_output.appendPlainText(f"Done. Output shape: {result.shape}")
+        self._progress.setValue(100)
+        self._result = result
+        self.accept()
+
+    def _on_failed(self, message: str):
+        self._log_output.appendPlainText(f"Error: {message}")
+        self._progress.setVisible(False)
+        self._btn_box.setEnabled(True)
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
 
     def dialog_result(self) -> np.ndarray | None:
         return self._result
