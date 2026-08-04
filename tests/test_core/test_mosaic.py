@@ -14,24 +14,36 @@ from astraios.core.mosaic import (
 )
 
 
+def _star_panel(shape=(50, 50), seed: int = 0) -> np.ndarray:
+    """Panel with synthetic stars — mosaic registration needs detectable,
+    matchable star patterns, so stitch tests cannot use pure noise."""
+    rng = np.random.default_rng(seed)
+    img = np.full(shape, 0.1, dtype=np.float32)
+    yy, xx = np.mgrid[0:shape[0], 0:shape[1]]
+    for _ in range(8):
+        x = rng.uniform(6, shape[1] - 6)
+        y = rng.uniform(6, shape[0] - 6)
+        img += (0.6 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / 2.5)).astype(np.float32)
+    return img.astype(np.float32)
+
+
 class TestMosaicStitch:
     def test_two_identical_panels(self):
-        panel = np.random.rand(50, 50).astype(np.float32) * 0.5
-        result = mosaic_stitch([panel, panel])
+        panel = _star_panel()
+        result = mosaic_stitch([panel, panel.copy()])
         assert isinstance(result, MosaicResult)
         assert result.n_panels == 2
 
     def test_output_in_range(self):
-        p1 = np.random.rand(50, 50).astype(np.float32) * 0.5
-        p2 = np.random.rand(50, 50).astype(np.float32) * 0.5
-        result = mosaic_stitch([p1, p2])
+        p1 = _star_panel(seed=1)
+        result = mosaic_stitch([p1, p1.copy()])
         assert result.data.min() >= 0.0
         assert result.data.max() <= 1.0
 
     def test_color_panels(self):
-        p1 = np.random.rand(3, 50, 50).astype(np.float32) * 0.5
-        p2 = np.random.rand(3, 50, 50).astype(np.float32) * 0.5
-        result = mosaic_stitch([p1, p2])
+        mono = _star_panel(seed=2)
+        p1 = np.stack([mono, mono * 0.9, mono * 0.8]).astype(np.float32)
+        result = mosaic_stitch([p1, p1.copy()])
         assert result.data.ndim == 3
         assert result.data.shape[0] == 3
 
@@ -40,9 +52,42 @@ class TestMosaicStitch:
             mosaic_stitch([np.zeros((50, 50), dtype=np.float32)])
 
     def test_three_panels(self):
-        panels = [np.random.rand(50, 50).astype(np.float32) * 0.5 for _ in range(3)]
-        result = mosaic_stitch(panels)
+        base = _star_panel(seed=3)
+        result = mosaic_stitch([base, base.copy(), base.copy()])
         assert result.n_panels == 3
+
+    def test_unregistrable_panel_raises(self):
+        """Regression: a panel that could not be registered used to get the
+        identity transform and was silently blended at its raw pixel
+        position, producing a visibly wrong mosaic."""
+        flat = [np.zeros((40, 40), dtype=np.float32) for _ in range(2)]
+        with pytest.raises(ValueError, match="could not be registered"):
+            mosaic_stitch(flat)
+
+    def test_transitive_registration_links_corner_panel(self):
+        """Regression: panels were matched only against panel 0, so a panel
+        overlapping just an intermediate panel (e.g. the far corner of a
+        2x2 mosaic) failed registration. It must be linked transitively."""
+        from astraios.core.mosaic import _compute_pairwise_transforms
+
+        rng = np.random.default_rng(7)
+        img = np.full((90, 240), 0.1, dtype=np.float32)
+        yy, xx = np.mgrid[0:90, 0:240]
+        for _ in range(30):
+            x, y = rng.uniform(6, 234), rng.uniform(6, 84)
+            img += (0.6 * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / 2.5)).astype(np.float32)
+        img = img.astype(np.float32)
+
+        p0 = img[:, 0:100]    # left
+        p1 = img[:, 70:170]   # middle — overlaps both neighbours
+        p2 = img[:, 140:240]  # right — overlaps p1 only, not p0
+
+        transforms = _compute_pairwise_transforms([p0, p1, p2], lambda f, m: None)
+        identity = np.eye(2, 3, dtype=np.float32)
+        assert not np.allclose(transforms[2], identity, atol=1e-2), (
+            "corner panel fell back to identity instead of being linked "
+            "through the middle panel"
+        )
 
 
 class TestBlendMethods:
@@ -101,8 +146,7 @@ class TestBlendMethods:
         assert out.min() > -0.5 and out.max() < 1.5
 
     def test_stitch_runs_with_every_blend_method(self):
-        rng = np.random.default_rng(0)
-        base = rng.random((80, 80)).astype(np.float32) * 0.5 + 0.2
+        base = _star_panel(shape=(80, 80), seed=4)
         panels = [base, base.copy()]
         for method in (BlendMethod.AVERAGE, BlendMethod.FEATHER, BlendMethod.MULTIBAND):
             res = mosaic_stitch(panels, MosaicParams(blend_method=method))

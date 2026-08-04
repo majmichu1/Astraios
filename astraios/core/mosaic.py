@@ -164,23 +164,54 @@ def mosaic_stitch(
     )
 
 
+def _compose_affine(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
+    """Compose two 2x3 affine transforms: result(p) = outer(inner(p))."""
+    a = np.vstack([outer, [0.0, 0.0, 1.0]])
+    b = np.vstack([inner, [0.0, 0.0, 1.0]])
+    return (a @ b)[:2].astype(np.float32)
+
+
 def _compute_pairwise_transforms(
     panels: list[np.ndarray],
     progress: ProgressCallback,
 ) -> list[np.ndarray]:
-    """Compute affine transforms from each panel to panel 0."""
-    ref_sf = detect_stars(panels[0])
-    transforms = [np.eye(2, 3, dtype=np.float32)]
+    """Compute affine transforms from each panel to panel 0.
 
-    for i in range(1, len(panels)):
-        frac = 0.4 * i / max(len(panels) - 1, 1)
-        progress(frac, f"Registering panel {i + 1}/{len(panels)}...")
-        panel_sf = detect_stars(panels[i])
-        t = find_transform(ref_sf, panel_sf)
+    Panels are matched against the reference first; panels that do not
+    overlap the reference (e.g. the far corner of a 2x2 mosaic) are linked
+    transitively through already-placed panels. A panel that cannot be
+    linked at all raises — the old code silently gave it the identity
+    transform and blended it at its raw pixel position, producing a
+    visibly wrong mosaic with only a warning.
+    """
+    n = len(panels)
+    star_fields = [detect_stars(p) for p in panels]
+    ref_sf = star_fields[0]
+    transforms: list[np.ndarray] = [np.eye(2, 3, dtype=np.float32)] + [
+        np.eye(2, 3, dtype=np.float32)
+    ] * (n - 1)
+    placed = [True] + [False] * (n - 1)
+
+    for i in range(1, n):
+        frac = 0.4 * i / max(n - 1, 1)
+        progress(frac, f"Registering panel {i + 1}/{n}...")
+        t = find_transform(ref_sf, star_fields[i])
         if t is None:
-            log.warning("Failed to register panel %d, using identity", i)
-            t = np.eye(2, 3, dtype=np.float32)
-        transforms.append(t)
+            for j in range(i):
+                if not placed[j]:
+                    continue
+                t_ji = find_transform(star_fields[j], star_fields[i])
+                if t_ji is not None:
+                    t = _compose_affine(transforms[j], t_ji)
+                    log.info("Panel %d registered transitively via panel %d", i, j)
+                    break
+        if t is None:
+            raise ValueError(
+                f"Panel {i + 1} could not be registered against any other "
+                "panel — check that the panels overlap."
+            )
+        transforms[i] = t
+        placed[i] = True
 
     return transforms
 
