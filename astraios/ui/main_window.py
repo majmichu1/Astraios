@@ -1039,10 +1039,11 @@ class MainWindow(QMainWindow):
 
         # Primary action: a clearly-visible Open button so a new user knows
         # where to start (the menu's Ctrl+Shift+I was un-discoverable).
+        # Shortcuts live on QActions only: this button used to claim Ctrl+O,
+        # which collides with the Open Project action and made both unreliable.
         open_btn = QToolButton()
         open_btn.setText("Open Image")
-        open_btn.setToolTip("Open an image to start  (Ctrl+O)")
-        open_btn.setShortcut("Ctrl+O")
+        open_btn.setToolTip("Open an image to start  (Ctrl+Shift+I)")
         open_btn.clicked.connect(self._open_image)
         open_btn.setStyleSheet(
             "QToolButton { background: #2ea043; color: #ffffff; font-weight: 700; "
@@ -2055,7 +2056,11 @@ class MainWindow(QMainWindow):
             self, "Export as FITS", "", "FITS (*.fits *.fit)"
         )
         if path:
-            save_image(self._current_image, path=path)
+            try:
+                save_image(self._current_image, path=path)
+            except Exception as e:
+                self._log_panel.log(f"FITS export failed: {e}", "error")
+                return
             self._log_panel.log(f"Exported FITS: {Path(path).name}", "success")
 
     def _on_export_tiff(self):
@@ -2066,7 +2071,11 @@ class MainWindow(QMainWindow):
             self, "Export as TIFF", "", "TIFF (*.tiff *.tif)"
         )
         if path:
-            save_image(self._current_image, path=path)
+            try:
+                save_image(self._current_image, path=path)
+            except Exception as e:
+                self._log_panel.log(f"TIFF export failed: {e}", "error")
+                return
             self._log_panel.log(f"Exported TIFF: {Path(path).name}", "success")
 
     def _on_export_png(self):
@@ -2077,7 +2086,11 @@ class MainWindow(QMainWindow):
             self, "Export as PNG", "", "PNG (*.png)"
         )
         if path:
-            save_image(self._current_image, path=path)
+            try:
+                save_image(self._current_image, path=path)
+            except Exception as e:
+                self._log_panel.log(f"PNG export failed: {e}", "error")
+                return
             self._log_panel.log(f"Exported PNG: {Path(path).name}", "success")
 
     def _on_toggle_histogram(self):
@@ -2271,6 +2284,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._maybe_discard_changes():
+            # Stop running workers and timers before quitting: a QThread
+            # still running at QApplication exit logs "Destroyed while
+            # thread is still running" and frequently segfaults, and queued
+            # callbacks can fire into half-destroyed widgets.
+            for worker in (self._worker, getattr(self, "_ms_folder_loader", None)):
+                if worker is not None and worker.isRunning():
+                    worker.cancel()
+                    if not worker.wait(3000):
+                        worker.terminate()
+                        worker.wait(1000)
+            from PyQt6.QtCore import QTimer
+            for timer in self.findChildren(QTimer):
+                timer.stop()
             event.accept()
         else:
             event.ignore()
@@ -2763,6 +2789,12 @@ class MainWindow(QMainWindow):
                     self._worker.wait(1000)
                     self._log_panel.log("Previous task terminated", "warning")
             self._worker = None
+        # Generation counter: a cancelled worker whose function rarely calls
+        # progress() can still finish and emit finished(result) AFTER its
+        # replacement started. Without this guard the stale result would be
+        # applied to whatever image is current by then.
+        self._worker_gen = getattr(self, "_worker_gen", 0) + 1
+        _gen = self._worker_gen
 
         safe_args = tuple(
             a.copy() if isinstance(a, np.ndarray) else a for a in args
@@ -2804,7 +2836,12 @@ class MainWindow(QMainWindow):
             lambda: self._log_panel.set_cancel_visible(False), _Qt.ConnectionType.QueuedConnection
         )
         if on_done:
-            self._worker.finished.connect(on_done, _Qt.ConnectionType.QueuedConnection)
+            def _guarded_done(result, _cb=on_done, _expected=_gen):
+                if getattr(self, "_worker_gen", 0) != _expected:
+                    return  # superseded worker — drop the stale result
+                _cb(result)
+
+            self._worker.finished.connect(_guarded_done, _Qt.ConnectionType.QueuedConnection)
         self._worker.finished.connect(
             lambda: self._log_panel.reset_progress(), _Qt.ConnectionType.QueuedConnection
         )
@@ -6830,14 +6867,24 @@ class MainWindow(QMainWindow):
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save Macro", "", "Astraios Macro (*.json)")
         if path:
-            save_macro(self._current_macro, Path(path))
+            try:
+                save_macro(self._current_macro, Path(path))
+            except OSError as e:
+                self._log_panel.log(f"Macro save failed: {e}", "error")
+                return
             self._log_panel.log(f"Macro saved: {path}", "success")
 
     @pyqtSlot()
     def _on_load_macro(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load Macro", "", "Astraios Macro (*.json)")
         if path:
-            self._current_macro = load_macro(Path(path))
+            try:
+                self._current_macro = load_macro(Path(path))
+            except (OSError, ValueError) as e:
+                # A hand-edited or corrupt macro JSON must not terminate the
+                # app from inside a slot.
+                self._log_panel.log(f"Macro load failed: {e}", "error")
+                return
             self._log_panel.log(
                 f"Macro loaded: {self._current_macro.name} ({len(self._current_macro.steps)} steps)",
                 "success",
@@ -6904,7 +6951,13 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        img = load_image(path)
+        try:
+            img = load_image(path)
+        except Exception as e:
+            # A corrupt/unreadable file raised inside the slot and took the
+            # app down.
+            self._log_panel.log(f"Could not load blink image: {e}", "error")
+            return
         self._blink_images[slot] = self._make_display_rgb(img.data)
         name = Path(path).name
         self._blink_names[slot] = name
