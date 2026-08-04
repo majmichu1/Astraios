@@ -154,3 +154,26 @@ class TestAutoGroup:
         groups = auto_group_sessions(frames)
         assert len(groups) == 1
         assert groups[0].integration_time == pytest.approx(300.0)
+
+
+class TestMixedChannelSessions:
+    def test_mono_and_color_sessions_mix(self):
+        """Regression: mixing mono (H,W) and color (3,H,W) sessions crashed
+        the final integration with an inhomogeneous-shape ValueError."""
+        color = _make_session(name="Color")
+        rng = np.random.default_rng(seed=1)
+        mono_frames = [
+            ImageData(
+                data=np.clip(rng.normal(0.3, 0.05, (32, 32)).astype(np.float32), 0, 1),
+                header={"EXPTIME": 60.0},
+            )
+            for _ in range(3)
+        ]
+        mono = SessionGroup(frames=mono_frames, name="Mono", integration_time=180.0)
+        params = MultiSessionParams(
+            per_session_params=StackingParams(rejection=RejectionMethod.NONE),
+            align_sub_stacks=False,
+        )
+        result = stack_multi_session([color, mono], params)
+        assert result.image.data.shape == (3, 32, 32)
+        assert result.n_sessions == 2

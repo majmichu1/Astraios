@@ -4610,7 +4610,17 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(object)
     def _on_star_mask_ready(self, mask):
-        self._log_panel.log("Star mask generated", "success")
+        # Used to log success and throw the mask away — register and
+        # activate it exactly like the regular mask dialog does.
+        self._masks.append(mask)
+        self._active_mask = mask
+        self._log_panel.log(
+            f"Star mask '{mask.name}' is now active — tools will affect only the "
+            "masked area. Use Tools > Clear Active Mask to process the whole "
+            "image again.",
+            "success",
+        )
+        self._update_image_status()
 
     @pyqtSlot()
     def _show_live_stack_dialog(self):

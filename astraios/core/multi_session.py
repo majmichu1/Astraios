@@ -267,13 +267,14 @@ def stack_multi_session(
     progress(0.55, "Matching frame sizes across sessions…")
     sub_data = [r.image.data for r in sub_results]
 
-    # Determine shapes
-    if sub_data[0].ndim == 3:
-        heights = [d.shape[1] for d in sub_data]
-        widths  = [d.shape[2] for d in sub_data]
-    else:
-        heights = [d.shape[0] for d in sub_data]
-        widths  = [d.shape[1] for d in sub_data]
+    # Determine shapes — per entry, since sessions may mix mono (H, W) and
+    # color (C, H, W) sub-stacks (indexing shape[2] on a mono entry used to
+    # crash with IndexError).
+    def _hw(d: np.ndarray) -> tuple[int, int]:
+        return (d.shape[1], d.shape[2]) if d.ndim == 3 else (d.shape[0], d.shape[1])
+
+    heights = [_hw(d)[0] for d in sub_data]
+    widths  = [_hw(d)[1] for d in sub_data]
 
     max_h, max_w = max(heights), max(widths)
 
@@ -339,6 +340,18 @@ def stack_multi_session(
 
     # ── Phase 6: Weighted integration ────────────────────────────────────────
     progress(0.80, "Integrating sessions…")
+
+    # Mixing mono and color sessions used to crash np.array with an
+    # inhomogeneous-shape ValueError — promote mono/single-channel frames to
+    # 3 channels so all sessions share one layout.
+    has_color = any(d.ndim == 3 and d.shape[0] >= 3 for d in padded)
+    if has_color:
+        padded = [
+            np.repeat(d[np.newaxis] if d.ndim == 2 else d, 3, axis=0)
+            if (d.ndim == 2 or (d.ndim == 3 and d.shape[0] == 1))
+            else d
+            for d in padded
+        ]
 
     # Build stack array (N, C, H, W) or (N, H, W)
     stack_array = np.array(padded, dtype=np.float32)

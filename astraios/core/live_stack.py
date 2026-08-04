@@ -56,6 +56,14 @@ class LiveStacker:
             first = self.reference is None
             if first:
                 self._set_reference_locked(frame)
+            elif frame.shape != self.reference.shape:
+                # A shape mismatch raised a broadcast ValueError straight
+                # into the frame pump; drop the frame instead.
+                log.warning(
+                    "Live stack: skipping frame with shape %s (reference %s)",
+                    frame.shape, self.reference.shape,
+                )
+                return
 
             aligned = frame.astype(np.float32)
             # The first frame IS the reference: no alignment needed, but its

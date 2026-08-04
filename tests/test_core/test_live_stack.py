@@ -122,3 +122,14 @@ class TestPreviewAndReset:
         assert ls.n_frames == 0
         assert ls.get_result() is None
         assert ls.get_live_preview().shape == (100, 100)
+
+
+class TestMixedFrameSizes:
+    def test_mismatched_frame_size_skipped(self):
+        """Regression: a frame with different dimensions raised a broadcast
+        ValueError inside the frame pump and killed live stacking."""
+        ls = LiveStacker(alignment_mode="none")
+        ls.add_frame(np.full((8, 8), 0.3, dtype=np.float32))
+        ls.add_frame(np.full((16, 16), 0.9, dtype=np.float32))  # must not raise
+        assert ls.n_frames == 1
+        assert np.allclose(ls.get_result(), 0.3)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -171,8 +172,15 @@ class Project:
             "frame_scores": self.frame_scores,
         }
         self.directory.mkdir(parents=True, exist_ok=True)
-        with open(self.project_file, "w") as f:
+        # Atomic write: a crash, OOM or power loss mid-write used to leave a
+        # truncated project JSON behind (the autosave timer fires every 5
+        # minutes while a project is open).
+        tmp = self.project_file.with_suffix(".json.tmp")
+        with open(tmp, "w") as f:
             json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.project_file)
         log.info("Project saved: %s", self.project_file)
 
     @classmethod
@@ -188,16 +196,27 @@ class Project:
         except json.JSONDecodeError as e:
             raise ValueError(f"Corrupted project file: {path} — {e}") from e
 
-        proj = cls(
-            name=data["name"],
-            directory=path.parent,
-            created=data.get("created", ""),
-            modified=data.get("modified", ""),
-            settings=data.get("settings", {}),
-        )
-        proj.frames = [FrameEntry.from_dict(d) for d in data.get("frames", [])]
-        proj.history = [ProcessingStep.from_dict(d) for d in data.get("history", [])]
-        proj.frame_scores = data.get("frame_scores", {})
+        version = data.get("version")
+        if version is not None and version != PROJECT_VERSION:
+            log.warning(
+                "Project file %s has version %s (current %s); loading anyway",
+                path, version, PROJECT_VERSION,
+            )
+        try:
+            proj = cls(
+                name=data["name"],
+                directory=path.parent,
+                created=data.get("created", ""),
+                modified=data.get("modified", ""),
+                settings=data.get("settings", {}),
+            )
+            proj.frames = [FrameEntry.from_dict(d) for d in data.get("frames", [])]
+            proj.history = [ProcessingStep.from_dict(d) for d in data.get("history", [])]
+            proj.frame_scores = data.get("frame_scores", {})
+        except (KeyError, TypeError) as e:
+            # Hand-editable JSON: report WHICH field is broken instead of a
+            # bare KeyError deep in from_dict.
+            raise ValueError(f"Invalid project file {path}: {e}") from e
         log.info("Project loaded: %s (%d frames)", proj.name, len(proj.frames))
         proj._prune_missing_derived()
         return proj
