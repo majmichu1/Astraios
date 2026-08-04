@@ -186,8 +186,17 @@ def auto_stretch_for_display_ref(img: np.ndarray, ref: np.ndarray) -> np.ndarray
     return result
 
 
-def _normalize_fits_tile(tile: np.ndarray, header: dict | None = None) -> np.ndarray:
+def _normalize_fits_tile(
+    tile: np.ndarray,
+    header: dict | None = None,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> np.ndarray:
     """Normalize a FITS tile slice to float32 [0, 1].
+
+    ``vmin``/``vmax`` are the WHOLE-FILE min/max for foreign float data.
+    Tile readers must pass them: normalizing each tile by its own local
+    range gives every row-band a different scale and bands the stack.
 
     astropy already applies BZERO/BSCALE when ``hdu.data`` is accessed (every
     caller reads ``hdu.data``), so the array is already in physical units. We
@@ -213,11 +222,19 @@ def _normalize_fits_tile(tile: np.ndarray, header: dict | None = None) -> np.nda
         and str(header.get("CREATOR", "")).startswith("Astraios")
     ):
         return tile.astype(np.float32)
-    return _normalize_fits_data(tile)
+    return _normalize_fits_data(tile, vmin=vmin, vmax=vmax)
 
 
-def _normalize_fits_data(data: np.ndarray) -> np.ndarray:
-    """Normalize FITS data to float32 in [0, 1]."""
+def _normalize_fits_data(
+    data: np.ndarray,
+    vmin: float | None = None,
+    vmax: float | None = None,
+) -> np.ndarray:
+    """Normalize FITS data to float32 in [0, 1].
+
+    For float data, ``vmin``/``vmax`` override the local array range —
+    required when normalizing tiles so all tiles of a file share one scale.
+    """
     if data.dtype.kind == "u":
         max_val = np.iinfo(data.dtype).max
         return (data / max_val).astype(np.float32)
@@ -226,7 +243,8 @@ def _normalize_fits_data(data: np.ndarray) -> np.ndarray:
         return ((data.astype(np.float32) - info.min) / (info.max - info.min))
     else:
         data = data.astype(np.float32)
-        dmin, dmax = float(np.min(data)), float(np.max(data))
+        dmin = float(np.min(data)) if vmin is None else float(vmin)
+        dmax = float(np.max(data)) if vmax is None else float(vmax)
         if dmax <= 1.0 and dmin >= 0.0:
             return data
         if dmax - dmin > 0:

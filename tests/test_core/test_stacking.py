@@ -562,6 +562,33 @@ def test_weighted_integrate_zero_weights_no_nan():
 # ---------------------------------------------------------------------------
 
 
+def test_load_fits_tile_uses_whole_file_range(tmp_path):
+    """Regression: tiles of a foreign float FITS were min-max stretched by
+    their own local range, giving each row-band a different scale (visible
+    horizontal banding in the stack)."""
+    from astropy.io import fits
+
+    from astraios.core.image_io import load_fits
+    from astraios.core.stacking import _fits_float_range, _load_fits_tile
+
+    data = np.zeros((20, 20), dtype=np.float32)
+    data[:10] = 100.0  # top band has a different local range
+    data[10:] = 200.0
+    data += np.linspace(0, 50, 400, dtype=np.float32).reshape(20, 20)
+    fits.PrimaryHDU(data=data).writeto(str(tmp_path / "foreign.fits"))
+    path = tmp_path / "foreign.fits"
+
+    frange = _fits_float_range(path)
+    assert frange is not None
+    top = _load_fits_tile(path, 0, 10, frange)
+    bottom = _load_fits_tile(path, 10, 20, frange)
+    whole = _load_fits_tile(path, 0, 20, frange)
+    np.testing.assert_allclose(np.vstack([top, bottom]), whole, atol=1e-6)
+
+    full = load_fits(path)  # whole-file normalization reference
+    np.testing.assert_allclose(whole, full.data, atol=1e-6)
+
+
 class TestRejectionColorStacks:
     def test_esd_accepts_color_stack(self):
         stack = np.random.rand(8, 3, 16, 16).astype(np.float32)

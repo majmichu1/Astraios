@@ -144,9 +144,13 @@ def _wavelet_threshold_scale(
 ) -> np.ndarray:
     """Apply soft thresholding to wavelet scales on GPU and reconstruct."""
     dm = get_device_manager()
-    denoised_scales = [scales[0]]
-    for level in range(1, n_scales):
-        level_factor = 1.0 - (level - 1) / max(n_scales - 1, 1)
+    denoised_scales = []
+    for level in range(n_scales):
+        # Every detail scale is thresholded; the finest (level 0) is the most
+        # noise-dominated and gets the strongest factor. It used to pass
+        # through unthresholded on the GPU path only, so GPU and CPU results
+        # diverged for identical parameters.
+        level_factor = 1.0 - level / max(n_scales - 1, 1)
         effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
 
         d = dm.from_numpy(scales[level])

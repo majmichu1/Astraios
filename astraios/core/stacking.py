@@ -1557,14 +1557,43 @@ def _open_fits_for_tiles(path: Path):
     return _fits.open(str(path), memmap=use_memmap)
 
 
-def _load_fits_tile(path: Path, y0: int, y1: int) -> np.ndarray:
+def _fits_float_range(path: Path) -> tuple[float, float] | None:
+    """Global (min, max) of a foreign float FITS file, streamed via memmap.
+
+    Tile normalization must use the whole-file range — per-tile local ranges
+    give every row-band a different scale and band the stack. Returns None
+    for integer data (normalized by dtype max, no statistics needed) and for
+    Astraios-written floats (already in our [0, 1] convention).
+    """
+    with _open_fits_for_tiles(path) as hdul:
+        for hdu in hdul:
+            if hdu.data is not None:
+                d = hdu.data
+                if (
+                    d.dtype.kind == "f"
+                    and not str(hdu.header.get("CREATOR", "")).startswith("Astraios")
+                ):
+                    return float(np.min(d)), float(np.max(d))
+                return None
+    return None
+
+
+def _load_fits_tile(
+    path: Path,
+    y0: int,
+    y1: int,
+    file_range: tuple[float, float] | None = None,
+) -> np.ndarray:
     """Load a horizontal tile [y0:y1, :] from a FITS file via memmap.
 
     Returns float32 array of shape (C, tile_h, w) or (tile_h, w).
-    Only the requested rows are read from disk.
+    Only the requested rows are read from disk. ``file_range`` (whole-file
+    min/max from ``_fits_float_range``) keeps all tiles of a file on one
+    normalization scale.
     """
     from astraios.core.image_io import _normalize_fits_tile
 
+    vmin, vmax = file_range if file_range is not None else (None, None)
     with _open_fits_for_tiles(path) as hdul:
         for hdu in hdul:
             if hdu.data is not None:
@@ -1576,7 +1605,7 @@ def _load_fits_tile(path: Path, y0: int, y1: int) -> np.ndarray:
                     tile = np.array(d[:, y0:y1, :])
                 else:
                     tile = np.array(d)
-                return _normalize_fits_tile(tile, header)
+                return _normalize_fits_tile(tile, header, vmin=vmin, vmax=vmax)
     raise ValueError(f"No image data in {path}")
 
 
@@ -1787,6 +1816,15 @@ def stack_from_paths(
         if use_gpu:
             _tile_weights_t = torch.from_numpy(_tile_weights_np).to(dm.device)
 
+    # Whole-file float range per frame (one streaming pass each) so tile
+    # normalization uses a single scale per file, not per-tile local ranges.
+    file_ranges: list[tuple[float, float] | None] = []
+    for p in paths:
+        try:
+            file_ranges.append(_fits_float_range(p))
+        except Exception:
+            file_ranges.append(None)
+
     # 5. Process tiles
     _logged_cpu_rejection = False
     for tile_idx in range(n_tiles):
@@ -1802,7 +1840,7 @@ def stack_from_paths(
         tile_frames = []
         for i, p in enumerate(paths):
             try:
-                tile = _load_fits_tile(p, y0, y1)
+                tile = _load_fits_tile(p, y0, y1, file_ranges[i])
             except Exception as exc:
                 raise RuntimeError(f"Failed to read tile from frame {i}: {p}") from exc
             tile = tile * scales[i] + shifts[i]
