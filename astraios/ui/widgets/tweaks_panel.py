@@ -146,7 +146,7 @@ class TweaksPanel(QWidget):
     def _on_accent(self, name: str):
         self._selected_accent = name
         swatch_colors = [c for _, c in _SWATCH_COLORS]
-        for color_name, color in zip(self._swatch_btns.keys(), swatch_colors):
+        for color_name, color in zip(self._swatch_btns.keys(), swatch_colors, strict=True):
             self._swatch_btns[color_name].setStyleSheet(
                 self._swatch_style(color, selected=(color_name == name))
             )

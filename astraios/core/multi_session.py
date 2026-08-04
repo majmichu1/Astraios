@@ -325,7 +325,7 @@ def stack_multi_session(
     if params.weight_mode == "snr":
         raw_weights = [_snr_weight(r) for r in sub_results]
     elif params.weight_mode == "time":
-        raw_weights = [_time_weight(s, r) for s, r in zip(valid_sessions, sub_results)]
+        raw_weights = [_time_weight(s, r) for s, r in zip(valid_sessions, sub_results, strict=True)]
     else:  # equal
         raw_weights = [1.0] * len(sub_results)
 
@@ -335,7 +335,7 @@ def stack_multi_session(
     else:
         weights = [1.0 / len(sub_results)] * len(sub_results)
 
-    for i, (sess, w) in enumerate(zip(valid_sessions, weights)):
+    for sess, w in zip(valid_sessions, weights, strict=True):
         log.info("Session '%s': weight=%.3f", sess.name, w)
 
     # ── Phase 6: Weighted integration ────────────────────────────────────────

@@ -208,7 +208,7 @@ def _prepare_markers(
     used_cells: set[tuple[int, int]] = set()
     kept: list[dict[str, Any]] = []
 
-    for row, x, y in zip(norm, xs, ys):
+    for row, x, y in zip(norm, xs, ys, strict=True):
         if not (np.isfinite(x) and np.isfinite(y)):
             continue
         if not (0.0 <= x < width and 0.0 <= y < height):

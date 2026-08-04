@@ -78,7 +78,7 @@ def _compute_line_offsets(
 
     # Final median per line using only surviving pixels
     line_medians = np.array(
-        [np.median(row[m]) if m.any() else np.median(row) for row, m in zip(work, mask)],
+        [np.median(row[m]) if m.any() else np.median(row) for row, m in zip(work, mask, strict=True)],
         dtype=np.float32,
     )
 

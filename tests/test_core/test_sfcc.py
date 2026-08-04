@@ -240,13 +240,13 @@ class TestGainInvariance:
         bp_rp = rng.uniform(0.2, 2.0, n)
         amps = rng.uniform(0.10, 0.35, n)
         img = np.full((3, h, w), 0.02, np.float32)
-        for x, y, c, a in zip(xs, ys, bp_rp, amps):
+        for x, y, c, a in zip(xs, ys, bp_rp, amps, strict=True):
             g = np.exp(-(((xx - x) ** 2 + (yy - y) ** 2) / (2 * 2.0**2))).astype(np.float32)
             rgb = np.array([0.5 + 0.35 * c, 1.0, 1.6 - 0.45 * c], np.float32)
             rgb /= rgb.mean()
             for ch in range(3):
                 img[ch] += a * rgb[ch] * g
-        cat = [(float(x), float(y), float(c)) for x, y, c in zip(xs, ys, bp_rp)]
+        cat = [(float(x), float(y), float(c)) for x, y, c in zip(xs, ys, bp_rp, strict=True)]
         return np.clip(img, 0, 1), cat
 
     def test_colour_is_invariant_under_per_channel_gain(self):

@@ -383,7 +383,7 @@ class TestStackFromPaths:
         rng = np.random.default_rng(42)
         base = rng.random((40, 50)).astype(np.float32) * 0.2 + 0.05
         frames = []
-        for i, (offset, scale) in enumerate(
+        for offset, scale in (
             [(0.02, 1.0), (0.0, 1.15), (0.04, 0.92), (0.06, 1.08), (0.01, 0.95)]
         ):
             frames.append(base * scale + offset)

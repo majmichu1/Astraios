@@ -211,7 +211,7 @@ class TestCameraProfile:
         assert restored.resolution_y == mono_camera.resolution_y
         assert len(restored.qe_curve) == len(mono_camera.qe_curve)
         # Verify QE curve values survive the round-trip
-        for orig, rest in zip(mono_camera.qe_curve, restored.qe_curve):
+        for orig, rest in zip(mono_camera.qe_curve, restored.qe_curve, strict=True):
             assert rest[0] == pytest.approx(orig[0])
             assert rest[1] == pytest.approx(orig[1])
 

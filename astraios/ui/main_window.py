@@ -3767,7 +3767,7 @@ class MainWindow(QMainWindow):
         total_frames = sum(r.n_frames for r in result.sub_stacks)
         weight_info = ", ".join(
             f"{name}: {w:.2f}"
-            for name, w in zip(result.session_names, result.weights)
+            for name, w in zip(result.session_names, result.weights, strict=True)
         )
         self._log_panel.log(
             f"Multi-session complete: {result.n_sessions} sessions, "
@@ -5251,7 +5251,7 @@ class MainWindow(QMainWindow):
             if solve_path is None or not _Path(str(solve_path)).exists():
                 try:
                     from astraios.core.image_io import ImageData, save_image
-                    tmp_file = tempfile.NamedTemporaryFile(suffix=".fits", delete=False)
+                    tmp_file = tempfile.NamedTemporaryFile(suffix=".fits", delete=False)  # noqa: SIM115
                     tmp_fits = _Path(tmp_file.name)
                     tmp_file.close()
                     save_image(ImageData(data=data, header={}), tmp_fits)

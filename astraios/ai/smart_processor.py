@@ -659,7 +659,7 @@ class SmartProcessor:
 
             # Check for dual narrowband filters
             if self.equipment and self.equipment.filters:
-                for fname, filt in self.equipment.filters.items():
+                for _fname, filt in self.equipment.filters.items():
                     if filt.filter_type == "dual_narrowband":
                         return InputType.DUAL_NARROWBAND
                     if filt.filter_type == "triple_narrowband":

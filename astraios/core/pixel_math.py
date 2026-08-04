@@ -280,7 +280,7 @@ def _eval_node(node: ast.AST, env: dict, funcs: dict) -> np.ndarray | float:
     elif isinstance(node, ast.Compare):
         left = _eval_node(node.left, env, funcs)
         result = None
-        for op, comp in zip(node.ops, node.comparators):
+        for op, comp in zip(node.ops, node.comparators, strict=True):
             right = _eval_node(comp, env, funcs)
             cmp = _CMPOPS[type(op)](left, right)
             if isinstance(cmp, np.ndarray):

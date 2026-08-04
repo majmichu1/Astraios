@@ -196,7 +196,7 @@ class TestBatchAndDiskCalibration:
             light_paths, master_bias=bias, master_flat=flat, output_dir=out_dir
         )
         assert len(results) == 4
-        for src, img in zip(light_paths, results):
+        for src, img in zip(light_paths, results, strict=True):
             expected = out_dir / f"cal_{src.stem}.fits"
             assert img.file_path == expected
             assert expected.exists()
@@ -216,7 +216,7 @@ class TestBatchAndDiskCalibration:
             light_paths, out_dir, master_bias=bias, master_flat=flat
         )
         assert len(out_paths) == len(in_memory)
-        for mem, p in zip(in_memory, out_paths):
+        for mem, p in zip(in_memory, out_paths, strict=True):
             assert p.exists()
             disk = load_image(p)
             assert np.array_equal(mem.data, disk.data), "disk round-trip must be bit-identical"

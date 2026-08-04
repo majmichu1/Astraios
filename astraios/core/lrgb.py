@@ -113,7 +113,8 @@ def lrgb_combine(
     if params is None:
         params = LRGBParams()
     if progress is None:
-        progress = lambda f, m: None
+        def progress(f, m):
+            pass
 
     # Normalise shapes to HWC
     lum = luminance.squeeze() if luminance.ndim == 3 else luminance

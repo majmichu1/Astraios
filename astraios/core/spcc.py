@@ -197,7 +197,8 @@ def spcc_calibrate(
     if params is None:
         params = SPCCParams()
     if progress is None:
-        progress = lambda f, m: None
+        def progress(f, m):
+            pass
 
     if data.ndim != 3 or data.shape[0] != 3:
         raise ValueError("SPCC requires a 3-channel (RGB) image, shape (3, H, W)")
@@ -211,7 +212,7 @@ def spcc_calibrate(
 
     # ── Step 1: for each catalog star compute expected R/G/B ratios ───────────
     expected_ratios = []  # list of (r_exp, g_exp, b_exp) relative fluxes
-    for x_img, y_img, bp_rp in catalog_stars:
+    for _x_img, _y_img, bp_rp in catalog_stars:
         T = _bp_rp_to_teff(bp_rp)
         fluxes = []
         for ch_name in ("R", "G", "B"):

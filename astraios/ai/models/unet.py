@@ -83,7 +83,7 @@ class UNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Encode
         skips = []
-        for encoder, pool in zip(self.encoders, self.pools):
+        for encoder, pool in zip(self.encoders, self.pools, strict=True):
             x = encoder(x)
             skips.append(x)
             x = pool(x)
@@ -91,7 +91,7 @@ class UNet(nn.Module):
         x = self.bottleneck(x)
 
         # Decode
-        for upconv, decoder, skip in zip(self.upconvs, self.decoders, reversed(skips)):
+        for upconv, decoder, skip in zip(self.upconvs, self.decoders, reversed(skips), strict=True):
             x = upconv(x)
             # Handle size mismatch from pooling
             if x.shape != skip.shape:

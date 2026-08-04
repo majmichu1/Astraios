@@ -120,7 +120,7 @@ def _write_temp_mono_fits(image: np.ndarray, params: PlateSolveParams) -> object
     if params.dec_hint is not None:
         hdu.header["OBJCTDEC"] = params.dec_hint
 
-    fd = tempfile.NamedTemporaryFile(suffix=".fits", delete=False)
+    fd = tempfile.NamedTemporaryFile(suffix=".fits", delete=False)  # noqa: SIM115
     fd.close()
     path = Path(fd.name)
     hdu.writeto(str(path), overwrite=True)

@@ -21,7 +21,7 @@ def _star_field(h: int = 128, w: int = 128, n_stars: int = 15, seed: int = 0):
     positions = []
     ys = rng.integers(15, h - 15, n_stars)
     xs = rng.integers(15, w - 15, n_stars)
-    for y, x in zip(ys, xs):
+    for y, x in zip(ys, xs, strict=True):
         amp = float(rng.uniform(0.4, 0.9))
         sigma = 1.5
         img += amp * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * sigma**2))

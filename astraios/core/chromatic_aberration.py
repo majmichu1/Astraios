@@ -99,7 +99,7 @@ def _detect_peaks(
 
     # Convert to (x, y) — center_of_mass returns (row, col) = (y, x)
     results = []
-    for (cy, cx), peak in zip(centroids, peaks):
+    for (cy, cx), peak in zip(centroids, peaks, strict=True):
         results.append((cx, cy, peak))
 
     # Sort by brightness descending

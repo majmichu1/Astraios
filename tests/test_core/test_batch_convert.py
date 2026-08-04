@@ -153,8 +153,10 @@ class TestClobberingGuards:
         assert src.exists()
 
     def test_same_stem_from_different_dirs_disambiguated(self, tmp_path: Path):
-        dir_a = tmp_path / "a"; dir_b = tmp_path / "b"
-        dir_a.mkdir(); dir_b.mkdir()
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        dir_a.mkdir()
+        dir_b.mkdir()
         s1 = _make_fits(dir_a / "img.fits", seed=1)
         s2 = _make_fits(dir_b / "img.fits", seed=2)
         params = BatchConvertParams(output_format=".fits")

@@ -136,15 +136,15 @@ def rgb_to_hsl(image: np.ndarray) -> np.ndarray:
     delta = cmax - cmin
 
     # Lightness
-    l = (cmax + cmin) / 2.0
+    light = (cmax + cmin) / 2.0
 
     # Saturation
-    s = np.zeros_like(l)
+    s = np.zeros_like(light)
     mask = delta > 1e-10
-    s[mask] = delta[mask] / (1.0 - np.abs(2 * l[mask] - 1) + 1e-10)
+    s[mask] = delta[mask] / (1.0 - np.abs(2 * light[mask] - 1) + 1e-10)
 
     # Hue
-    h = np.zeros_like(l)
+    h = np.zeros_like(light)
     mask_r = mask & (cmax == r)
     mask_g = mask & (cmax == g) & ~mask_r
     mask_b = mask & ~mask_r & ~mask_g
@@ -155,7 +155,7 @@ def rgb_to_hsl(image: np.ndarray) -> np.ndarray:
     h = h / 6.0  # normalize to [0, 1]
     h = h % 1.0
 
-    return np.stack([h, s, l], axis=0).astype(np.float32)
+    return np.stack([h, s, light], axis=0).astype(np.float32)
 
 
 def hsl_to_rgb(hsl: np.ndarray) -> np.ndarray:
@@ -163,12 +163,12 @@ def hsl_to_rgb(hsl: np.ndarray) -> np.ndarray:
 
     H in [0, 1], S in [0, 1], L in [0, 1].
     """
-    h, s, l = hsl[0], hsl[1], hsl[2]
+    h, s, light = hsl[0], hsl[1], hsl[2]
 
-    c = (1 - np.abs(2 * l - 1)) * s
+    c = (1 - np.abs(2 * light - 1)) * s
     h6 = h * 6.0
     x = c * (1 - np.abs(h6 % 2 - 1))
-    m = l - c / 2
+    m = light - c / 2
 
     r = np.zeros_like(h)
     g = np.zeros_like(h)

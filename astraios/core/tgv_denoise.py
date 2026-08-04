@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+import torch.nn.functional as _F
 
 from astraios.core.device_manager import get_device_manager
 
@@ -53,8 +54,6 @@ class TGVParams:
 
 
 # ── helpers (operate on (B, H, W) tensors for batch-channel processing) ──────
-
-import torch.nn.functional as _F
 
 
 def _pad_replicate(x: torch.Tensor, pad: tuple[int, ...]) -> torch.Tensor:

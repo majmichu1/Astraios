@@ -48,8 +48,10 @@ class MemmapDataset(Dataset):
     def __getitem__(self, idx):
         patch = self.data[idx]
         if self.augmentation:
-            if np.random.random() > 0.5: patch = np.flip(patch, axis=0).copy()
-            if np.random.random() > 0.5: patch = np.flip(patch, axis=1).copy()
+            if np.random.random() > 0.5:
+                patch = np.flip(patch, axis=0).copy()
+            if np.random.random() > 0.5:
+                patch = np.flip(patch, axis=1).copy()
             k = np.random.randint(0, 4)
             patch = np.rot90(patch, k).copy()
             jitter = np.random.uniform(0.8, 1.2)

@@ -68,7 +68,13 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+# "N" (pep8-naming) is intentionally not selected: this codebase follows
+# Qt's camelCase overrides (closeEvent, paintEvent, ...) and
+# astrophysics-math naming (N/H/W/M/L, scalar constants in functions).
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# UP042: the (str, Enum) mixin is kept deliberately — members are compared
+# against and serialized as plain strings across presets, pipelines and UI.
+ignore = ["UP042"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

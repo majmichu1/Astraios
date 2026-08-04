@@ -111,7 +111,7 @@ class TestPipeline:
 
         assert p2.name == p.name
         assert len(p2.steps) == len(p.steps)
-        for s1, s2 in zip(p.steps, p2.steps):
+        for s1, s2 in zip(p.steps, p2.steps, strict=True):
             assert s1.tool_name == s2.tool_name
             assert s1.params == s2.params
             assert s1.enabled == s2.enabled

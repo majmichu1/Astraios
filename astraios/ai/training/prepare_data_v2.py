@@ -29,17 +29,20 @@ def extract_patches_from_file(path: Path, patch_size: int = PATCH_SIZE,
                     if hdu.data is not None and hdu.data.ndim >= 2:
                         data = hdu.data.astype(np.float32)
                         break
-                if data is None: return None
+                if data is None:
+                    return None
         # Handle ARW/RAW files
         elif path.suffix.lower() == '.arw':
             try:
                 from PIL import Image
                 img = Image.open(str(path))
                 data = np.array(img, dtype=np.float32)
-            except Exception: return None
+            except Exception:
+                return None
         else:
             return None
-    except Exception: return None
+    except Exception:
+        return None
 
     # For 3D data: FITS cubes use first plane, RGB images use luminance
     if data.ndim == 3:
@@ -49,12 +52,14 @@ def extract_patches_from_file(path: Path, patch_size: int = PATCH_SIZE,
             data = data[0]
 
     h, w = data.shape
-    if h < patch_size or w < patch_size: return None
+    if h < patch_size or w < patch_size:
+        return None
 
     dmin, dmax = float(data.min()), float(data.max())
     if dmax - dmin > 1e-10:
         data = (data - dmin) / (dmax - dmin)
-    else: return None
+    else:
+        return None
 
     # Content-aware patch extraction: require some signal above background.
     # A patch that is pure dark sky has std ≈ noise floor → not useful for training.
@@ -135,7 +140,8 @@ def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
 
     for f in file_list:
         result = extract_patches_from_file(f)
-        if result is None: continue
+        if result is None:
+            continue
 
         n = len(result)
         if idx + n > est_patches:
@@ -174,7 +180,8 @@ def _extract_and_save(file_list: list[Path], save_path: Path, set_name: str):
 
     # Trim file? Not strictly necessary for reading, just track actual_size in metadata
     meta_path = save_path.parent / f"{set_name.lower()}_meta.txt"
-    with open(meta_path, 'w') as f: f.write(str(actual_size))
+    with open(meta_path, 'w') as f:
+        f.write(str(actual_size))
 
     log.info(f"{set_name} DONE. Total patches: {actual_size}. Saved to {save_path}")
 

@@ -256,8 +256,10 @@ class TestRenameSafety:
         renamed yet (a -> b while b was still a pending source)."""
         import astraios.core.batch_rename as br
 
-        a = tmp_path / "a.fits"; a.write_bytes(b"aa")
-        b = tmp_path / "b.fits"; b.write_bytes(b"bb")
+        a = tmp_path / "a.fits"
+        a.write_bytes(b"aa")
+        b = tmp_path / "b.fits"
+        b.write_bytes(b"bb")
         planned = [(a, tmp_path / "b.fits"), (b, tmp_path / "c.fits")]
         monkeypatch.setattr(br, "plan_renames", lambda *args, **kw: planned)
         br.batch_rename([a, b], "ignored", br.BatchRenameParams(slugify=False))

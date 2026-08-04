@@ -134,7 +134,7 @@ class TestSaveLoadMacro:
 
         assert loaded.name == macro.name
         assert len(loaded.steps) == len(macro.steps)
-        for s1, s2 in zip(macro.steps, loaded.steps):
+        for s1, s2 in zip(macro.steps, loaded.steps, strict=True):
             assert s1.tool_name == s2.tool_name
             assert s1.params == s2.params
             assert s1.enabled == s2.enabled

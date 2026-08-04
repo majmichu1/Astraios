@@ -192,7 +192,7 @@ class SERFrameReader:
 
     def __init__(self, path: str | os.PathLike):
         self.path = os.fspath(path)
-        self._fh = open(self.path, "rb")
+        self._fh = open(self.path, "rb")  # noqa: SIM115 — closed in close()
         self.header = _parse_header(self._fh)
 
     def __enter__(self) -> SERFrameReader:

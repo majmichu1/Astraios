@@ -22,7 +22,8 @@ class TestC1LiveStackPreview:
         _dlg = _FakeDialog()  # noqa: F841 — construction is the check
         # We can't actually instantiate the dialog (needs Qt),
         # but we can verify the condition logic in the source
-        src = open(__import__("astraios.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__).read()
+        with open(__import__("astraios.ui.dialogs.live_stack_dialog", fromlist=[""]).__file__) as f:
+            src = f.read()
         assert "is None or not isinstance(arr, np.ndarray) or arr.size == 0" in src, \
             "C1 guard should check None, isinstance, and empty"
 
@@ -171,6 +172,7 @@ class TestH25ProjectLoad:
 
     def test_open_project_handles_value_error(self):
         """Verify that _open_project wraps Project.load in try/except ValueError."""
-        src = open(__import__("astraios.ui.main_window", fromlist=[""]).__file__).read()
+        with open(__import__("astraios.ui.main_window", fromlist=[""]).__file__) as f:
+            src = f.read()
         assert "try:" in src and "except ValueError" in src, \
             "_open_project must handle ValueError from corrupted JSON"

@@ -302,10 +302,10 @@ def find_transform_triangle(
 
     # Accumulate star-pair votes from matched triangles
     vote: dict[tuple[int, int], int] = {}
-    for tgt_t, (dist, ref_t) in enumerate(zip(dists, nn_idxs)):
+    for tgt_t, (dist, ref_t) in enumerate(zip(dists, nn_idxs, strict=True)):
         if dist > feature_tol:
             continue
-        for tp, rp in zip(tgt_idxs[tgt_t], ref_idxs[ref_t]):
+        for tp, rp in zip(tgt_idxs[tgt_t], ref_idxs[ref_t], strict=True):
             pair = (int(tp), int(rp))
             vote[pair] = vote.get(pair, 0) + 1
 
