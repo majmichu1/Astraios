@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.sky_plan import ALL_OBJECT_TYPES, SkyPlanParams
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -526,3 +527,12 @@ class SkyPlanDialog(QDialog):
             f"Catalog: {result.n_after_filters} of {result.n_catalog_total} objects "
             f"matched filters; {len(result.objects)} observable tonight."
         )
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

@@ -25,6 +25,7 @@ from astraios.ai.smart_processor import (
     SmartProcessorResult,
 )
 from astraios.core.equipment import EquipmentProfile
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
 
 
@@ -563,3 +564,12 @@ class SmartProcessDialog(QDialog):
         if self._result:
             self.result_ready.emit(self._result)
             self.accept()
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

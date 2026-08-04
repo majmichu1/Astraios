@@ -43,6 +43,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.image_peek import FramePeek, ImagePeekParams, peek_frames
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import field_row, help_dot, param_help
 
 _TILE_THUMB_SIZE = 140  # px — thumbnail edge inside the grid tile
@@ -415,3 +416,12 @@ class ImagePeekerDialog(QDialog):
         super().resizeEvent(event)
         if self._frames:
             self._populate_grid(self._frames)
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

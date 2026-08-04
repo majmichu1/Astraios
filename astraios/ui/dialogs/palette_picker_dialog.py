@@ -33,6 +33,7 @@ from astraios.core.palette_picker import (
     Palette,
     PalettePickerParams,
 )
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -426,3 +427,12 @@ class PalettePickerDialog(QDialog):
         self._progress.setVisible(False)
         self._apply_btn.setEnabled(True)
         self._status.setText(f"Failed: {msg}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

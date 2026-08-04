@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -364,3 +365,18 @@ class ImageAnnotateDialog(QDialog):
         self._progress.setVisible(False)
         self._annotate_btn.setEnabled(True)
         self._status.setText(f"Failed: {msg}")
+
+    def _stop_workers(self) -> None:
+        # This dialog owns two workers; stop both before destruction.
+        identify, self._identify_worker = self._identify_worker, None
+        render, self._render_worker = self._render_worker, None
+        stop_worker(self, identify)
+        stop_worker(self, render)
+
+    def reject(self) -> None:
+        self._stop_workers()
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        self._stop_workers()
+        super().closeEvent(event)

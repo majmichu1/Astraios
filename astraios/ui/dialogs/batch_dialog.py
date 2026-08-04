@@ -22,6 +22,7 @@ from astraios.core.batch import (
     Pipeline,
     batch_process,
 )
+from astraios.ui.dialogs.dialog_workers import stop_worker
 
 
 class BatchWorker(QThread):
@@ -253,3 +254,12 @@ class BatchDialog(QDialog):
         if result.errors:
             error_text = "\n".join(str(e) for e in result.errors[:5])
             self._status.setText(f"{self._status.text()}\n{error_text}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -274,3 +275,12 @@ class FlythroughDialog(QDialog):
         self._render_btn.setEnabled(True)
         self._progress.setVisible(False)
         self._status.setText(f"Render failed: {msg}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

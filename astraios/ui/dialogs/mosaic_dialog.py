@@ -28,6 +28,7 @@ from astraios.core.mosaic import (
     NormalizeMethod,
     mosaic_stitch,
 )
+from astraios.ui.dialogs.dialog_workers import stop_worker
 
 
 class MosaicWorker(QThread):
@@ -255,3 +256,12 @@ class MosaicDialog(QDialog):
     def _on_error(self, message: str):
         self._run_btn.setEnabled(True)
         self._status_label.setText(f"Error: {message}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

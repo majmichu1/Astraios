@@ -37,6 +37,7 @@ from astraios.core.subframe_selector import (
     filter_by_metric,
     score_subframes,
 )
+from astraios.ui.dialogs.dialog_workers import stop_worker
 
 _THUMB_SIZE = 80   # px — thumbnail column width/height
 
@@ -815,3 +816,12 @@ class SubframeDialog(QDialog):
         if accepted:
             self.accepted_frames.emit(accepted, len(self._paths))
             self.accept()
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

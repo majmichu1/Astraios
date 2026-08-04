@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -211,3 +212,12 @@ class DitherAnalysisDialog(QDialog):
     def _on_fail(self, msg):
         self._progress.setVisible(False)
         self._status.setText(f"Failed: {msg}")
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+

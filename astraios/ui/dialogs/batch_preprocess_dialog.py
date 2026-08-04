@@ -573,6 +573,15 @@ class BatchPreprocessDialog(QDialog):
         self._progress_label.setText("Complete")
 
         summary = f"""
+
+    def reject(self) -> None:
+        stop_worker(self)
+        super().reject()
+
+    def closeEvent(self, event) -> None:
+        stop_worker(self)
+        super().closeEvent(event)
+
 <b>Preprocessing Complete</b>
 ━━━━━━━━━━━━━━━━━━━━━
 • Calibrated: {result.n_calibrated}
