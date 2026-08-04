@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent
+from PyQt6.QtCore import QEvent, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QComboBox, QSplashScreen
 
@@ -24,6 +24,45 @@ class _AstraiosApp(QApplication):
         if event.type() == QEvent.Type.Wheel and isinstance(obj, QComboBox):
             return True
         return super().notify(obj, event)
+
+
+class _UpdateCheckThread(QThread):
+    """Checks GitHub Releases off the GUI thread — the network call must
+    not block startup. Notify-only: the user still downloads and installs
+    manually."""
+
+    update_available = pyqtSignal(object)
+
+    def run(self):
+        try:
+            from astraios.updater.auto_updater import AutoUpdater
+            info = AutoUpdater().check_for_updates()
+            if info.available:
+                self.update_available.emit(info)
+        except Exception:
+            log.debug("Update check failed", exc_info=True)
+
+
+def _notify_update(window, info) -> None:
+    from PyQt6.QtWidgets import QMessageBox
+
+    where = info.download_url or "the GitHub Releases page"
+    QMessageBox.information(
+        window,
+        f"Update available: v{info.latest_version}",
+        f"Astraios {info.latest_version} is available "
+        f"(you are running {info.current_version}).\n\nDownload: {where}",
+    )
+
+
+def _schedule_update_check(window) -> None:
+    def _start_check():
+        checker = _UpdateCheckThread(window)
+        checker.update_available.connect(lambda info: _notify_update(window, info))
+        checker.finished.connect(checker.deleteLater)
+        checker.start()
+
+    QTimer.singleShot(5000, _start_check)
 
 
 def _migrate_legacy_settings() -> None:
@@ -140,4 +179,5 @@ def run_application(argv: list[str] | None = None) -> int:
     splash.finish(window)
 
     log.info("Astraios %s started", astraios.__version__)
+    _schedule_update_check(window)
     return app.exec()
