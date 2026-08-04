@@ -28,6 +28,9 @@ class PlateSolveResult:
     rotation: float = 0.0  # field rotation in degrees
     n_stars_matched: int = 0
     wcs_header: dict | None = None
+    # True when only a relative geometry estimate was possible (no celestial
+    # solution). success is False in that case; rotation may still be used.
+    geometry_only: bool = False
 
 
 @dataclass
@@ -439,8 +442,13 @@ def _estimate_field_geometry(
     else:
         rotation = 0.0
 
+    # No celestial solution was computed — ra/dec/wcs stay at their empty
+    # defaults, so reporting success here made the UI show "Plate solve
+    # succeeded: RA=0.0000 Dec=0.0000" and store an empty WCS. The rotation
+    # estimate survives in the result for callers that can use it.
     return PlateSolveResult(
-        success=True,
+        success=False,
+        geometry_only=True,
         n_stars_matched=len(positions),
         rotation=rotation,
     )
