@@ -140,3 +140,24 @@ class TestBitDepthResolution:
     def test_invalid_explicit_depth_falls_back(self):
         # 32-bit isn't offered for PNG; must fall back to an allowed value.
         assert _resolve_bit_depth(32, ".png") in ALLOWED_BIT_DEPTHS[".png"]
+
+
+class TestClobberingGuards:
+    def test_in_place_conversion_skipped(self, tmp_path: Path):
+        """Regression: converting into the source directory with the same
+        format made dst == src — a failed save would destroy the original."""
+        src = _make_fits(tmp_path / "img.fits")
+        params = BatchConvertParams(output_format=".fits")
+        outputs = batch_convert([src], tmp_path, params)
+        assert outputs == []
+        assert src.exists()
+
+    def test_same_stem_from_different_dirs_disambiguated(self, tmp_path: Path):
+        dir_a = tmp_path / "a"; dir_b = tmp_path / "b"
+        dir_a.mkdir(); dir_b.mkdir()
+        s1 = _make_fits(dir_a / "img.fits", seed=1)
+        s2 = _make_fits(dir_b / "img.fits", seed=2)
+        params = BatchConvertParams(output_format=".fits")
+        outputs = batch_convert([s1, s2], tmp_path / "out", params)
+        assert len(outputs) == 2
+        assert {p.name for p in outputs} == {"img.fits", "img_1.fits"}

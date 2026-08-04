@@ -346,21 +346,46 @@ def batch_rename(
         )
         raise ValueError(f"Rename aborted: name collisions detected ({detail})")
 
+    # Refuse to overwrite files that are not part of the rename plan — the
+    # collision guard above only covers destinations produced by the plan.
+    src_set = {src for src, _ in planned}
+    for src, dst in planned:
+        if src != dst and dst.exists() and dst not in src_set:
+            raise ValueError(f"Rename aborted: destination exists: {dst}")
+
+    # Two-phase rename: sequential moves could overwrite a source that has
+    # not been renamed yet (a -> b, b -> c). First move everything to a
+    # unique temp name, then to the final destination.
+    import uuid
+
     n = len(planned)
     performed: list[tuple[Path, Path]] = []
+    staged: list[tuple[Path, Path, Path]] = []  # (tmp, dst, src)
     for i, (src, dst) in enumerate(planned):
-        progress(i / n if n else 0.0, f"Renaming {src.name} -> {dst.name}")
+        progress(0.5 * i / n if n else 0.0, f"Preparing {src.name}")
         if src == dst:
             performed.append((src, dst))
             continue
+        tmp = src.with_name(f".astraios-renaming-{uuid.uuid4().hex}-{src.name}")
         try:
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src), str(dst))
-            performed.append((src, dst))
+            shutil.move(str(src), str(tmp))
         except OSError as exc:
-            log.error("Failed to rename %s -> %s: %s", src, dst, exc)
+            log.error("Failed to stage %s: %s", src, exc)
             progress((i + 1) / n if n else 1.0, f"ERROR: {src.name} -> {exc}")
             continue
+        staged.append((tmp, dst, src))
+
+    for i, (tmp, dst, src) in enumerate(staged):
+        progress(0.5 + 0.5 * i / max(len(staged), 1), f"Renaming {src.name} -> {dst.name}")
+        try:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(tmp), str(dst))
+            performed.append((src, dst))
+        except OSError as exc:
+            # Leave the temp file in place — it still carries the original
+            # name, so nothing is lost.
+            log.error("Failed to rename %s -> %s: %s", src, dst, exc)
+            progress(1.0, f"ERROR: {src.name} -> {exc}")
 
     progress(1.0, f"Rename complete: {len(performed)}/{n} renamed")
     return performed

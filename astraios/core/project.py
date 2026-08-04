@@ -217,9 +217,26 @@ class Project:
             # Hand-editable JSON: report WHICH field is broken instead of a
             # bare KeyError deep in from_dict.
             raise ValueError(f"Invalid project file {path}: {e}") from e
+        proj._remap_relocated_frames()
         log.info("Project loaded: %s (%d frames)", proj.name, len(proj.frames))
         proj._prune_missing_derived()
         return proj
+
+    def _remap_relocated_frames(self) -> None:
+        """Recover frames after the project folder was moved.
+
+        Frames are stored as absolute paths; when the saved path no longer
+        exists but a file of the same name sits next to the project file,
+        use that instead. Frames that cannot be found are left untouched
+        (raw frames may live on removable media).
+        """
+        for entry in self.frames:
+            if entry.path.exists():
+                continue
+            candidate = self.directory / entry.path.name
+            if candidate.exists():
+                log.info("Remapping moved frame %s -> %s", entry.path, candidate)
+                entry.path = candidate
 
     def _prune_missing_derived(self) -> None:
         """Remove derived frames (CALIBRATED/ALIGNED) whose files no longer exist.

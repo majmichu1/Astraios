@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -725,8 +725,10 @@ def plate_solve_gaia(
     exactly like the ASTAP/astrometry.net adapters), or ``None`` on failure.
     Not wired into ``plate_solve.py`` here — see that module for the dispatch.
     """
-    p = params or GaiaSolveParams()
-    p.ra_hint, p.dec_hint, p.scale_hint = ra_hint, dec_hint, scale_hint
+    p = params if params is not None else GaiaSolveParams()
+    # Copy before setting hints: mutating a caller-supplied params object
+    # made a reused instance silently carry stale hints into the next solve.
+    p = replace(p, ra_hint=ra_hint, dec_hint=dec_hint, scale_hint=scale_hint)
     result = solve_with_gaia_catalog(image, p)
     if not result.success:
         log.warning("Gaia plate solve failed: %s", result.message)

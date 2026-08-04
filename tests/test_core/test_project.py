@@ -52,3 +52,21 @@ class TestProject:
         assert proj.masters_dir.exists()
         assert proj.calibrated_dir.exists()
         assert proj.output_dir.exists()
+
+    def test_relocated_frames_remapped_on_load(self, tmp_path):
+        """Regression: moving the project folder orphaned every frame
+        because paths are stored absolute."""
+        proj = Project.create("Moved", tmp_path)
+        frame = tmp_path / "light1.fits"
+        frame.write_bytes(b"x")
+        proj.add_frames([frame], FrameType.LIGHT)
+        proj.save()
+
+        new_dir = tmp_path / "moved"
+        new_dir.mkdir()
+        proj.project_file.rename(new_dir / proj.project_file.name)
+        frame.rename(new_dir / frame.name)
+
+        loaded = Project.load(new_dir / proj.project_file.name)
+        assert loaded.frames[0].path == new_dir / "light1.fits"
+        assert loaded.frames[0].path.exists()

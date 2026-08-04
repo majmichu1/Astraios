@@ -145,10 +145,30 @@ def batch_convert(
     src_paths = [Path(p) for p in paths]
     n = len(src_paths)
     outputs: list[Path] = []
+    used_names: set[str] = set()
 
     for i, src in enumerate(src_paths):
         frac = i / n if n else 0.0
         dst = out_dir / f"{src.stem}{fmt}"
+
+        # Converting into the source directory with the same format makes
+        # dst == src — a failed save mid-write would destroy the original,
+        # and skip_existing would skip every file.
+        try:
+            if dst.exists() and dst.samefile(src):
+                progress((i + 1) / n if n else 1.0, f"Skipping (in-place): {src.name}")
+                continue
+        except OSError:
+            pass
+
+        # Files from different folders sharing a stem would otherwise
+        # silently overwrite each other's output.
+        if dst.name in used_names:
+            k = 1
+            while f"{src.stem}_{k}{fmt}" in used_names:
+                k += 1
+            dst = out_dir / f"{src.stem}_{k}{fmt}"
+        used_names.add(dst.name)
 
         if params.skip_existing and dst.exists():
             progress((i + 1) / n if n else 1.0, f"Skipping (exists): {dst.name}")
