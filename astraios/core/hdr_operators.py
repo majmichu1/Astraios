@@ -151,7 +151,11 @@ def tonemap_core_blend(
     from astraios.core.stretch import StretchParams, auto_stretch
 
     sigma = max(8, min(data.shape[-2], data.shape[-1]) * params.blur_sigma_factor)
-    core_mask = _gf(core_linear, sigma=sigma)
+    # Blur a 2-D mask: blurring the (C, H, W) volume would smear across the
+    # channel axis, and the later [np.newaxis, ...] broadcast would then
+    # inflate a color image to (C, C, H, W).
+    core_2d = core_linear.max(axis=0) if data.ndim == 3 else core_linear
+    core_mask = _gf(core_2d, sigma=sigma)
     core_mask = np.clip(core_mask, 0, 1)
 
     gentle = auto_stretch(

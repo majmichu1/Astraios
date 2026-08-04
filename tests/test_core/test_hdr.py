@@ -77,3 +77,14 @@ class TestTonemapOperators:
         data = np.random.rand(32, 32).astype(np.float32) * 50.0
         tone = tonemap_reinhard(data)
         assert tone.min() >= 0.0 and tone.max() <= 1.0
+
+    def test_core_blend_color_shape(self):
+        """Regression: the core mask was blurred over (C, H, W) and then
+        broadcast via [np.newaxis, ...], inflating color output to
+        (C, C, H, W) and crashing downstream transposes."""
+        from astraios.core.hdr_operators import tonemap_core_blend
+
+        data = np.random.rand(3, 32, 32).astype(np.float32) * 0.8 + 0.1
+        data[:, 16, 16] = 1.0  # bright core pixel
+        tone = tonemap_core_blend(data)
+        assert tone.shape == data.shape
