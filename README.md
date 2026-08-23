@@ -38,6 +38,7 @@ Astraios is built as a modern, end-to-end workflow tool, from calibration to exp
 | Price | Free (GPL v3) | Free (GPL v3) | Paid (~EUR 290) |
 | GPU acceleration | Full (PyTorch) | Minimal | Some processes |
 | One-click GPU installer | Yes | n/a | n/a |
+| Guided step-by-step workflow | Yes (Guided Processing) | No | No |
 | AI denoise | Built in and bundled (Noise2Self) | No | Paid plugin (NoiseXTerminator) |
 | Plate solve + photometric color cal. | Yes (astrometry.net / ASTAP) | Yes (PCC + SPCC) | Yes (PCC + SPCC) |
 | Multi-session stacking | Yes | Yes | Yes |
@@ -171,6 +172,7 @@ One click, and Astraios identifies the target (plate solve plus catalog / SIMBAD
 ### Workflow and UI
 - **Modern Dark Theme** -- Clean dark interface, designed for long nights
 - **Processing History** -- Non-destructive, replayable history that records every operation; view, toggle, reorder, re-edit, and export as a macro
+- **Guided Processing** -- A step-by-step wizard (Ctrl+G) that walks the correct workflow one stage at a time: trim, gradient, colour, sharpen, denoise, stretch, saturation. Each step explains in plain language what it does and why it comes where it does, suggests settings measured from your own image, previews the result before committing it, and lets you skip or step back. The order is the professional one, so the common mistakes (colour balancing after a stretch, saturating linear data) are simply not offered.
 - **Hover Help** -- Every tool and setting carries a plain-language explanation on hover; sliders additionally teach what turning them up or down actually does, so full power stays approachable without trial and error
 - **EZ Script Suite** -- One-click processing presets (OSC Quick Processing, Narrowband, Deep Sky Minimal, Luminance, Full Processing with ABE, Starless Processing)
 - **4-Panel Layout** -- Project tree / Canvas + Histogram / Tools / Log
