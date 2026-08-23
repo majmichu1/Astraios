@@ -716,6 +716,13 @@ class MainWindow(QMainWindow):
         # ── Tools menu ────────────────────────────────────────────────────────
         tools_menu = menu.addMenu("&Tools")
 
+        # First entry on purpose: this is the front door for anyone who does
+        # not yet know which of the other hundred tools to reach for.
+        guided_act = QAction("&Guided Processing...", self)
+        guided_act.setShortcut("Ctrl+G")
+        guided_act.triggered.connect(self._show_guided_dialog)
+        tools_menu.addAction(guided_act)
+
         smart_act = QAction("&Smart Processor...", self)
         smart_act.setShortcut("Ctrl+Shift+P")
         smart_act.triggered.connect(self._show_smart_processor_dialog)
@@ -6922,6 +6929,26 @@ class MainWindow(QMainWindow):
             f"({profile.plate_scale():.2f} arcsec/px)",
             "success",
         )
+
+    def _show_guided_dialog(self):
+        if self._current_image is None:
+            self._log_panel.log("Load an image first", "warning")
+            return
+        from astraios.ui.dialogs.guided_dialog import GuidedDialog
+
+        dialog = GuidedDialog(self._current_image.data, self)
+        # Previews render on the canvas without touching the working image, so
+        # backing out of the wizard leaves the original untouched.
+        dialog.preview_ready.connect(
+            lambda data, label: self._display_preview_only(data, label)
+        )
+        dialog.result_ready.connect(
+            lambda result: self._update_current_image(
+                result, "Guided processing", geometric=True
+            )
+        )
+        dialog.exec()
+        dialog.deleteLater()
 
     def _show_smart_processor_dialog(self):
         from astraios.ui.dialogs.smart_process_dialog import SmartProcessDialog

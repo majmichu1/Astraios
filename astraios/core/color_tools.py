@@ -116,7 +116,14 @@ def _scnr_cpu(
     if params.preserve_luminance:
         lum_before = 0.2126 * image[0] + 0.7152 * image[1] + 0.0722 * image[2]
         lum_after = 0.2126 * result[0] + 0.7152 * result[1] + 0.0722 * result[2]
-        ratio = np.where(lum_after > 1e-10, lum_before / lum_after, 1.0)
+        # np.where evaluates BOTH branches, so `lum_before / lum_after`
+        # divides by zero on black pixels before the selection happens. The
+        # result was still correct, but it warned on every call, and a
+        # warning that is always expected is a warning nobody reads. Compute
+        # the quotient only where the denominator is safe.
+        ratio = np.ones_like(lum_after)
+        safe = lum_after > 1e-10
+        np.divide(lum_before, lum_after, out=ratio, where=safe)
         for ch in range(3):
             result[ch] = np.clip(result[ch] * ratio, 0, 1)
 
