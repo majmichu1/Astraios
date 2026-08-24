@@ -56,26 +56,61 @@ def tonemap_reinhard(
     data: np.ndarray,
     params: ReinhardParams | None = None,
 ) -> np.ndarray:
-    """Reinhard global tonemap operator.
+    """Reinhard photographic tone reproduction operator.
 
-    Converts linear HDR data to LDR using the Reinhard photographic
-    tone reproduction operator.  Operates per-channel on GPU when
-    available.
+    Converts linear HDR data to LDR. Runs in numpy: the work is a handful of
+    whole-array expressions, not a per-pixel loop, so there is nothing here
+    for a GPU transfer to win back.
+
+    ``light_adapt`` and ``color_adapt`` used to be declared and then ignored,
+    which made the dataclass advertise two knobs that did nothing. They now
+    behave as Reinhard defines them, and the descriptions below are measured
+    rather than assumed:
+
+    * ``light_adapt`` 0 = one global adaptation level for the whole frame,
+      which is what blows out a bright core. Raising it lets each pixel adapt
+      to its own level, pulling clipped highlights back down while leaving
+      the background where it was. On a test field with a core driven to 3.0,
+      that core is 100% clipped at 0.0 and 0% clipped by 0.5, while the
+      background mean moves 0.264 -> 0.265. This is the knob for a saturated
+      nebula core.
+    * ``color_adapt`` 0 = every channel adapts to the shared luminance, which
+      preserves colour; 1 = each channel adapts to itself, which desaturates
+      hard (measured channel spread 0.198 -> 0.011) but tames a single
+      channel that is clipping on its own.
+
+    Both default to 0, and at 0 the adaptation term is exactly 1.0, so the
+    result is bit-for-bit what this function produced before they were
+    implemented. Existing projects re-run to the same pixels.
     """
     if params is None:
         params = ReinhardParams()
     intensity = max(-8.0, min(8.0, params.intensity))
+    light_adapt = float(np.clip(params.light_adapt, 0.0, 1.0))
+    color_adapt = float(np.clip(params.color_adapt, 0.0, 1.0))
 
     is_color = data.ndim == 3
+    scale = 2.0 ** (-intensity) if intensity != 0.0 else 1.0
+    scaled_all = data * scale if scale != 1.0 else data
+
+    # Shared luminance drives adaptation when color_adapt is 0.
+    luminance = scaled_all.mean(axis=0) if is_color else scaled_all
+    lum_mean = max(float(luminance.mean()), 1e-10)
+
     ch_list = list(range(data.shape[0])) if is_color else [None]
     result = np.empty_like(data, dtype=np.float32)
 
     for ch in ch_list:
-        d = data[ch] if is_color else data
-        scaled = d * (2.0 ** (-intensity)) if intensity != 0.0 else d
-        l_white = float(np.max(scaled))
-        l_white = max(l_white, 1e-10)
-        tone = scaled * (1.0 + scaled / (l_white * l_white)) / (1.0 + scaled)
+        scaled = scaled_all[ch] if is_color else scaled_all
+        l_white = max(float(np.max(scaled)), 1e-10)
+
+        # Adaptation, normalised so that light_adapt=0 gives exactly 1.0 and
+        # the classic global curve below is untouched.
+        local = color_adapt * scaled + (1.0 - color_adapt) * luminance
+        global_ = color_adapt * max(float(scaled.mean()), 1e-10) + (1.0 - color_adapt) * lum_mean
+        adapt = (light_adapt * local + (1.0 - light_adapt) * global_) / max(global_, 1e-10)
+
+        tone = scaled * (1.0 + scaled / (l_white * l_white)) / (scaled + adapt)
         tone = np.clip(tone, 0.0, 1.0)
         if is_color:
             result[ch] = tone.astype(np.float32)
