@@ -15,10 +15,24 @@ on:
 permissions:
   contents: read
 
+# A run that has already been superseded is worthless, and this job is long
+# enough that a burst of pushes otherwise queues several of them behind each
+# other. Never cancel on main, though: that is the history the gate exists to
+# certify, and a cancelled run there reads as a failure nobody can explain.
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   quality:
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    # Was 30, which the suite outgrew: runs were dying at ~92% complete, so
+    # the gate reported "cancelled" (GitHub's wording for a timeout) on every
+    # commit and the regression net silently stopped covering anything. The
+    # runner is a small CPU-only box, so the suite legitimately takes far
+    # longer there than on a dev machine. This is a hang backstop, not a
+    # performance target -- see --durations below for the real numbers.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -51,7 +65,12 @@ jobs:
         continue-on-error: true
         run: poetry run mypy astraios --ignore-missing-imports
 
+      # --durations prints the slowest tests as measured on the runner itself.
+      # That is the only trustworthy source for this number: a dev workstation
+      # has a different core count and competing load, so local timings say
+      # nothing about how long this box takes. If the suite creeps back toward
+      # the cap, read that list rather than guessing at a speed-up.
       - name: Test suite
         env:
           QT_QPA_PLATFORM: offscreen
-        run: poetry run pytest -q
+        run: poetry run pytest -q --durations=25
