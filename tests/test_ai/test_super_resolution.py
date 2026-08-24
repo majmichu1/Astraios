@@ -1,9 +1,12 @@
 """Tests for super-resolution upscaling.
 
-This feature is wired into the Tools panel but had no test coverage. On a
-stock install (no basicsr, no Real-ESRGAN weights) it falls back to a
-denoise + interpolation enlarge; these tests pin that behaviour and the
-scale/shape/colour contract so a regression cannot ship silently.
+This feature is wired into the Tools panel. The RRDBNet architecture is now
+vendored (astraios.ai.models.rrdbnet) rather than imported from basicsr, so
+the neural path is reachable on a stock install once the pinned weights are
+cached; without cached weights it still degrades to interpolation.
+
+These tests pin the scale/shape/colour contract, the fallback, and the
+checkpoint key names the vendored architecture has to keep matching.
 """
 
 import numpy as np
@@ -81,32 +84,76 @@ class TestModelUrls:
             assert "RealESRGAN_x4.pth" not in url
 
 
+@pytest.fixture
+def isolated_weights(tmp_path, monkeypatch):
+    """Point the weight cache at an empty dir and make downloading impossible.
+
+    Both halves matter. Without the empty dir a developer who has already
+    cached real weights runs a different test from CI; without the blocked
+    download the suite would fetch 64 MB from GitHub on every run.
+    """
+    import astraios.ai.inference.super_resolution as sr
+
+    monkeypatch.setattr(sr, "MODEL_DIR", tmp_path / "models")
+
+    def _blocked(*a, **k):
+        raise AssertionError("super-resolution tried to hit the network")
+
+    monkeypatch.setattr(sr, "_download_weights", _blocked)
+    return sr
+
+
+class TestVendoredArchitecture:
+    """RRDBNet is vendored rather than imported from basicsr, so these guard
+    the thing vendoring can get wrong: silently diverging from the released
+    checkpoints and reconstructing garbage."""
+
+    @pytest.mark.parametrize("scale,expect", [(2, 32), (4, 64)])
+    def test_scale_factor_is_honoured(self, scale, expect):
+        import torch
+
+        from astraios.ai.models.rrdbnet import RRDBNet
+
+        model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=scale)
+        with torch.no_grad():
+            out = model(torch.rand(1, 3, 16, 16))
+        assert out.shape == (1, 3, expect, expect)
+
+    def test_parameter_names_match_the_official_checkpoints(self):
+        """The released .pth files are keyed by these names. If a refactor
+        renames a layer the weights stop loading, and the loader's
+        strict=False would hide that as a silently random model."""
+        from astraios.ai.models.rrdbnet import RRDBNet
+
+        keys = set(RRDBNet(num_in_ch=3, num_out_ch=3, scale=4).state_dict())
+        for expected in (
+            "conv_first.weight",
+            "conv_body.weight",
+            "conv_up1.weight",
+            "conv_up2.weight",
+            "conv_hr.weight",
+            "conv_last.weight",
+            "body.0.rdb1.conv1.weight",
+            "body.22.rdb3.conv5.bias",
+        ):
+            assert expected in keys, f"missing checkpoint key {expected}"
+
+    def test_block_count_matches_the_released_depth(self):
+        from astraios.ai.models.rrdbnet import RRDBNet
+
+        model = RRDBNet(num_in_ch=3, num_out_ch=3, scale=4)
+        assert len(model.body) == 23
+
+
 class TestFallbackDoesNotHitNetwork:
-    def test_upscale_never_downloads_on_a_stock_install(self, monkeypatch):
-        """Without basicsr the AI path must use the local simple upsampler and
-        never reach the download code. Patch urllib.request.urlretrieve
-        globally so any attempt to fetch weights fails the test."""
-        import urllib.request
-
-        def _boom(*a, **k):
-            raise AssertionError("super-resolution tried to hit the network")
-
-        monkeypatch.setattr(urllib.request, "urlretrieve", _boom)
+    def test_upscale_falls_back_rather_than_downloading(self, isolated_weights):
+        """With no cached weights the tool must degrade to interpolation, not
+        stall a click on a 64 MB fetch inside the test suite."""
         out = upscale(_img(), SuperResParams(scale=2, tile_size=0))
         assert out.shape == (96, 128)
 
-    def test_missing_basicsr_yields_the_simple_upsampler(self):
-        """Guards the documented fallback: no basicsr -> _SimpleUpsampler,
-        so 'Super-Resolution' is honest interpolation rather than a no-op or
-        a crash."""
-        import importlib.util
-
-        from astraios.ai.inference.super_resolution import _load_model
-
-        model = _load_model(2)
-        # A model object is always returned (never None on the no-basicsr
-        # path); if basicsr is genuinely absent it is the simple upsampler.
-        if importlib.util.find_spec("basicsr") is None:
-            assert type(model).__name__ == "_SimpleUpsampler"
-        else:
-            assert model is not None
+    def test_load_model_returns_none_when_weights_are_unavailable(self, isolated_weights):
+        """None is the contract _upscale_ai checks before falling back to
+        Lanczos. Returning a random-weight model instead would produce
+        confident nonsense."""
+        assert isolated_weights._load_model(2) is None

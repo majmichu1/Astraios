@@ -180,19 +180,14 @@ def _upscale_ai(
 def _load_model(scale: int) -> Any | None:
     """Load a Real-ESRGAN model from the local cache, downloading if needed.
 
-    Requires ``basicsr`` (optional dependency). Without it the AI path uses a
-    bicubic upsampler — and we deliberately do NOT download the multi-MB
-    weights we could never load.
+    The RRDBNet architecture is vendored (see ``astraios.ai.models.rrdbnet``),
+    so this no longer depends on ``basicsr``. That import never actually
+    succeeded in the field -- basicsr was not a declared dependency, and
+    modern releases fail to import against torchvision >= 0.17 anyway -- so
+    every user silently received a bicubic upsampler from a menu entry that
+    advertised a neural one.
     """
-    try:
-        from basicsr.archs.rrdbnet_arch import RRDBNet
-    except ImportError:
-        log.info(
-            "basicsr not installed — AI super-resolution uses a bicubic "
-            "upsampler (install basicsr + Real-ESRGAN weights for the "
-            "neural model)"
-        )
-        return _make_simple_upsampler(scale)
+    from astraios.ai.models.rrdbnet import RRDBNet
 
     model_name = f"real_esrgan_x{scale}.pth"
     model_path = MODEL_DIR / model_name
@@ -249,22 +244,6 @@ def _load_model(scale: int) -> Any | None:
     except Exception as e:
         log.warning("Failed to load model: %s", e)
         return None
-
-
-def _make_simple_upsampler(scale: int):
-    import torch
-
-    class _SimpleUpsampler(torch.nn.Module):
-        def __init__(self, scale):
-            super().__init__()
-            self.scale = scale
-
-        def forward(self, x):
-            return torch.nn.functional.interpolate(
-                x, scale_factor=self.scale, mode="bicubic", align_corners=False
-            )
-
-    return _SimpleUpsampler(scale)
 
 
 def _wrap_mono_adapter(net):
