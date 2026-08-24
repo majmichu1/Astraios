@@ -473,6 +473,16 @@ def _match_panel_gradients(
     canvas coordinates normalised to [-1, 1]. Coefficients rather than
     canvas-sized planes: a mosaic can be very large and there is no reason to
     hold one full-size float array per panel.
+
+    Cost: this warps every panel once more, on top of the pass in
+    ``_normalize_photometric`` and the one in the blend loop, so stitching
+    does three warp passes rather than two when matching is on. Peak memory is
+    unchanged, since normalization already materialises every warped panel at
+    once. The passes are separate because normalization has to return
+    *unwarped* panels with their scale factors applied, which makes its warps
+    stale by the time this runs. Worth collapsing into a single warp if
+    stitching large mosaics ever shows up as slow; it is left alone for now
+    because the seam it removes is the whole point of the step.
     """
     n = len(panels)
     is_color = panels[0].ndim == 3
