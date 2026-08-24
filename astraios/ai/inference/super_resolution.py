@@ -196,7 +196,15 @@ def _load_model(scale: int) -> Any | None:
         MODEL_DIR.mkdir(parents=True, exist_ok=True)
         url = MODEL_URLS.get(model_name)
         if url:
-            log.info("Downloading super-resolution model: %s", url)
+            # This reaches the log panel, and it is the only thing standing
+            # between the user and an unexplained multi-minute wait the first
+            # time they upscale: the weights are ~67 MB and are fetched on a
+            # worker thread, so the window stays responsive and otherwise
+            # gives no clue why nothing is happening.
+            log.info(
+                "Downloading the %d× super-resolution model (about 67 MB). "
+                "This happens once; later upscales start immediately.", scale
+            )
             try:
                 # Download to a temp name and rename: writing straight to the
                 # final path let an interrupted download poison the cache.
