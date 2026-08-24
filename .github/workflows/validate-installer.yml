@@ -1,6 +1,7 @@
-name: Validate Windows Installer
+name: Validate Installers
 
-# Runs the REAL install-time bootstrap on a genuine Windows runner, so the
+# Runs the REAL install-time bootstrap on genuine Windows, Linux and macOS
+# runners (macOS on both Apple Silicon and Intel), so the
 # installer is verified end-to-end without needing a local Windows machine.
 # The runner has no NVIDIA GPU, so this exercises the CPU path; the only
 # difference for GPU users is the torch index URL (checked separately by a
