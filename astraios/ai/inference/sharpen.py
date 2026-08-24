@@ -13,7 +13,6 @@ import numpy as np
 import torch
 
 from astraios.ai.inference.tiled import tiled_inference
-from astraios.ai.models.unet import UNet
 from astraios.core.device_manager import get_device_manager
 from astraios.core.masks import Mask, apply_mask
 
@@ -125,8 +124,3 @@ def _traditional_sharpen(
         deringing_amount=0.5,
     )
     return richardson_lucy(data, params=dp, mask=mask, progress=progress)
-
-
-def _create_default_model() -> UNet:
-    """Create a default U-Net model (untrained, for testing)."""
-    return UNet(in_channels=1, out_channels=1, base_features=16, depth=3)
