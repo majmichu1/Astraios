@@ -463,7 +463,14 @@ def run_workflow(
     overrides = overrides or {}
     skip = set(skip or ())
     steps = workflow_for(image)
-    out = np.asarray(image, dtype=np.float32)
+    # Copy rather than asarray. Every step currently returns a fresh array, so
+    # this fixes no present bug, but asarray does not copy when the input is
+    # already float32 -- which is the normal case here -- so `out` would alias
+    # the caller's image. One future step doing an in-place write would then
+    # silently rewrite the user's loaded data, including when they back out of
+    # the wizard without applying anything. One copy is cheap next to the six
+    # intermediates the workflow already allocates.
+    out = np.array(image, dtype=np.float32, copy=True)
     run = GuidedRun(image=out)
 
     for i, step in enumerate(steps):
