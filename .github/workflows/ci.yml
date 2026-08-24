@@ -50,10 +50,28 @@ jobs:
             libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 \
             libxcb-render-util0 libxcb-shape0 >/dev/null
 
+      # Resolving torch on Linux pulls the CUDA build: ~2 GB of nvidia_*
+      # wheels onto a runner with no GPU. That is a large download to get
+      # through intact, and one dropped connection inside it currently fails
+      # the entire gate -- which is exactly how the run on 11beb17 died, with
+      # a ReadTimeoutError partway through the nvidia wheels rather than
+      # anything wrong in the code. Retry before believing it.
+      #
+      # Deliberately not pinning CI to a CPU-only torch: that pin lives in
+      # pyproject, and forcing it there would take the GPU away from local
+      # development to paper over a network flake.
       - name: Install dependencies
         run: |
           pip install --no-cache-dir poetry
-          poetry install --extras dev
+          for attempt in 1 2 3; do
+            if poetry install --extras dev; then
+              exit 0
+            fi
+            echo "::warning::dependency install attempt ${attempt} failed; retrying"
+            sleep $((attempt * 20))
+          done
+          echo "::error::dependency install failed 3 times -- not a flake"
+          exit 1
 
       # Tighten the selection (towards the full pyproject config) as the
       # remaining style debt is paid down. E9+F is the bug-hunting core:
