@@ -98,6 +98,17 @@ def mosaic_stitch(
         progress(0.45, "Normalizing photometry...")
         panels = _normalize_photometric(panels, transforms, offsets, canvas_size, params)
 
+    # Photometric normalization above is a single scale factor per panel, so
+    # it can only fix a panel that is uniformly brighter. Panels shot at
+    # different times or altitudes differ by a *sloped* sky as well, and that
+    # residual tilt is what leaves a visible seam after feathering.
+    gradient_planes: list[np.ndarray] | None = None
+    if params.match_gradient and len(panels) > 1:
+        progress(0.48, "Matching panel gradients...")
+        gradient_planes = _match_panel_gradients(
+            panels, transforms, offsets, canvas_size
+        )
+
     progress(0.5, "Warping and blending panels...")
     if is_color:
         result = np.zeros((panels[0].shape[0], canvas_size[0], canvas_size[1]), dtype=np.float32)
@@ -114,6 +125,8 @@ def mosaic_stitch(
         progress(frac, f"Blending panel {i + 1}/{len(panels)}...")
 
         warped, mask = _warp_panel(panel, transform, offset, canvas_size)
+        if gradient_planes is not None:
+            warped = _apply_gradient_plane(warped, gradient_planes[i], mask)
         weight = _panel_weight(mask, params)
 
         if multiband:
@@ -400,6 +413,166 @@ def _multiband_blend_plane(
         out = cv2.pyrUp(out, dstsize=(blended[level].shape[1], blended[level].shape[0]))
         out = out + blended[level]
     return out.astype(np.float32)
+
+
+def _fit_plane(
+    diff: np.ndarray, yy: np.ndarray, xx: np.ndarray
+) -> tuple[float, float, float]:
+    """Least-squares fit of ``diff ~= a*x + b*y + c``, with one outlier reject.
+
+    The overlap between two panels is mostly sky, but it also contains stars
+    and possibly nebulosity, and those are bright enough to drag a plain
+    least-squares fit. One robust pass (drop residuals past 3 sigma, refit)
+    is enough to make the fit follow the sky rather than the objects sitting
+    on it.
+    """
+    if diff.size < 16:
+        return 0.0, 0.0, float(np.median(diff)) if diff.size else 0.0
+
+    design = np.stack([xx, yy, np.ones_like(xx)], axis=1)
+    coeffs, *_ = np.linalg.lstsq(design, diff, rcond=None)
+
+    residual = diff - design @ coeffs
+    median_residual = float(np.median(residual))
+    sigma = float(np.median(np.abs(residual - median_residual))) * 1.4826
+    if sigma <= 1e-12:
+        # Degenerate scale: the inliers agree with the first fit almost
+        # exactly, which happens on clean synthetic data. Fall back to a small
+        # floor relative to the signal so the rejection still runs, instead of
+        # skipping it and keeping the outliers that dragged the fit.
+        sigma = max(1e-6, 1e-6 * float(np.abs(diff).max()))
+
+    # Centre the cut on the median residual, not on zero. Outliers pull the
+    # first fit off by a constant, so every good point sits at a nonzero
+    # residual; testing |residual| directly would then throw away the inliers
+    # and keep nothing useful.
+    keep = np.abs(residual - median_residual) < 3.0 * sigma
+    # Refit only if enough points survive to still describe a plane.
+    if int(keep.sum()) >= max(16, int(0.2 * diff.size)):
+        coeffs, *_ = np.linalg.lstsq(design[keep], diff[keep], rcond=None)
+
+    a, b, c = (float(v) for v in coeffs)
+    return a, b, c
+
+
+def _match_panel_gradients(
+    panels: list[np.ndarray],
+    transforms: list[np.ndarray],
+    offsets: list[tuple[int, int]],
+    canvas_size: tuple[int, int],
+) -> list[np.ndarray]:
+    """Per-panel additive plane corrections that flatten panel-to-panel tilt.
+
+    Panel 0 is the anchor and keeps a zero correction, so the mosaic stays in
+    the first panel's photometric frame rather than drifting somewhere none of
+    the inputs occupy. Each later panel is matched against the composite of
+    the panels already anchored, which is what keeps a chain of panels
+    consistent instead of only matching neighbours pairwise.
+
+    Returns one ``(3,)`` or ``(n_ch, 3)`` coefficient array per panel, in
+    canvas coordinates normalised to [-1, 1]. Coefficients rather than
+    canvas-sized planes: a mosaic can be very large and there is no reason to
+    hold one full-size float array per panel.
+    """
+    n = len(panels)
+    is_color = panels[0].ndim == 3
+    n_ch = panels[0].shape[0] if is_color else 1
+
+    h, w = canvas_size
+    y_grid, x_grid = np.mgrid[0:h, 0:w]
+    # Normalising keeps the least-squares problem well conditioned on a canvas
+    # that can be tens of thousands of pixels across.
+    x_norm = (x_grid / max(w - 1, 1) * 2.0 - 1.0).astype(np.float32)
+    y_norm = (y_grid / max(h - 1, 1) * 2.0 - 1.0).astype(np.float32)
+
+    planes: list[np.ndarray] = [
+        np.zeros((n_ch, 3), dtype=np.float32) if is_color
+        else np.zeros(3, dtype=np.float32)
+        for _ in range(n)
+    ]
+
+    warped_all: list[np.ndarray] = []
+    masks: list[np.ndarray] = []
+    for panel, transform, offset in zip(panels, transforms, offsets, strict=True):
+        warped, mask = _warp_panel(panel, transform, offset, canvas_size)
+        warped_all.append(warped)
+        masks.append(mask)
+
+    # Running composite of everything anchored so far.
+    anchor_sum = np.zeros_like(warped_all[0], dtype=np.float32)
+    anchor_w = np.zeros(canvas_size, dtype=np.float32)
+
+    def _add_to_anchor(idx: int, corrected: np.ndarray) -> None:
+        m = masks[idx]
+        if is_color:
+            for c in range(n_ch):
+                anchor_sum[c] += corrected[c] * m
+        else:
+            anchor_sum[...] += corrected * m
+        anchor_w[...] += m
+
+    _add_to_anchor(0, warped_all[0])
+
+    for i in range(1, n):
+        overlap = (masks[i] > 0) & (anchor_w > 0)
+        count = int(overlap.sum())
+        if count < 100:
+            # No usable overlap with what is already placed: leave this panel
+            # alone rather than inventing a correction from nothing.
+            log.debug("Panel %d has no overlap to gradient-match against", i)
+            _add_to_anchor(i, warped_all[i])
+            continue
+
+        xs = x_norm[overlap]
+        ys = y_norm[overlap]
+        weights = anchor_w[overlap]
+
+        corrected = warped_all[i].astype(np.float32, copy=True)
+        if is_color:
+            for c in range(n_ch):
+                reference = anchor_sum[c][overlap] / weights
+                diff = reference - warped_all[i][c][overlap]
+                a, b, cc = _fit_plane(diff, ys, xs)
+                planes[i][c] = (a, b, cc)
+                corrected[c] += a * x_norm + b * y_norm + cc
+        else:
+            reference = anchor_sum[overlap] / weights
+            diff = reference - warped_all[i][overlap]
+            a, b, cc = _fit_plane(diff, ys, xs)
+            planes[i][:] = (a, b, cc)
+            corrected += a * x_norm + b * y_norm + cc
+
+        _add_to_anchor(i, corrected)
+
+    return planes
+
+
+def _apply_gradient_plane(
+    warped: np.ndarray, coeffs: np.ndarray, mask: np.ndarray
+) -> np.ndarray:
+    """Add a fitted plane to a warped panel, inside its own footprint only.
+
+    Masked outside the panel because the blend weights are built from the
+    mask: leaking a correction into empty canvas would add signal where the
+    panel contributes none.
+    """
+    h, w = mask.shape
+    y_grid, x_grid = np.mgrid[0:h, 0:w]
+    x_norm = (x_grid / max(w - 1, 1) * 2.0 - 1.0).astype(np.float32)
+    y_norm = (y_grid / max(h - 1, 1) * 2.0 - 1.0).astype(np.float32)
+
+    out = warped.astype(np.float32, copy=True)
+    footprint = mask > 0
+    if warped.ndim == 3:
+        for c in range(warped.shape[0]):
+            a, b, cc = coeffs[c]
+            plane = a * x_norm + b * y_norm + cc
+            out[c] = np.where(footprint, out[c] + plane, out[c])
+    else:
+        a, b, cc = coeffs
+        plane = a * x_norm + b * y_norm + cc
+        out = np.where(footprint, out + plane, out)
+    return out
 
 
 def _normalize_photometric(

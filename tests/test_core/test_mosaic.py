@@ -151,3 +151,86 @@ class TestBlendMethods:
         for method in (BlendMethod.AVERAGE, BlendMethod.FEATHER, BlendMethod.MULTIBAND):
             res = mosaic_stitch(panels, MosaicParams(blend_method=method))
             assert np.isfinite(res.data).all()
+
+
+def _bg_tilt(img: np.ndarray) -> float:
+    """Slope of a plane fitted to the sky only, stars excluded.
+
+    Measuring the output's own background avoids comparing against an input
+    panel, which registration may place at a subpixel offset on a canvas a
+    pixel larger than either panel.
+    """
+    if img.ndim == 3:
+        img = img.mean(axis=0)
+    h, w = img.shape
+    yy, xx = np.mgrid[0:h, 0:w]
+    lit = img > 0
+    m = lit & (img < np.percentile(img[lit], 70))
+    design = np.stack([xx[m] / (w - 1) * 2 - 1, yy[m] / (h - 1) * 2 - 1,
+                       np.ones(int(m.sum()))], axis=1)
+    coeffs, *_ = np.linalg.lstsq(design, img[m], rcond=None)
+    return float(np.hypot(coeffs[0], coeffs[1]))
+
+
+class TestGradientMatching:
+    """MosaicParams.match_gradient defaulted to True and was never read, so
+    panels differing by a sloped sky kept that slope into the output. Scale
+    normalization cannot fix it: one factor per panel can only correct a
+    uniform offset, not a tilt."""
+
+    @staticmethod
+    def _tilted_pair():
+        clean = _star_panel(shape=(80, 80))
+        h, w = clean.shape
+        yy, xx = np.mgrid[0:h, 0:w]
+        grad = (0.05 * (xx / (w - 1)) + 0.03 * (yy / (h - 1))).astype(np.float32)
+        return clean, np.clip(clean + grad, 0, 1).astype(np.float32)
+
+    def test_matching_removes_the_panel_to_panel_tilt(self):
+        from astraios.core.mosaic import NormalizeMethod
+
+        clean, tilted = self._tilted_pair()
+        params_off = MosaicParams(match_gradient=False, normalize=NormalizeMethod.NONE)
+        params_on = MosaicParams(match_gradient=True, normalize=NormalizeMethod.NONE)
+
+        off = _bg_tilt(mosaic_stitch([clean.copy(), tilted.copy()], params=params_off).data)
+        on = _bg_tilt(mosaic_stitch([clean.copy(), tilted.copy()], params=params_on).data)
+
+        # Blending a clean panel with a tilted one leaves about half the tilt.
+        assert off > 0.005, "expected the un-matched mosaic to keep the tilt"
+        assert on < off / 5, f"gradient matching should flatten the seam: {on} vs {off}"
+
+    def test_matching_leaves_clean_panels_alone(self):
+        """A mosaic with nothing to correct must not acquire a tilt."""
+        from astraios.core.mosaic import NormalizeMethod
+
+        clean = _star_panel(shape=(80, 80))
+        out = mosaic_stitch(
+            [clean.copy(), clean.copy()],
+            params=MosaicParams(match_gradient=True, normalize=NormalizeMethod.NONE),
+        ).data
+        assert _bg_tilt(out) < 0.002
+
+    def test_colour_panels_are_matched_per_channel(self):
+        clean, tilted = self._tilted_pair()
+        c_clean = np.stack([clean, clean * 0.9, clean * 0.8]).astype(np.float32)
+        c_tilted = np.stack([tilted, tilted * 0.9, tilted * 0.8]).astype(np.float32)
+        res = mosaic_stitch([c_clean, c_tilted], params=MosaicParams(match_gradient=True))
+        assert res.data.shape[0] == 3
+        assert np.isfinite(res.data).all()
+        assert res.data.min() >= 0.0 and res.data.max() <= 1.0
+
+    def test_fit_plane_ignores_bright_outliers(self):
+        """Stars in the overlap must not drag the sky fit."""
+        from astraios.core.mosaic import _fit_plane
+
+        rng = np.random.default_rng(3)
+        n = 4000
+        xs = rng.uniform(-1, 1, n)
+        ys = rng.uniform(-1, 1, n)
+        diff = 0.02 * xs + 0.01 * ys + 0.005
+        diff[:120] += 5.0          # a handful of stars
+        a, b, c = _fit_plane(diff, ys, xs)
+        assert abs(a - 0.02) < 0.005
+        assert abs(b - 0.01) < 0.005
+        assert abs(c - 0.005) < 0.01
