@@ -580,6 +580,26 @@ class CollapsibleSection(QWidget):
             check.setToolTipDuration(60000)
         return self.add_widget(check)
 
+    def add_preview_check(self, checked: bool = False) -> QCheckBox:
+        """Add the standard live before/after preview toggle.
+
+        Thirteen tools offer this same checkbox, and every one of them means
+        exactly the same thing, so the explanation lives here once instead of
+        being restated (or, as it was, omitted) at each call site.
+        """
+        return self.add_check(
+            "Show before/after preview", checked,
+            help_text=param_help(
+                "Updates the canvas as you drag, split so you can see the "
+                "original beside the result.",
+                how="The preview runs on a downscaled copy of the image so it "
+                    "keeps up with the sliders. Applying the tool for real "
+                    "always uses full resolution, so the final result is "
+                    "sharper than what the preview shows.",
+                tip="Turn it off on very large images if dragging feels heavy.",
+            ),
+        )
+
     def add_run(
         self, label: str,
         callback=None,

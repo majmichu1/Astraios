@@ -1223,7 +1223,7 @@ class ToolsPanel(QWidget):
                       "preserving color balance. Untick to stretch each "
                       "channel independently, which can shift colors.",
         )
-        self._split_check  = aut.add_check("Show before/after preview")
+        self._split_check  = aut.add_preview_check()
         self._split_check.toggled.connect(lambda _: self.stretch_params_changed.emit())
         btns = aut.add_btn_row([("▶ Apply Stretch", False), ("Reset", True)])
         btns[0].clicked.connect(self.run_stretch.emit)
@@ -1267,7 +1267,7 @@ class ToolsPanel(QWidget):
                       "preserving color balance. Untick to stretch each "
                       "channel independently, which can shift colors.",
         )
-        self._statstretch_preview_check = sst2.add_check("Show before/after preview")
+        self._statstretch_preview_check = sst2.add_preview_check()
         self._statstretch_target.value_changed.connect(
             lambda _: self._fire_preview("statistical_stretch", self._statstretch_preview_check)
         )
@@ -1339,7 +1339,7 @@ class ToolsPanel(QWidget):
                       "preserving color balance. Untick to stretch each "
                       "channel independently, which can shift colors.",
         )
-        self._arcsinh_preview_check = arc.add_check("Show before/after preview")
+        self._arcsinh_preview_check = arc.add_preview_check()
         self._arcsinh_factor_spin.valueChanged.connect(
             lambda _: self._fire_preview("arcsinh_stretch", self._arcsinh_preview_check)
         )
@@ -1388,7 +1388,7 @@ class ToolsPanel(QWidget):
                 lower="Below 1 desaturates; 1.0 leaves colour unchanged.",
             ),
         )
-        self._star_stretch_preview_check = sst.add_check("Show before/after preview")
+        self._star_stretch_preview_check = sst.add_preview_check()
         for _sl in (self._star_stretch_amount, self._star_stretch_color):
             _sl.value_changed.connect(
                 lambda _, s=self._star_stretch_preview_check: self._fire_preview("star_stretch", s)
@@ -1455,7 +1455,7 @@ class ToolsPanel(QWidget):
                 lower="0 = no protection; bright cores get pushed too.",
             ),
         )
-        self._ghs_preview_check = ghs.add_check("Show before/after preview")
+        self._ghs_preview_check = ghs.add_preview_check()
         for _ghs_spin in (self._ghs_d_spin, self._ghs_b_spin, self._ghs_sp_spin):
             _ghs_spin.valueChanged.connect(
                 lambda _, s=self._ghs_preview_check: self._fire_preview("ghs", s)
@@ -1518,7 +1518,7 @@ class ToolsPanel(QWidget):
         )
         self._ht_black_spin.valueChanged.connect(lambda _: self._emit_clip_points())
         self._ht_white_spin.valueChanged.connect(lambda _: self._emit_clip_points())
-        self._ht_preview_check = ht.add_check("Show before/after preview")
+        self._ht_preview_check = ht.add_preview_check()
         self._ht_black_spin.valueChanged.connect(
             lambda _: self._fire_preview("histogram_transform", self._ht_preview_check)
         )
@@ -1773,7 +1773,7 @@ class ToolsPanel(QWidget):
                 lower="A partial correction; 0 leaves the image unchanged.",
             ),
         )
-        self._scnr_preview_check = scnr.add_check("Show before/after preview")
+        self._scnr_preview_check = scnr.add_preview_check()
         self._scnr_amount.value_changed.connect(
             lambda _: self._fire_preview("scnr", self._scnr_preview_check)
         )
@@ -2226,7 +2226,7 @@ class ToolsPanel(QWidget):
         btns = dec.add_btn_row([("Measure PSF", True), ("Star Mask", True)])
         btns[0].clicked.connect(self.measure_psf.emit)
         btns[1].clicked.connect(self.open_star_mask_dialog.emit)
-        self._deconv_preview_check = dec.add_check("Show before/after preview")
+        self._deconv_preview_check = dec.add_preview_check()
         for _w in (self._deconv_iter, self._deconv_dering_amt):
             _w.value_changed.connect(
                 lambda _: self._fire_preview("deconvolution", self._deconv_preview_check)
@@ -2346,7 +2346,7 @@ class ToolsPanel(QWidget):
         _auto_btn = dnz.add_btn_row([("🎯 Auto (measure noise)", False)])[0]
         _auto_btn.clicked.connect(self.request_auto_denoise.emit)
         self._denoise_noise_label = dnz.add_status_label("Noise: not measured")
-        self._denoise_preview_check = dnz.add_check("Show before/after preview")
+        self._denoise_preview_check = dnz.add_preview_check()
         for _sl in (self._denoise_amount, self._denoise_lum, self._denoise_chrom):
             _sl.value_changed.connect(
                 lambda _, s=self._denoise_preview_check: self._fire_preview("denoise", s)
@@ -2465,7 +2465,7 @@ class ToolsPanel(QWidget):
                 ),
             )
             self._wavelet_layer_sliders.append(s)
-        self._wav_preview_check = wav.add_check("Show before/after preview")
+        self._wav_preview_check = wav.add_preview_check()
         for _sl in self._wavelet_layer_sliders:
             _sl.value_changed.connect(
                 lambda _, s=self._wav_preview_check: self._fire_preview("wavelet", s)
@@ -2527,7 +2527,7 @@ class ToolsPanel(QWidget):
                 lower="Leaves the structure layer as-is; 0 = untouched.",
             ),
         )
-        self._fs_preview_check = fs.add_check("Show before/after preview")
+        self._fs_preview_check = fs.add_preview_check()
         for _sl in (self._fs_sigma, self._fs_hf_boost, self._fs_lf_smooth):
             _sl.value_changed.connect(
                 lambda _, s=self._fs_preview_check: self._fire_preview("frequency_separation", s)
@@ -2566,7 +2566,7 @@ class ToolsPanel(QWidget):
                 lower="A smoother, more global-looking boost.",
             ),
         )
-        self._clahe_preview_check = clh.add_check("Show before/after preview")
+        self._clahe_preview_check = clh.add_preview_check()
         for _sl in (self._clahe_clip, self._clahe_tiles):
             _sl.value_changed.connect(
                 lambda _, s=self._clahe_preview_check: self._fire_preview("local_contrast", s)
@@ -2612,7 +2612,7 @@ class ToolsPanel(QWidget):
                 lower="Sharpens everything, including faint noise; 0 = no gate.",
             ),
         )
-        self._um_preview_check = um.add_check("Show before/after preview")
+        self._um_preview_check = um.add_preview_check()
         for _sl in (self._um_radius, self._um_amount, self._um_threshold):
             _sl.value_changed.connect(
                 lambda _, s=self._um_preview_check: self._fire_preview("unsharp_mask", s)
