@@ -19,9 +19,10 @@ Astraios installs through a smart installer: no Python setup, no manual CUDA. It
 |----------|-----------|
 | Windows | Download `Astraios-Setup-*.exe` and run it. |
 | Linux | Download `install-astraios.sh`, then run `bash install-astraios.sh`. Works on Fedora/Bazzite, Ubuntu, Arch, etc. No `apt` or system Python required. |
+| macOS | Download `install-astraios-macos.sh`, then run `bash install-astraios-macos.sh`. Works on Apple Silicon and Intel, and needs no Homebrew or system Python. Apple Silicon Macs get real GPU acceleration through PyTorch's Metal (MPS) backend; Intel Macs run on CPU. It creates an Astraios.app you can launch from Launchpad or Spotlight. |
 | Linux (portable) | Download `Astraios-*-x86_64.AppImage`, then `chmod +x Astraios-*.AppImage && ./Astraios-*.AppImage`. Nothing is installed and no root is needed, which suits immutable systems like Bazzite and Silverblue. It still runs on the GPU: the first launch fetches the PyTorch matching your hardware into your home directory. Any normal desktop already has what it needs; a stripped-down or headless system may have to add the usual Qt graphics libraries (`libEGL`, `libGL`, `libxkbcommon-x11`), which are intentionally left to the host because they have to match your graphics driver. |
 
-On first run the installer downloads PyTorch (a few minutes; it's the big piece), then Astraios launches from your Start Menu / application menu. Both installers are tested end-to-end on real Windows and Linux machines in CI on every change.
+On first run the installer downloads PyTorch (a few minutes; it's the big piece), then Astraios launches from your Start Menu, Launchpad or application menu. Every installer is tested end-to-end in CI on every change, on real Windows, Linux, Apple Silicon and Intel Mac machines.
 
 Astraios is in active development (v0.1.x-alpha), so expect rough edges and bugs. Reports in the [Issues](https://github.com/majmichu1/Astraios/issues) tab are very welcome.
 

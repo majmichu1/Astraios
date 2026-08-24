@@ -12,6 +12,7 @@ on:
     paths:
       - 'packaging/windows/**'
       - 'packaging/linux/**'
+      - 'packaging/macos/**'
       - '.github/workflows/validate-installer.yml'
       - 'pyproject.toml'
       - 'astraios/__init__.py'
@@ -115,3 +116,59 @@ jobs:
           PY="$HOME/.local/share/Astraios/venv/bin/python"
           "$PY" -c "import astraios, torch; print('install OK', astraios.__version__, '| torch', torch.__version__)"
           "$PY" -c "from PyQt6.QtWidgets import QApplication; import astraios.ui.main_window; app=QApplication([]); print('GUI module imports OK')"
+
+  # Real Apple hardware, both architectures: arm64 (Apple Silicon, where the
+  # Metal/MPS backend matters) and x86_64 (Intel). Without this the macOS
+  # installer would be untested code, since it cannot be exercised on Linux.
+  validate-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest   # Apple Silicon (arm64)
+            arch: arm64
+          - runner: macos-13       # Intel (x86_64)
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm the runner architecture matches the matrix
+        run: |
+          echo "uname -m: $(uname -m)  expected: ${{ matrix.arch }}"
+          test "$(uname -m)" = "${{ matrix.arch }}"
+
+      - name: Run the macOS installer end-to-end
+        run: bash packaging/macos/install-astraios-macos.sh
+
+      - name: Confirm the install works and the GUI imports (offscreen)
+        run: |
+          PY="$HOME/Library/Application Support/Astraios/venv/bin/python"
+          "$PY" -c "import astraios, torch; print('install OK', astraios.__version__, '| torch', torch.__version__)"
+          QT_QPA_PLATFORM=offscreen "$PY" -c "from PyQt6.QtWidgets import QApplication; import astraios.ui.main_window; app=QApplication([]); print('GUI module imports OK')"
+
+      - name: Confirm the compute backend Astraios will actually use
+        run: |
+          PY="$HOME/Library/Application Support/Astraios/venv/bin/python"
+          "$PY" - <<'PYCHECK'
+          import torch
+          from astraios.core.device_manager import get_device_manager
+          mps = getattr(torch.backends, "mps", None)
+          available = bool(mps and mps.is_available())
+          dm = get_device_manager()
+          print(f"MPS available: {available} | Astraios backend: {dm.backend}")
+          # Apple Silicon must land on the Metal backend, not silently on CPU.
+          import platform
+          if platform.machine() == "arm64":
+              assert available, "MPS unavailable on Apple Silicon"
+              assert dm.is_gpu, f"Astraios fell back to {dm.backend} on Apple Silicon"
+          PYCHECK
+
+      - name: Confirm the app bundle is launchable
+        run: |
+          APP="$HOME/Applications/Astraios.app"
+          test -d "$APP" || { echo "app bundle missing"; exit 1; }
+          test -x "$APP/Contents/MacOS/astraios" || { echo "launcher not executable"; exit 1; }
+          plutil -lint "$APP/Contents/Info.plist"
+          echo "Astraios.app is present and its Info.plist is valid"
+

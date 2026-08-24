@@ -123,6 +123,30 @@ jobs:
             dist/*.whl
 
   # ------------------------------------------------------------------ #
+  #  macOS — smart installer                                           #
+  #  Ships the tiny install-astraios-macos.sh. Apple Silicon gets real #
+  #  GPU acceleration through PyTorch's Metal (MPS) backend, which     #
+  #  device_manager already supports; Intel Macs run on CPU. Validated #
+  #  on both architectures by validate-installer.yml.                  #
+  # ------------------------------------------------------------------ #
+  publish-macos-installer:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Astraios-macOS-Installer
+          path: packaging/macos/install-astraios-macos.sh
+
+      - name: Upload to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: packaging/macos/install-astraios-macos.sh
+
+  # ------------------------------------------------------------------ #
   #  Linux — AppImage (portable single file, GPU capable)              #
   #  Bundles Python + Qt + the science stack (~290 MB). PyTorch is not #
   #  bundled: a CUDA build alone is ~1.8 GB, over GitHub's 2 GiB asset #
