@@ -2363,6 +2363,18 @@ class MainWindow(QMainWindow):
             self._update_undo_actions()
             self._display_image(image)
             self._log_panel.log(f"Loaded: {Path(path).name} ({image.shape_str})", "info")
+            # Smart-telescope owners arrive with an already-stacked file and
+            # are the group most likely to be lost by a calibration-first
+            # workflow. Say what the file is and point at the one button that
+            # finishes it, instead of leaving them to guess.
+            try:
+                from astraios.core.smart_telescope import describe
+
+                hint = describe(image.header, image.data)
+                if hint:
+                    self._log_panel.log(hint, "success")
+            except Exception:
+                log.debug("Smart-telescope hint failed", exc_info=True)
             # A freshly loaded image is clean; reset edit/workflow/mask state.
             self._dirty = False
             self._active_mask = None
