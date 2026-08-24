@@ -15,12 +15,18 @@ on:
 permissions:
   contents: read
 
-# A run that has already been superseded is worthless, and this job is long
-# enough that a burst of pushes otherwise queues several of them behind each
-# other. Never cancel on main, though: that is the history the gate exists to
-# certify, and a cancelled run there reads as a failure nobody can explain.
+# Supersede stale PR runs, but give every push to main its own group.
+#
+# cancel-in-progress: false is NOT enough to protect main. GitHub keeps only
+# one *pending* run per group, so while one main run was executing, the next
+# commit queued behind it and the commit after that cancelled it -- 30c0875
+# sat pending for 26 minutes, never started a job, and was reported as
+# "cancelled". That both skips commits and recreates the exact unexplainable
+# red X this workflow was being fixed to remove.
+#
+# Keying main's group by SHA means main runs never contend with each other.
 concurrency:
-  group: quality-${{ github.ref }}
+  group: quality-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
