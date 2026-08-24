@@ -80,9 +80,10 @@ Where Astraios actually stands apart: everything runs on the GPU, the GPU instal
 - **Alt/Az Field Rotation** -- Field-rotation rate and total rotation over an exposure for alt-az mounts, plus parallactic angle
 
 ### AI and Advanced Denoising
-Nothing runs in the cloud: models ship with Astraios and run on your own machine.
+Nothing runs in the cloud. Every model runs on your own machine, and the denoise model ships inside the app.
 
 - **AI Denoise** -- a Noise2Self U-Net trained on real astro images, bundled with the app so it works with no download. It runs J-invariant inference with signal protection, so noise drops sharply while stars keep their brightness (measured on a synthetic field: 68% less background noise, 99% of star flux retained).
+- **AI Super-Resolution** -- 2x or 4x upscaling through a Real-ESRGAN network instead of interpolation, tiled so large images fit in VRAM. The weights are fetched once on first use (about 67 MB) and cached; if they cannot be fetched the tool falls back to Lanczos and says so rather than pretending.
 - **Classical denoising** -- TGV, wavelet, non-local means and chroma denoise are also built in, and are what the AI backend falls back to if a model is ever unavailable.
 - **Star Removal** -- a built-in morphological remover that works immediately with no extra download, plus optional StarNet integration when you point Astraios at a StarNet binary you've installed
 - **Bring your own models** -- in Preferences you can point Astraios at a StarNet binary, a denoise model, or a Cosmic Clarity model folder you already have
