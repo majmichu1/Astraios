@@ -27,7 +27,11 @@ class CosmicClarityParams:
     model: str = "denoise"
     strength: float = 1.0
     tile_size: int = 512
-    keep_original_size: bool = True
+    # No keep_original_size flag: nothing here can change the image size, so
+    # offering the choice would be a lie. _tiled_inference accumulates into a
+    # zeros_like(input) buffer and crops every padded edge tile back, and the
+    # untiled path runs the model over the whole frame. The field used to
+    # exist, was passed as True from two call sites, and was never read.
 
 
 def apply(

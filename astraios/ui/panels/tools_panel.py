@@ -4181,7 +4181,6 @@ class ToolsPanel(QWidget):
             model="denoise",
             strength=self._ai_denoise_strength.value(),
             tile_size=tile_map.get(self._ai_tile_combo.currentText(), 256),
-            keep_original_size=True,
         )
 
     def get_cosmic_clarity_sharpen_params(self):
@@ -4190,7 +4189,6 @@ class ToolsPanel(QWidget):
             model="sharpen",
             strength=self._ai_sharpen_strength.value(),
             tile_size=512,
-            keep_original_size=True,
         )
 
     def get_ai_sharpen_params(self):
