@@ -237,6 +237,7 @@ class ToolsPanel(QWidget):
     open_processing_graph    = pyqtSignal()
     open_super_resolution    = pyqtSignal()
     run_superbias            = pyqtSignal()
+    open_guided              = pyqtSignal()
     undo_requested           = pyqtSignal()
     redo_requested           = pyqtSignal()
 
@@ -250,6 +251,19 @@ class ToolsPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
+        # The guided workflow, first and prominent. Ten tabs of tools are only
+        # an asset to someone who already knows which one they need; for
+        # everyone else this is the way in, and a menu entry alone is not
+        # discoverable enough to serve that purpose.
+        self._btn_guided = RunBtn("Guided Processing", accent=True)
+        self._btn_guided.setToolTip(
+            "Not sure where to start? Walk through the whole workflow one "
+            "step at a time, with an explanation and a suggested setting for "
+            "each (Ctrl+G)."
+        )
+        self._btn_guided.clicked.connect(self.open_guided.emit)
+        outer.addWidget(self._btn_guided)
 
         # Tool search — filters/expands matching sections across all tabs, so a
         # user can find a tool by name or keyword instead of hunting 9 tabs.

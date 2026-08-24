@@ -1482,6 +1482,7 @@ class MainWindow(QMainWindow):
         tp.open_analysis_tilt.connect(self._on_analysis_tilt)
         tp.open_analysis_photometry.connect(self._on_analysis_photometry)
         tp.open_super_resolution.connect(self._on_run_ai_super_resolution)
+        tp.open_guided.connect(self._show_guided_dialog)
         tp.open_batch_preprocess.connect(self._show_batch_preprocess_dialog)
         tp.open_batch_dialog.connect(self._show_batch_dialog)
         tp.start_macro_recording.connect(self._on_start_macro)
