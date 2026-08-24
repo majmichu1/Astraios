@@ -6959,6 +6959,10 @@ class MainWindow(QMainWindow):
                 result, "Guided processing", geometric=True
             )
         )
+        # "Save image..." on the wizard's finish screen. result_ready is a
+        # direct connection and fires first, so the working image is already
+        # the finished one by the time the export dialog opens.
+        dialog.save_requested.connect(self._save_image)
         dialog.exec()
         dialog.deleteLater()
 

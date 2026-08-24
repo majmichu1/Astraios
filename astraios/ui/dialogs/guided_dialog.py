@@ -70,6 +70,7 @@ class GuidedDialog(QDialog):
 
     preview_ready = pyqtSignal(object, str)
     result_ready = pyqtSignal(object)
+    save_requested = pyqtSignal()
 
     def __init__(self, image: np.ndarray, parent=None):
         super().__init__(parent)
@@ -84,6 +85,7 @@ class GuidedDialog(QDialog):
         self._pending: np.ndarray | None = None
         # (image before the step, step_id) so Back can rewind exactly.
         self._history: list[tuple[np.ndarray, str]] = []
+        self._applied: list[str] = []
         self._controls: dict[str, QDoubleSpinBox] = {}
 
         lay = QVBoxLayout(self)
@@ -185,6 +187,14 @@ class GuidedDialog(QDialog):
             self._finish()
             return
 
+        # Restore the step controls: _finish() hides them, and Back from the
+        # finish screen lands here, which otherwise showed a step with no way
+        # to act on it.
+        self._controls_box.setVisible(True)
+        for btn in (self._apply_btn, self._skip_btn, self._preview_btn,
+                    self._auto_btn):
+            btn.setVisible(True)
+
         self._progress_lbl.setText(
             f"Step {self._index + 1} of {len(self._steps)}"
         )
@@ -280,6 +290,7 @@ class GuidedDialog(QDialog):
             self._set_busy(False)
             step = self._step
             self._history.append((self._current, step.step_id))
+            self._applied.append(step.title)
             self._current = result
             self._index += 1
             self._status.setText("")
@@ -329,6 +340,10 @@ class GuidedDialog(QDialog):
             done = {s.step_id for s in self._steps[: self._index]}
             run = run_workflow(self._current, skip=skip | done)
             self._current = run.image
+            # Record what actually ran, or the finish screen reports "no steps
+            # were applied" after doing the whole workflow.
+            titles = {s.step_id: s.title for s in self._steps}
+            self._applied.extend(titles.get(sid, sid) for sid in run.applied)
         except Exception as exc:
             self._set_busy(False)
             self._status.setText(f"Could not finish automatically: {exc}")
@@ -338,5 +353,48 @@ class GuidedDialog(QDialog):
         self._finish()
 
     def _finish(self):
+        """Show what was done and offer to save.
+
+        The wizard used to simply close here, which left a beginner with a
+        finished image and no idea what to do with it. Naming the steps that
+        ran and putting the export one click away completes the path from
+        stacked file to something shareable.
+        """
         self.result_ready.emit(self._current)
+
+        self._progress_lbl.setText("Finished")
+        self._title.setText("Your image is ready")
+        if self._applied:
+            self._summary.setText("Applied: " + ", ".join(self._applied).lower() + ".")
+        else:
+            self._summary.setText("No steps were applied; the image is unchanged.")
+        self._detail.setText(
+            "The result is on the canvas and every step is in the history, so "
+            "nothing is locked in. You can keep refining it with the tool "
+            "tabs, or save a copy to share."
+        )
+
+        while self._controls_layout.count():
+            item = self._controls_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._controls.clear()
+        self._controls_box.setVisible(False)
+
+        for btn in (self._apply_btn, self._skip_btn, self._preview_btn,
+                    self._auto_btn):
+            btn.setVisible(False)
+        self._back_btn.setEnabled(bool(self._history))
+
+        self._save_btn = RunBtn("Save image...")
+        self._save_btn.clicked.connect(self._save_and_close)
+        self._controls_layout.addWidget(self._save_btn)
+        self._controls_box.setVisible(True)
+
+        self._done_btn = QPushButton("Done")
+        self._done_btn.clicked.connect(self.accept)
+        self._controls_layout.addWidget(self._done_btn)
+
+    def _save_and_close(self):
+        self.save_requested.emit()
         self.accept()

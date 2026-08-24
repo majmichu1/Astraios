@@ -92,3 +92,61 @@ class TestAlreadyStretchedWarning:
 
     def test_no_warning_for_a_linear_image(self, dialog):
         assert "already been stretched" not in dialog._status.text()
+
+
+class TestFinishStep:
+    """The wizard used to just vanish when the last step was done, leaving a
+    beginner with a finished image and no idea what to do next."""
+
+    def _finish(self, dialog):
+        for _ in range(len(dialog._steps)):
+            dialog._skip()
+        return dialog
+
+    def test_finishing_shows_a_summary_instead_of_closing(self, dialog):
+        self._finish(dialog)
+        assert "ready" in dialog._title.text().lower()
+
+    def test_finish_offers_save(self, dialog):
+        self._finish(dialog)
+        assert dialog._save_btn is not None
+        assert not dialog._save_btn.isHidden()
+
+    def test_save_emits_the_request(self, dialog):
+        self._finish(dialog)
+        asked = []
+        dialog.save_requested.connect(lambda: asked.append(True))
+        dialog._save_and_close()
+        assert asked == [True]
+
+    def test_step_buttons_are_hidden_on_the_finish_screen(self, dialog):
+        self._finish(dialog)
+        assert dialog._apply_btn.isHidden()
+        assert dialog._skip_btn.isHidden()
+
+    def test_back_from_finish_restores_a_usable_step(self, dialog):
+        """Regression: the finish screen hides the step buttons, so stepping
+        back showed a step with no way to apply or skip it."""
+        self._finish(dialog)
+        dialog._go_back()
+        assert dialog._index == len(dialog._steps) - 1
+        assert not dialog._apply_btn.isHidden()
+        assert not dialog._skip_btn.isHidden()
+        assert not dialog._controls_box.isHidden()
+
+    def test_summary_names_the_applied_steps(self, dialog):
+        dialog._applied = ["Remove the gradient", "The big stretch"]
+        dialog._index = len(dialog._steps)
+        dialog._finish()
+        text = dialog._summary.text().lower()
+        assert "gradient" in text and "stretch" in text
+
+    def test_auto_finish_reports_what_it_actually_did(self, dialog):
+        """Regression: 'Do the rest for me' bypassed the applied-steps list,
+        so the finish screen claimed nothing had been applied right after it
+        had processed the entire image."""
+        dialog._skip()          # past trim
+        dialog._run_rest()
+        summary = dialog._summary.text().lower()
+        assert "no steps were applied" not in summary
+        assert "stretch" in summary
