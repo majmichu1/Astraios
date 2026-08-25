@@ -219,3 +219,44 @@ class TestEstimateDistortionFromStars:
         img = np.full((64, 64), 0.1, dtype=np.float32)
         params = estimate_distortion_from_stars(img)
         assert isinstance(params, LensDistortionParams)
+
+
+class TestFieldOfViewIntrinsics:
+    """LensDistortionParams.fov is documented as "FOV in degrees (0 = auto
+    from focal length)" and was never read, so anyone who knew their field but
+    not their sensor size fell through to the crude max(w, h) guess."""
+
+    W, H = 4000, 3000
+
+    def _focal_px(self, focal_mm=0.0, sensor_mm=36.0, fov=0.0):
+        from astraios.core.lens_distortion import _compute_camera_matrix
+
+        return float(_compute_camera_matrix(self.W, self.H, focal_mm, sensor_mm, fov)[0, 0])
+
+    def test_focal_length_path_is_unchanged(self):
+        assert self._focal_px(focal_mm=200.0) == pytest.approx(200 / 36 * self.W)
+
+    def test_fov_matches_the_equivalent_focal_length(self):
+        """The two ways of describing the same lens must agree."""
+        import math
+
+        fov = math.degrees(2 * math.atan((36 / 2) / 200))
+        assert self._focal_px(fov=fov) == pytest.approx(self._focal_px(focal_mm=200.0), rel=1e-6)
+
+    def test_ninety_degree_field_is_half_the_width(self):
+        """tan(45) == 1, so the focal length is exactly w/2. A closed-form
+        case that fails loudly if the half-angle or degrees/radians slips."""
+        assert self._focal_px(fov=90.0) == pytest.approx(self.W / 2)
+
+    def test_fov_takes_precedence_over_focal_length(self):
+        assert self._focal_px(focal_mm=200.0, fov=90.0) == pytest.approx(self.W / 2)
+
+    @pytest.mark.parametrize("bad_fov", [180.0, 179.999, 360.0, -10.0])
+    def test_degenerate_fields_fall_back_instead_of_collapsing(self, bad_fov):
+        """At 180 deg the tangent is not infinite in floating point, just huge,
+        so an unguarded divide yields ~0 and a camera matrix that maps the
+        whole frame to a point."""
+        assert self._focal_px(fov=bad_fov) == pytest.approx(max(self.W, self.H))
+
+    def test_nothing_set_keeps_the_old_fallback(self):
+        assert self._focal_px() == pytest.approx(max(self.W, self.H))

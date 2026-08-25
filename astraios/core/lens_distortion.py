@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 import cv2
@@ -61,6 +62,7 @@ def _compute_camera_matrix(
     h: int,
     focal_mm: float,
     sensor_width_mm: float,
+    fov_deg: float = 0.0,
 ) -> NDArray:
     """Compute the camera intrinsic matrix.
 
@@ -74,13 +76,33 @@ def _compute_camera_matrix(
         Focal length in millimetres.
     sensor_width_mm : float
         Sensor width in millimetres.
+    fov_deg : float
+        Horizontal field of view in degrees, 0 to derive it from the focal
+        length instead. Takes precedence when set: LensDistortionParams has
+        always documented ``fov`` as "FOV in degrees (0 = auto from focal
+        length)" while the field went unread, so anyone who knew their field
+        but not their sensor size silently fell through to the crude
+        ``max(w, h)`` guess below.
 
     Returns
     -------
     NDArray
         3x3 camera matrix.
     """
-    focal_px = focal_mm / sensor_width_mm * w if focal_mm > 0 else max(w, h)
+    if 0.0 < fov_deg < 180.0:
+        tan_half = math.tan(math.radians(fov_deg) / 2.0)
+        focal_px = (w / 2.0) / tan_half if tan_half > 1e-9 else float("inf")
+        # Both ends are degenerate and neither is caught by a tangent test
+        # alone. Near 0 deg the focal length runs away to infinity; at 180 the
+        # tangent is not infinite in floating point, just enormous, so the
+        # division quietly yields ~0 and builds a camera matrix that maps the
+        # whole frame onto one point. Sanity-check the result instead.
+        if not math.isfinite(focal_px) or focal_px < 1.0:
+            focal_px = float(max(w, h))
+    elif focal_mm > 0:
+        focal_px = focal_mm / sensor_width_mm * w
+    else:
+        focal_px = max(w, h)
     cx = (w - 1) / 2.0
     cy = (h - 1) / 2.0
     return np.array(
@@ -165,7 +187,7 @@ def correct_distortion(
         raise ValueError(f"Expected 2D or 3D image, got shape {img.shape}")
 
     camera_matrix = _compute_camera_matrix(
-        w, h, params.focal_length_mm, params.sensor_width_mm,
+        w, h, params.focal_length_mm, params.sensor_width_mm, params.fov,
     )
     dist_coeffs = params.distortion_coeffs
 
