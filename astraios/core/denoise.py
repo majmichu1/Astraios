@@ -54,8 +54,12 @@ class DenoiseParams:
     # Wavelet-specific
     wavelet: str = "db4"
     wavelet_levels: int = 4
-    # Median-specific
-    median_kernel: int = 3
+    # Median-specific. 0 = derive the window from `strength` (3..15, odd),
+    # which is what the median path has always actually done; any value above
+    # 0 is used as an exact window instead. The default was 3 while nothing
+    # read the field, so leaving it at 3 now would silently pin every median
+    # denoise to the smallest kernel and ignore the strength slider.
+    median_kernel: int = 0
     # TGV-specific
     tgv_n_iter: int = 150
 
@@ -191,9 +195,17 @@ def _denoise_median_channel(channel: np.ndarray, params: DenoiseParams) -> np.nd
     """Apply median filter denoising to a single channel (CPU).
 
     `strength` scales the kernel size (3..15, odd).
+    `median_kernel` overrides that when set above 0, for callers who want an
+    exact window rather than a strength-derived one.
     `detail_preservation` blends result with original (1=full original, 0=full median).
     """
-    k = max(3, int(round(3 + 12 * params.strength)))
+    # median_kernel used to be declared and never read, so a script asking for
+    # a 9-pixel window silently got whatever strength implied. 0 keeps the
+    # strength-derived default, which is what every existing caller gets.
+    k = int(params.median_kernel)
+    if k <= 0:
+        k = int(round(3 + 12 * params.strength))
+    k = max(3, k)
     if k % 2 == 0:
         k += 1
     # uint16 keeps linear signal from quantizing to 8 bits. cv2.medianBlur
