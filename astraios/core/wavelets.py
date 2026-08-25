@@ -34,11 +34,27 @@ _B3_KERNEL_1D = np.array([1, 4, 6, 4, 1], dtype=np.float32) / 16.0
 _MAX_WAVELET_SCALES = 10
 
 
+_B3_KERNEL_2D = np.outer(_B3_KERNEL_1D, _B3_KERNEL_1D).astype(np.float32)
+"""The compact 5x5 B3 spline kernel, before any a trous holes are punched.
+
+Convolving with this at ``dilation=2**scale`` is what
+:func:`_atrous_kernel_2d` describes and costs a fraction of what it costs.
+"""
+
+
 def _atrous_kernel_2d(scale: int) -> np.ndarray:
     """Create 2D a trous B3 spline kernel at given scale.
 
     The kernel is an upsampled version of the B3 spline where
     zeros are inserted between coefficients (a trous = with holes).
+
+    Kept as the reference definition and as the thing the equivalence tests
+    check against, but no longer used to convolve: at scale 5 this is a
+    129x129 array of which 25 entries are non-zero, so 99.85% of the
+    multiply-adds it implies are against a literal 0.0. Across the six scales
+    WaveScale HDR uses that came to 22350 taps per pixel where 150 do the
+    work, and on a 1024x1024 frame the CPU path took close to seven minutes.
+    :func:`wavelet_decompose` now expresses the holes as a dilation instead.
     """
     k1d = _B3_KERNEL_1D
     step = 2**scale
@@ -49,17 +65,31 @@ def _atrous_kernel_2d(scale: int) -> np.ndarray:
     return np.outer(padded, padded)
 
 
-def _smooth_gpu(data_t: torch.Tensor, kernel_t: torch.Tensor) -> torch.Tensor:
-    """Apply 2D smoothing convolution on GPU using torch conv2d."""
+def _smooth_gpu(
+    data_t: torch.Tensor, kernel_t: torch.Tensor, dilation: int = 1
+) -> torch.Tensor:
+    """Apply 2D smoothing convolution on GPU using torch conv2d.
+
+    With ``dilation`` above 1 the kernel is the compact 5x5 B3 spline and the
+    holes of the a trous transform are expressed by the dilation rather than
+    materialised as zeros. See :func:`_atrous_kernel_2d` for why that matters.
+    """
     # data_t: (1, 1, H, W), kernel_t: (1, 1, kH, kW)
     # Replicate (edge-clamp) padding, NOT conv2d's default zero-padding: zeros
     # pull the smoothed value toward 0 at the borders, darkening the residual
     # edge and leaving compensating artifacts in the detail scales (visible once
     # thresholded). Replicate keeps the telescoping reconstruction exact.
-    pad_h = kernel_t.shape[2] // 2
-    pad_w = kernel_t.shape[3] // 2
+    #
+    # The padding is computed from the kernel's *effective* extent, which for a
+    # dilated kernel is (k - 1) * dilation + 1. That is exactly the size of the
+    # materialised kernel it replaces, so the padding, and therefore the border
+    # behaviour, is identical either way.
+    eff_h = (kernel_t.shape[2] - 1) * dilation + 1
+    eff_w = (kernel_t.shape[3] - 1) * dilation + 1
+    pad_h = eff_h // 2
+    pad_w = eff_w // 2
     padded = F.pad(data_t, (pad_w, pad_w, pad_h, pad_h), mode="replicate")
-    return F.conv2d(padded, kernel_t)
+    return F.conv2d(padded, kernel_t, dilation=dilation)
 
 
 @dataclass
@@ -104,15 +134,17 @@ def wavelet_decompose(
     current = torch.from_numpy(data.astype(np.float32)).unsqueeze(0).unsqueeze(0).to(device)
     scales = []
 
+    # One compact 5x5 kernel for every scale; the a trous holes are the
+    # dilation. Building it once also saves a host-to-device copy per scale.
+    kernel_t = torch.from_numpy(_B3_KERNEL_2D).unsqueeze(0).unsqueeze(0).to(device)
+
     with torch.no_grad():
         for s in range(n_scales):
-            kernel_np = _atrous_kernel_2d(s)
-            kernel_t = torch.from_numpy(kernel_np).unsqueeze(0).unsqueeze(0).to(device)
-            smoothed = _smooth_gpu(current, kernel_t)
+            smoothed = _smooth_gpu(current, kernel_t, dilation=2**s)
             detail = current - smoothed
             scales.append(detail.squeeze().cpu().numpy())
             current = smoothed
-            del kernel_t, detail, smoothed  # free VRAM each scale
+            del detail, smoothed  # free VRAM each scale
 
         # Residual (low-frequency content)
         scales.append(current.squeeze().cpu().numpy())

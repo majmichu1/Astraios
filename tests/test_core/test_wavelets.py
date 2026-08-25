@@ -1,6 +1,7 @@
 """Tests for wavelet decomposition and reconstruction."""
 
 import numpy as np
+import pytest
 
 from astraios.core.wavelets import (
     WaveletParams,
@@ -87,3 +88,75 @@ class TestWaveletSharpen:
         result = wavelet_sharpen(data, params, mask=mask)
         # Bottom half should be unchanged
         np.testing.assert_allclose(result[32:], data[32:], atol=1e-5)
+
+
+class TestAtrousDilationEquivalence:
+    """The a trous transform expresses its holes as a conv2d dilation rather
+    than materialising them as zeros in the kernel.
+
+    At scale 5 the materialised kernel is 129x129 with 25 non-zero entries, so
+    99.85% of the multiply-adds it implies are against a literal 0.0. Across
+    the six scales WaveScale HDR uses that was 22350 taps per pixel where 150
+    do the work. These pin the two properties that make the change safe to
+    have made: the output does not move, and it is the same maths.
+    """
+
+    @staticmethod
+    def _dense_reference(data: np.ndarray, n_scales: int) -> list[np.ndarray]:
+        """The previous implementation: one materialised kernel per scale."""
+        import torch
+        import torch.nn.functional as F
+
+        from astraios.core.wavelets import _atrous_kernel_2d
+
+        cur = torch.from_numpy(data.astype(np.float32)).unsqueeze(0).unsqueeze(0)
+        out = []
+        with torch.no_grad():
+            for s in range(n_scales):
+                k = torch.from_numpy(_atrous_kernel_2d(s)).unsqueeze(0).unsqueeze(0)
+                pad = k.shape[2] // 2
+                sm = F.conv2d(F.pad(cur, (pad,) * 4, mode="replicate"), k)
+                out.append((cur - sm).squeeze().numpy())
+                cur = sm
+            out.append(cur.squeeze().numpy())
+        return out
+
+    @pytest.mark.parametrize("size", [64, 129])
+    @pytest.mark.parametrize("n_scales", [3, 6])
+    def test_byte_identical_to_the_materialised_kernel(self, size, n_scales):
+        """Not close, identical. A dilated kernel evaluates exactly the taps
+        the dense one does not multiply by zero, and adding 0.0 changes no
+        float, so there is no rounding difference to absorb."""
+        from astraios.core.wavelets import wavelet_decompose
+
+        rng = np.random.default_rng(4)
+        img = np.clip(rng.random((size, size)).astype(np.float32) * 0.8 + 0.05, 0, 1)
+
+        expected = self._dense_reference(img, n_scales)
+        got = wavelet_decompose(img, n_scales=n_scales)
+
+        assert len(got) == len(expected)
+        for i, (g, e) in enumerate(zip(got, expected, strict=True)):
+            assert g.tobytes() == e.tobytes(), f"scale {i} differs"
+
+    def test_the_holes_really_are_zeros(self):
+        """The premise of the whole change: the materialised kernel is the 5x5
+        one with zeros punched in, so skipping them cannot change a result."""
+        from astraios.core.wavelets import _B3_KERNEL_2D, _atrous_kernel_2d
+
+        for s in range(4):
+            dense = _atrous_kernel_2d(s)
+            step = 2**s
+            assert np.array_equal(dense[::step, ::step], _B3_KERNEL_2D)
+            mask = np.ones_like(dense, dtype=bool)
+            mask[::step, ::step] = False
+            assert np.count_nonzero(dense[mask]) == 0
+
+    def test_reconstruction_still_telescopes(self):
+        """Detail scales plus residual must return the original."""
+        from astraios.core.wavelets import wavelet_decompose
+
+        rng = np.random.default_rng(9)
+        img = np.clip(rng.random((96, 96)).astype(np.float32), 0, 1)
+        scales = wavelet_decompose(img, n_scales=5)
+        np.testing.assert_allclose(sum(scales), img, atol=1e-5)
