@@ -72,7 +72,11 @@ class MultiSessionParams:
     """
 
     final_rejection: RejectionMethod = RejectionMethod.SIGMA_CLIP
-    final_integration: IntegrationMethod = IntegrationMethod.AVERAGE
+    # WEIGHTED_AVERAGE, not AVERAGE. While nothing read this field the code
+    # always weighted by session, so declaring AVERAGE described neither the
+    # behaviour nor the intent. Naming the real default keeps every existing
+    # multi-session stack producing exactly the pixels it did before.
+    final_integration: IntegrationMethod = IntegrationMethod.WEIGHTED_AVERAGE
     final_kappa: float = 3.0
 
     align_sub_stacks: bool = True
@@ -357,9 +361,37 @@ def stack_multi_session(
     stack_array = np.array(padded, dtype=np.float32)
     weight_array = np.array(weights, dtype=np.float32)
 
-    if params.final_rejection != RejectionMethod.NONE and len(padded) >= 3:
-        masked_data = _reject_sigma_clip(stack_array, params.final_kappa, params.final_kappa, 5)
-        # Build rejection-aware weighted average
+    # params.final_integration used to be declared and never read: every
+    # multi-session stack came out a weighted average whichever method was
+    # asked for. All three now do what they say.
+    use_rejection = params.final_rejection != RejectionMethod.NONE and len(padded) >= 3
+    masked_data = (
+        _reject_sigma_clip(stack_array, params.final_kappa, params.final_kappa, 5)
+        if use_rejection
+        else None
+    )
+
+    if params.final_integration == IntegrationMethod.MEDIAN:
+        # Robust to one bad session in a way no average is, at the cost of
+        # some SNR. Weights do not enter a median.
+        if masked_data is not None:
+            combined = np.ma.median(masked_data, axis=0)
+            result_data = np.ma.filled(combined, 0.0).astype(np.float32)
+        else:
+            result_data = np.median(stack_array, axis=0).astype(np.float32)
+
+    elif params.final_integration == IntegrationMethod.AVERAGE:
+        # Plain mean: every session counts the same, which is the point of
+        # asking for AVERAGE rather than WEIGHTED_AVERAGE.
+        if masked_data is not None:
+            combined = masked_data.mean(axis=0)
+            result_data = np.ma.filled(combined, 0.0).astype(np.float32)
+        else:
+            result_data = stack_array.mean(axis=0).astype(np.float32)
+
+    elif masked_data is not None:
+        # Weighted average, rejection-aware. The per-pixel renormalisation is
+        # needed because which sessions survive the clip varies pixel by pixel.
         alive_mask = ~masked_data.mask  # shape (N, ...)
         w_broadcast = weight_array.reshape((-1,) + (1,) * (stack_array.ndim - 1))
         weighted_sum = np.sum(masked_data.data * alive_mask * w_broadcast, axis=0)
@@ -367,7 +399,8 @@ def stack_multi_session(
         weight_sum = np.where(weight_sum == 0, 1.0, weight_sum)
         result_data = (weighted_sum / weight_sum).astype(np.float32)
     else:
-        # Simple weighted average
+        # Weighted average, no rejection. weights already sum to 1 (see the
+        # normalisation above), so this needs no divisor.
         w_broadcast = weight_array.reshape((-1,) + (1,) * (stack_array.ndim - 1))
         result_data = np.sum(stack_array * w_broadcast, axis=0).astype(np.float32)
 
