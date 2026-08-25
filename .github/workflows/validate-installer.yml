@@ -191,8 +191,22 @@ jobs:
       # about Apple hardware, since nobody here owns a Mac. The timings are
       # printed in the job log and are what any "is MPS worth it for this
       # tool" decision should be based on.
+      # PYTHONPATH puts the checked-out source ahead of site-packages, so this
+      # measures the code we are about to ship rather than the code already
+      # released. That distinction is not academic: the first run of this
+      # check went red on v0.1.24-alpha, where morphology_transform took the
+      # GPU path for a CIRCLE element (a square max_pool window) while the CPU
+      # path used cv2.MORPH_ELLIPSE -- different kernel shapes, 0.236 max
+      # difference, wrong pixels on every Mac. Commit 9238349 had already
+      # fixed that on main. Gating on the release would keep this job red
+      # until the next release and tell us nothing about new work, so gate on
+      # the source and let the release be validated by the installer steps
+      # above.
       - name: Verify the tools agree between Metal and CPU, and time them
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: |
           PY="$HOME/Library/Application Support/Astraios/venv/bin/python"
+          "$PY" -c "import astraios, pathlib; print('checking:', pathlib.Path(astraios.__file__).parent)"
           "$PY" scripts/mps_check.py --bench 3
 
