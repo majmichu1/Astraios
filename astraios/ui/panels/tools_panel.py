@@ -1449,6 +1449,12 @@ class ToolsPanel(QWidget):
         self._statstretch_target.value_changed.connect(
             lambda _: self._fire_preview("statistical_stretch", self._statstretch_preview_check)
         )
+        self._statstretch_shadow.valueChanged.connect(
+            lambda _: self._fire_preview("statistical_stretch", self._statstretch_preview_check)
+        )
+        self._statstretch_linked.toggled.connect(
+            lambda _: self._fire_preview("statistical_stretch", self._statstretch_preview_check)
+        )
         self._statstretch_preview_check.toggled.connect(
             lambda on: self.preview_requested.emit("statistical_stretch") if on
             else self.preview_cancelled.emit()
@@ -1633,7 +1639,22 @@ class ToolsPanel(QWidget):
                 lower="0 = no protection; bright cores get pushed too.",
             ),
         )
+        self._ghs_linked = ghs.add_check(
+            "Link RGB channels", True,
+            help_text=param_help(
+                "Stretch all three channels with one shared scale.",
+                how="Linked keeps the colour balance exactly as it was and "
+                    "only changes brightness. Unlinked rescales each channel "
+                    "to its own range, which can neutralise a colour cast but "
+                    "also shifts star and nebula colours.",
+                tip="Leave linked unless you are deliberately using the "
+                    "stretch to fix a cast.",
+            ),
+        )
         self._ghs_preview_check = ghs.add_preview_check()
+        self._ghs_linked.toggled.connect(
+            lambda _, s=self._ghs_preview_check: self._fire_preview("ghs", s)
+        )
         for _ghs_spin in (self._ghs_d_spin, self._ghs_b_spin, self._ghs_sp_spin):
             _ghs_spin.valueChanged.connect(
                 lambda _, s=self._ghs_preview_check: self._fire_preview("ghs", s)
@@ -2138,6 +2159,14 @@ class ToolsPanel(QWidget):
             help_text="Upper edge of the custom brightness band (1 = "
                       "white).",
         )
+        # Low/High are read only when Range is Custom; greyed otherwise so
+        # nobody drags them expecting a change.
+        def _sell_range_changed(text: str) -> None:
+            self._sell_lo.setEnabled(text == "Custom")
+            self._sell_hi.setEnabled(text == "Custom")
+
+        self._sell_range_combo.currentTextChanged.connect(_sell_range_changed)
+        _sell_range_changed(self._sell_range_combo.currentText())
         self._sell_smooth = sell.add_slider(
             "Edge feather", 0.05, 0.0, 0.5, 0.01, 2,
             help_text=param_help(
@@ -2790,6 +2819,17 @@ class ToolsPanel(QWidget):
                 "Number of contrast tiles along each axis.",
                 higher="Boosts finer local detail, but can look patchy.",
                 lower="A smoother, more global-looking boost.",
+            ),
+        )
+        self._clahe_amount = clh.add_slider(
+            "Amount", 1.0, 0.0, 1.0, 0.05, 2,
+            help_text=param_help(
+                "How much of the CLAHE result is blended into the image.",
+                higher="The full local-contrast effect.",
+                lower="A gentler version mixed with the original; 0 leaves "
+                      "the image unchanged.",
+                default="1.0 applies the effect fully; 0.3 to 0.6 is a natural "
+                        "range for a finished image.",
             ),
         )
         self._clahe_preview_check = clh.add_preview_check()
@@ -4327,6 +4367,7 @@ class ToolsPanel(QWidget):
             SP=float(self._ghs_sp_spin.value()),
             shadow_protection=self._ghs_shadow_slider.value(),
             highlight_protection=self._ghs_highlight_slider.value(),
+            linked=self._ghs_linked.isChecked(),
         )
 
     def get_arcsinh_params(self) -> ArcsinhStretchParams:
@@ -4606,6 +4647,7 @@ class ToolsPanel(QWidget):
         return LocalContrastParams(
             clip_limit=self._clahe_clip.value(),
             tile_size=int(self._clahe_tiles.value()),
+            amount=float(self._clahe_amount.value()),
         )
 
     def get_scnr_params(self) -> SCNRParams:
