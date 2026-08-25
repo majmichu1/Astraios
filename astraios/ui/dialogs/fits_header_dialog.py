@@ -42,7 +42,7 @@ class FITSHeaderDialog(QDialog):
 
         # Info
         info = QLabel(f"{len(header)} keywords  •  grey rows are read-only structural keys")
-        info.setStyleSheet("color: #888; font-size: 11px;")
+        info.setStyleSheet("color: #8b949e; font-size: 11px;")
         layout.addWidget(info)
 
         # Table

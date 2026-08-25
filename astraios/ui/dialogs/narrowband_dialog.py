@@ -45,7 +45,7 @@ class NarrowbandDialog(QDialog):
 
         info = QLabel("Load mono images for each narrowband filter channel.")
         info.setWordWrap(True)
-        info.setStyleSheet("color: #969696; font-size: 11px;")
+        info.setStyleSheet("color: #8b949e; font-size: 11px;")
         assign_layout.addWidget(info)
 
         self._ha_label = QLabel("Ha: (none)")
@@ -107,7 +107,7 @@ class NarrowbandDialog(QDialog):
 
         # Status
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #969696;")
+        self._status_label.setStyleSheet("color: #8b949e;")
         layout.addWidget(self._status_label)
 
         # Buttons
@@ -141,7 +141,7 @@ class NarrowbandDialog(QDialog):
             self._update_combine_button()
         except Exception as e:
             self._status_label.setText(f"Error loading {key}: {e}")
-            self._status_label.setStyleSheet("color: #ff6b6b;")
+            self._status_label.setStyleSheet("color: #f85149;")
 
     def _update_combine_button(self):
         has_ha = "ha" in self._images
@@ -149,7 +149,7 @@ class NarrowbandDialog(QDialog):
         if has_ha:
             filters = [k.upper() for k in self._images]
             self._status_label.setText(f"Ready: {', '.join(filters)}")
-            self._status_label.setStyleSheet("color: #69db7c;")
+            self._status_label.setStyleSheet("color: #3fb950;")
 
     def _combine(self):
         palette_map = {
@@ -171,4 +171,4 @@ class NarrowbandDialog(QDialog):
             self.accept()
         except Exception as e:
             self._status_label.setText(f"Error: {e}")
-            self._status_label.setStyleSheet("color: #ff6b6b;")
+            self._status_label.setStyleSheet("color: #f85149;")

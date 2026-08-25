@@ -120,7 +120,7 @@ class BatchDialog(QDialog):
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel("Output:"))
         self._output_label = QLabel("(not set)")
-        self._output_label.setStyleSheet("color: #969696;")
+        self._output_label.setStyleSheet("color: #8b949e;")
         out_row.addWidget(self._output_label, 1)
         out_btn = QPushButton("Choose...")
         out_btn.clicked.connect(self._choose_output)
@@ -186,7 +186,7 @@ class BatchDialog(QDialog):
         if d:
             self._output_dir = Path(d)
             self._output_label.setText(d)
-            self._output_label.setStyleSheet("color: #e0e0e0;")
+            self._output_label.setStyleSheet("color: #e6edf3;")
 
     def _run(self):
         if not self._input_paths:

@@ -146,7 +146,7 @@ class TransientHunterDialog(QDialog):
             "or vanished."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         new_row = QHBoxLayout()

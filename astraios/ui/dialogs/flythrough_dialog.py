@@ -80,7 +80,7 @@ class FlythroughDialog(QDialog):
             "with parallax for a depth effect."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         vid = QGroupBox("Video")

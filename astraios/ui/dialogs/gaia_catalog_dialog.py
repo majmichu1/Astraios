@@ -116,7 +116,7 @@ class GaiaCatalogDialog(QDialog):
             "re-downloading."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         dir_row = QHBoxLayout()

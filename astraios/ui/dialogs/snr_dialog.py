@@ -81,7 +81,7 @@ class SNRDialog(QDialog):
             "region is set). Does not modify the working image."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         # ── Background region ───────────────────────────────────────────

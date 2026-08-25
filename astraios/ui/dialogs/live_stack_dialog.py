@@ -134,13 +134,13 @@ class LiveStackDialog(QDialog):
 
         self._status_label = QLabel("No frames loaded")
         self._status_label.setStyleSheet(
-            "color: #8b949e; font-size: 12px; font-family: 'JetBrains Mono', monospace;"
+            "color: #8b949e; font-size: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         ctrl.addWidget(self._status_label)
 
         self._elapsed_label = QLabel("Elapsed: 0s")
         self._elapsed_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; font-family: monospace;"
+            "color: #8b949e; font-size: 11px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         ctrl.addWidget(self._elapsed_label)
 

@@ -99,7 +99,7 @@ class PreferencesDialog(QDialog):
         proc_layout.addRow(None, QLabel())  # spacer
 
         gpu_info = QLabel(
-            "<span style='color: #888;'>GPU acceleration requires PyTorch with "
+            "<span style='color: #8b949e;'>GPU acceleration requires PyTorch with "
             "CUDA (NVIDIA) or MPS (Apple Silicon). Falls back to CPU automatically.</span>"
         )
         gpu_info.setWordWrap(True)
@@ -154,7 +154,7 @@ class PreferencesDialog(QDialog):
         ai_layout.addRow(None, QLabel())
 
         ai_info = QLabel(
-            "<span style='color: #888;'>AI models are downloaded on first use. "
+            "<span style='color: #8b949e;'>AI models are downloaded on first use. "
             "Typical size: 50–200 MB per model. Requires internet connection.</span>"
         )
         ai_info.setWordWrap(True)
@@ -163,7 +163,7 @@ class PreferencesDialog(QDialog):
         ai_layout.addRow(None, QLabel())
         own_models = QLabel(
             "<b>Use models you already have</b><br>"
-            "<span style='color: #888;'>Point Astraios at a StarNet binary, a denoise "
+            "<span style='color: #8b949e;'>Point Astraios at a StarNet binary, a denoise "
             "model, or a Cosmic Clarity model folder you've installed, so they aren't "
             "downloaded again. Leave blank to use the built-in defaults.</span>"
         )
@@ -242,7 +242,7 @@ class PreferencesDialog(QDialog):
         ps_layout.addRow(None, QLabel())
 
         ps_info = QLabel(
-            "<span style='color: #888;'>Plate solving requires either:<br>"
+            "<span style='color: #8b949e;'>Plate solving requires either:<br>"
             "• Local: <b>astrometry.net</b> installed on your system, or<br>"
             "• Remote: Free API key from "
             "<a href='https://nova.astrometry.net' style='color: #58a6ff;'>nova.astrometry.net</a>"
@@ -267,7 +267,7 @@ class PreferencesDialog(QDialog):
         upd_layout.addRow(None, QLabel())
 
         upd_info = QLabel(
-            "<span style='color: #888;'>Updates are downloaded in the background. "
+            "<span style='color: #8b949e;'>Updates are downloaded in the background. "
             "Installation requires restarting the application.</span>"
         )
         upd_info.setWordWrap(True)

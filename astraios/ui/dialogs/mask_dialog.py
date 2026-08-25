@@ -131,7 +131,7 @@ class MaskDialog(QDialog):
         self._preview_label = QLabel()
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_label.setMinimumHeight(200)
-        self._preview_label.setStyleSheet("background: #1e1e1e; border: 1px solid #3c3c3c;")
+        self._preview_label.setStyleSheet("background: #0d1117; border: 1px solid #30363d;")
         layout.addWidget(self._preview_label, 1)
 
         # Buttons

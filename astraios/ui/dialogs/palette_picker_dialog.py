@@ -105,7 +105,7 @@ class PalettePickerDialog(QDialog):
             "supplies one channel; load the other one or two from file."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         # ---------------- Channels ----------------

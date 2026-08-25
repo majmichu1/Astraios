@@ -86,7 +86,7 @@ class ImageCombineDialog(QDialog):
             "images must share the same pixel dimensions."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         b_row = QHBoxLayout()

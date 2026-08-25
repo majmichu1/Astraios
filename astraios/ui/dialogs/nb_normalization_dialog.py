@@ -150,7 +150,7 @@ class NBNormalizationDialog(QDialog):
             "PixelMath-derived normalization exactly."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         src = QGroupBox("Channels")

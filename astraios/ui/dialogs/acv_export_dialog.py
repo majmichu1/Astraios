@@ -49,7 +49,7 @@ class ACVExportDialog(QDialog):
             "dialog (or any tool that reads the standard .acv format)."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "The .acv format stores each channel's control points as "

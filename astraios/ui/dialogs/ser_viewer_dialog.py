@@ -86,7 +86,7 @@ class SERViewerDialog(QDialog):
         lay.addLayout(file_row)
 
         self._info_label = QLabel("No SER file loaded.")
-        self._info_label.setStyleSheet("color: #888;")
+        self._info_label.setStyleSheet("color: #8b949e;")
         self._info_label.setWordWrap(True)
         lay.addWidget(self._info_label)
 
@@ -131,7 +131,7 @@ class SERViewerDialog(QDialog):
 
         self._stats_label = QLabel("")
         self._stats_label.setStyleSheet(
-            "font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #aaa;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; color: #8b949e;"
         )
         lay.addWidget(self._stats_label)
 

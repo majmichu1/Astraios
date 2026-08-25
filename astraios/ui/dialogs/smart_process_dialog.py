@@ -298,8 +298,8 @@ class SmartProcessDialog(QDialog):
         self._log_text.setReadOnly(True)
         self._log_text.setMaximumHeight(200)
         self._log_text.setStyleSheet(
-            "font-family: monospace; font-size: 11px; "
-            "background: #1a1a2e; color: #e0e0e0;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; "
+            "background: #21262d; color: #e6edf3;"
         )
         log_layout.addWidget(self._log_text)
         layout.addWidget(log_group)

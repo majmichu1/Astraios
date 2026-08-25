@@ -209,7 +209,7 @@ class SkyPlanDialog(QDialog):
             "locally with astropy; no network access."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         lay.addLayout(self._build_location_group())

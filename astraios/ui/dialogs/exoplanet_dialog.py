@@ -146,7 +146,7 @@ class ExoplanetDialog(QDialog):
             "frame before running."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         form = QFormLayout()
@@ -330,13 +330,13 @@ class ExoplanetDialog(QDialog):
                 f"Transit DETECTED — depth {depth_ppt:.2f} ppt, "
                 f"mid-transit {mid} ({unit}), {result.n_good_frames} good frames."
             )
-            self._verdict.setStyleSheet("color: #6bcb6b; font-weight: bold;")
+            self._verdict.setStyleSheet("color: #3fb950; font-weight: bold;")
         else:
             self._verdict.setText(
                 f"No transit detected (deepest dip {depth_ppt:.2f} ppt, "
                 f"{result.n_good_frames} good frames)."
             )
-            self._verdict.setStyleSheet("color: #ccc;")
+            self._verdict.setStyleSheet("color: #8b949e;")
         self._status.setText("Done.")
 
     def _on_fail(self, msg):

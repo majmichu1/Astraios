@@ -100,7 +100,7 @@ class MinorBodyDialog(QDialog):
             "status line if the catalog isn't installed yet."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         outer.addWidget(intro)
 
         form = QFormLayout()

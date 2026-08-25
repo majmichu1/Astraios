@@ -402,7 +402,7 @@ class SubframeDialog(QDialog):
 
         # ── Summary label ─────────────────────────────────────────────────────
         self._summary_label = QLabel("")
-        self._summary_label.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._summary_label.setStyleSheet("color: #8b949e; font-size: 11px;")
         layout.addWidget(self._summary_label)
 
         if preloaded_paths:

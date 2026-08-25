@@ -75,7 +75,7 @@ class AddStarsDialog(QDialog):
             "image is treated as the starless base."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         stars_row = QHBoxLayout()

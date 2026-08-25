@@ -28,15 +28,15 @@ def _snr_db(snr_linear: float) -> str:
 def _noise_quality_color(snr_linear: float) -> str:
     """Return CSS color based on SNR quality."""
     if snr_linear <= 0:
-        return "#888888"
+        return "#8b949e"
     db = 20 * math.log10(snr_linear)
     if db >= 40:
-        return "#44cc44"   # excellent
+        return "#3fb950"   # excellent
     elif db >= 25:
-        return "#cccc44"   # good
+        return "#e3b341"   # good
     elif db >= 15:
-        return "#cc8844"   # marginal
-    return "#cc4444"       # poor
+        return "#d29922"   # marginal
+    return "#f85149"       # poor
 
 
 class StatisticsDialog(QDialog):
@@ -55,7 +55,7 @@ class StatisticsDialog(QDialog):
             f"{stats.width} × {stats.height} px  |  {stats.n_channels} channel(s)  |  "
             f"{stats.total_pixels:,} pixels  |  {linear_str}"
         )
-        summary.setStyleSheet("font-size: 12px; color: #80c0ff; margin-bottom: 8px;")
+        summary.setStyleSheet("font-size: 12px; color: #58a6ff; margin-bottom: 8px;")
         layout.addWidget(summary)
 
         # ── Noise summary cards ───────────────────────────────────────────────

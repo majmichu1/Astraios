@@ -57,11 +57,13 @@ from astraios.core.transforms import (
 )
 from astraios.core.vignette import VignetteParams
 from astraios.core.wavelets import WaveletParams
+from astraios.ui.theme import TEXT_DIM
 from astraios.ui.widgets.curves_widget import CurveEditor
 from astraios.ui.widgets.ui_kit import (
     ACCENT,
     ACCENT_DARK,
     ACCENT_PURPLE,
+    BG_HOVER,
     BG_PRIMARY,
     BG_SECONDARY,
     BG_TERTIARY,
@@ -112,31 +114,54 @@ QWidget#ToolsTabStripInner QPushButton:checked {{
 """
 
 
-class _TabStrip(QScrollArea):
+class _TabStrip(QWidget):
     """The design's tools tab bar: a row of underlined labels that scrolls
-    sideways under the wheel, with no scroll arrows.
+    sideways, with a pair of page arrows at the end whenever tabs overflow.
 
-    QTabBar's answer to more tabs than fit is a pair of arrow buttons that
-    page the bar; that is what the design replaced. Here the strip scrolls
-    with the wheel, and selecting a tab (from a click, the workflow bar, or
-    code) scrolls it into view.
+    The design draws no arrows, and QTabBar's own arrow buttons are what this
+    replaced, but a tab that is off the edge with nothing pointing at it is a
+    tool nobody finds. So: the wheel scrolls the strip, selecting a tab (by
+    click, from the workflow bar, or from code) scrolls it into view, and the
+    arrows appear only when there is something to scroll to.
     """
 
     tab_clicked = pyqtSignal(int)
 
     def __init__(self, labels: list[str], parent=None):
         super().__init__(parent)
-        self.setObjectName("ToolsTabStrip")
-        self.setWidgetResizable(True)
-        self.setFrameShape(QFrame.Shape.NoFrame)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setObjectName("ToolsTabStripOuter")
         self.setFixedHeight(31)
-        self.setStyleSheet(_STRIP_SS)
+        self.setStyleSheet(
+            _STRIP_SS
+            + f"""
+QWidget#ToolsTabStripOuter {{
+    background: {BG_PRIMARY}; border-bottom: 1px solid {BORDER};
+}}
+QWidget#ToolsTabStripOuter QPushButton[arrow="true"] {{
+    background: {BG_TERTIARY}; color: {TEXT_SECONDARY};
+    border: 1px solid {BORDER}; border-radius: 4px;
+    padding: 0; font-size: 9px; min-width: 18px; max-width: 18px;
+    min-height: 18px; max-height: 18px;
+}}
+QWidget#ToolsTabStripOuter QPushButton[arrow="true"]:hover {{
+    background: {BG_HOVER}; color: {TEXT_PRIMARY};
+}}
+QWidget#ToolsTabStripOuter QPushButton[arrow="true"]:disabled {{
+    color: {TEXT_DIM}; background: transparent;
+}}
+"""
+        )
 
-        inner = QWidget()
-        inner.setObjectName("ToolsTabStripInner")
-        lay = QHBoxLayout(inner)
+        self._scroll = QScrollArea()
+        self._scroll.setObjectName("ToolsTabStrip")
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._inner = QWidget()
+        self._inner.setObjectName("ToolsTabStripInner")
+        lay = QHBoxLayout(self._inner)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
         self._btns: list[QPushButton] = []
@@ -148,16 +173,52 @@ class _TabStrip(QScrollArea):
             lay.addWidget(b)
             self._btns.append(b)
         lay.addStretch()
-        self.setWidget(inner)
+        self._scroll.setWidget(self._inner)
+
+        self._left = QPushButton("◀")
+        self._right = QPushButton("▶")
+        for b, step in ((self._left, -1), (self._right, 1)):
+            b.setProperty("arrow", True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setAutoDefault(False)
+            b.setToolTip("Scroll the tabs (the mouse wheel over them works too)")
+            b.clicked.connect(lambda _c=False, s=step: self._page(s))
+
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 4, 0)
+        outer.setSpacing(2)
+        outer.addWidget(self._scroll, 1)
+        outer.addWidget(self._left)
+        outer.addWidget(self._right)
+
+        self._scroll.horizontalScrollBar().rangeChanged.connect(lambda *_: self._sync_arrows())
+        self._scroll.horizontalScrollBar().valueChanged.connect(lambda *_: self._sync_arrows())
+        self._sync_arrows()
 
     def set_current(self, idx: int) -> None:
         for i, b in enumerate(self._btns):
             b.setChecked(i == idx)
         if 0 <= idx < len(self._btns):
-            self.ensureWidgetVisible(self._btns[idx], 24, 0)
+            self._scroll.ensureWidgetVisible(self._btns[idx], 24, 0)
+
+    def _page(self, direction: int) -> None:
+        bar = self._scroll.horizontalScrollBar()
+        bar.setValue(bar.value() + direction * max(60, self._scroll.viewport().width() // 2))
+
+    def _sync_arrows(self) -> None:
+        bar = self._scroll.horizontalScrollBar()
+        overflow = bar.maximum() > 0
+        self._left.setVisible(overflow)
+        self._right.setVisible(overflow)
+        self._left.setEnabled(bar.value() > bar.minimum())
+        self._right.setEnabled(bar.value() < bar.maximum())
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._sync_arrows()
 
     def wheelEvent(self, event):
-        bar = self.horizontalScrollBar()
+        bar = self._scroll.horizontalScrollBar()
         delta = event.angleDelta().y() or event.angleDelta().x()
         bar.setValue(bar.value() - delta // 2)
         event.accept()
@@ -2079,7 +2140,7 @@ class ToolsPanel(QWidget):
             sub = QHBoxLayout()
             sub.setSpacing(2)
             lbl = QLabel(label)
-            lbl.setStyleSheet("color: #aaa; font-size: 10px;")
+            lbl.setStyleSheet("color: #8b949e; font-size: 10px;")
             sub.addWidget(lbl)
             sub.addWidget(spin)
             rgb_row.addLayout(sub)
@@ -3234,7 +3295,7 @@ class ToolsPanel(QWidget):
         credit.setWordWrap(True)
         credit.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 10px; "
-            "padding: 6px 8px; background: #1a1a2e; border-radius: 5px;"
+            "padding: 6px 8px; background: #21262d; border-radius: 5px;"
         )
         lay.addWidget(credit)
 

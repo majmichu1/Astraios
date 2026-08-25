@@ -66,7 +66,7 @@ class SignatureDialog(QDialog):
             "export. Applied as a normal (undoable) processing step."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         mode_row = QHBoxLayout()

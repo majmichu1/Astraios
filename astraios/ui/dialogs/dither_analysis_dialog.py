@@ -148,7 +148,7 @@ class DitherAnalysisDialog(QDialog):
             "jitter or systematic drift (\"walking noise\")."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "Offsets are measured by FFT phase correlation against the "

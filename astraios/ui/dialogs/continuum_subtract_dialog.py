@@ -69,7 +69,7 @@ class ContinuumSubtractDialog(QDialog):
             "nebula stays. The current image is the narrowband input."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         cont_row = QHBoxLayout()

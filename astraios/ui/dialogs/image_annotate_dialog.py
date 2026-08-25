@@ -134,12 +134,12 @@ class ImageAnnotateDialog(QDialog):
             "to render labeled markers over a copy of the image."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         if self._wcs_header is None:
             no_wcs = QLabel("No WCS solution available — plate solve first.")
-            no_wcs.setStyleSheet("color: #e06666;")
+            no_wcs.setStyleSheet("color: #f85149;")
             no_wcs.setWordWrap(True)
             lay.addWidget(no_wcs)
 

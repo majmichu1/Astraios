@@ -84,7 +84,7 @@ class ProcessingGraphDialog(QDialog):
             "non-destructively."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #aaa; padding: 4px;")
+        info.setStyleSheet("color: #8b949e; padding: 4px;")
         lay.addWidget(info)
 
         self._list = QListWidget()

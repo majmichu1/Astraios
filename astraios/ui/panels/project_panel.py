@@ -96,7 +96,7 @@ class _FrameRow(QFrame):
         fname = entry.path.name
         name_lbl = QLabel(fname)
         name_lbl.setStyleSheet(
-            f"color: {'#ff6b6b' if not entry.path.exists() else TEXT_PRIMARY};"
+            f"color: {'#f85149' if not entry.path.exists() else TEXT_PRIMARY};"
             "font-family: 'JetBrains Mono', 'Cascadia Code', monospace; font-size: 10px;"
         )
         name_lbl.setToolTip(str(entry.path))
@@ -124,14 +124,14 @@ class _FrameRow(QFrame):
             bot_row.setSpacing(8)
             if snr is not None:
                 snr_lbl = QLabel(
-                    f'SNR <span style="color:#388bfd;font-family:monospace">{snr:.1f}</span>'
+                    f'SNR <span style="color:#388bfd;font-family: JetBrains Mono, Fira Code, monospace">{snr:.1f}</span>'
                 )
                 snr_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px; background-color: transparent;")
                 bot_row.addWidget(snr_lbl)
             if fwhm is not None:
                 fwhm_color = "#f85149" if fwhm > 4.0 else TEXT_PRIMARY
                 fwhm_lbl = QLabel(
-                    f'FWHM <span style="color:{fwhm_color};font-family:monospace">{fwhm:.1f}"</span>'
+                    f'FWHM <span style="color:{fwhm_color};font-family: JetBrains Mono, Fira Code, monospace">{fwhm:.1f}"</span>'
                 )
                 fwhm_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px; background-color: transparent;")
                 bot_row.addWidget(fwhm_lbl)

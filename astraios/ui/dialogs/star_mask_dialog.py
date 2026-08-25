@@ -74,7 +74,7 @@ class StarMaskDialog(QDialog):
         layout.addWidget(group)
 
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #80c0ff; font-size: 11px;")
+        self._info_label.setStyleSheet("color: #58a6ff; font-size: 11px;")
         layout.addWidget(self._info_label)
 
         btn_row = QHBoxLayout()

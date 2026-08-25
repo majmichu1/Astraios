@@ -84,7 +84,7 @@ class IsophoteDialog(QDialog):
             "reveal spiral arms, bars, and tidal features."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         geom = QGroupBox("Geometry")

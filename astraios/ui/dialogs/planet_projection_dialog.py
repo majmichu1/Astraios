@@ -77,7 +77,7 @@ class PlanetProjectionDialog(QDialog):
             "the disc itself by yawing the view around the vertical axis."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         self._type_combo = QComboBox()

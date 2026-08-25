@@ -65,8 +65,8 @@ class _ChannelRow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
 
-        colors = {"R": "#cc4444", "G": "#44aa44", "B": "#4466cc"}
-        ch_lbl = QLabel(f"<b style='color:{colors.get(output_channel,'#888')}'>{output_channel}</b>")
+        colors = {"R": "#f85149", "G": "#3fb950", "B": "#58a6ff"}
+        ch_lbl = QLabel(f"<b style='color:{colors.get(output_channel,'#8b949e')}'>{output_channel}</b>")
         ch_lbl.setFixedWidth(14)
         row.addWidget(ch_lbl)
 
@@ -159,7 +159,7 @@ class ChannelCombineDialog(QDialog):
             "ℹ For HOO: OIII is used for both G and B. Load the same OIII file in both G and B slots."
         )
         self._hoo_note.setWordWrap(True)
-        self._hoo_note.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._hoo_note.setStyleSheet("color: #8b949e; font-size: 11px;")
         self._hoo_note.setVisible(False)
         main_layout.addWidget(self._hoo_note)
 
@@ -167,7 +167,7 @@ class ChannelCombineDialog(QDialog):
         self._preview_label = QLabel()
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_label.setMinimumHeight(180)
-        self._preview_label.setStyleSheet("background: #1e1e1e; border: 1px solid #3c3c3c;")
+        self._preview_label.setStyleSheet("background: #0d1117; border: 1px solid #30363d;")
         main_layout.addWidget(self._preview_label)
 
         self._cached_channels: dict[str, np.ndarray | None] = {}

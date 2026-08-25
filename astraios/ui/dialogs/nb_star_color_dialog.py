@@ -76,7 +76,7 @@ class NBStarColorDialog(QDialog):
             "-- and blends it into the narrowband composite."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         src = QGroupBox("Broadband star frame")

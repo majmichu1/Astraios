@@ -35,11 +35,11 @@ from astraios.core.stacking import RejectionMethod, StackingParams
 
 def _combo_ss() -> str:
     return (
-        "QComboBox { background: #161b22; color: #e0e0e0; border: 1px solid #30363d;"
+        "QComboBox { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
         " border-radius: 4px; padding: 4px 8px; min-height: 24px; }"
         " QComboBox:hover { border-color: #58a6ff; }"
         " QComboBox::drop-down { border: none; padding-right: 8px; }"
-        " QComboBox QAbstractItemView { background: #161b22; color: #e0e0e0;"
+        " QComboBox QAbstractItemView { background: #161b22; color: #e6edf3;"
         " border: 1px solid #30363d; selection-background-color: #1f6feb; }"
     )
 
@@ -168,7 +168,7 @@ class BatchPreprocessDialog(QDialog):
         layout.setSpacing(12)
 
         title = QLabel("Select Project Folder")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e0e0;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
         layout.addWidget(title)
 
         desc = QLabel(
@@ -186,7 +186,7 @@ class BatchPreprocessDialog(QDialog):
         self._folder_path.setPlaceholderText("Choose a folder with calibration subfolders...")
         self._folder_path.setReadOnly(True)
         self._folder_path.setStyleSheet(
-            "QLineEdit { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;"
+            "QLineEdit { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
             " border-radius: 4px; padding: 6px 8px; }"
         )
         folder_row.addWidget(self._folder_path)
@@ -253,13 +253,13 @@ class BatchPreprocessDialog(QDialog):
         layout.setSpacing(12)
 
         title = QLabel("Processing Settings")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e0e0;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
         layout.addWidget(title)
 
         # Pipeline stages
         stage_group = QGroupBox("Pipeline Stages")
         stage_group.setStyleSheet(
-            "QGroupBox { color: #e0e0e0; border: 1px solid #30363d; border-radius: 6px;"
+            "QGroupBox { color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;"
             " margin-top: 12px; padding-top: 20px; }"
             " QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }"
         )
@@ -320,7 +320,7 @@ class BatchPreprocessDialog(QDialog):
         self._out_dir_le = QLineEdit()
         self._out_dir_le.setPlaceholderText("Output directory...")
         self._out_dir_le.setStyleSheet(
-            "QLineEdit { background: #161b22; color: #c9d1d9; border: 1px solid #30363d;"
+            "QLineEdit { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
             " border-radius: 4px; padding: 4px 8px; }"
         )
         out_dir_row.addWidget(self._out_dir_le)
@@ -344,7 +344,7 @@ class BatchPreprocessDialog(QDialog):
         layout = QVBoxLayout(page)
 
         title = QLabel("Processing...")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e0e0;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
         layout.addWidget(title)
 
         self._progress_bar = QProgressBar()
@@ -352,7 +352,7 @@ class BatchPreprocessDialog(QDialog):
         self._progress_bar.setValue(0)
         self._progress_bar.setStyleSheet(
             "QProgressBar { background: #21262d; border: 1px solid #30363d;"
-            " border-radius: 4px; text-align: center; color: #c9d1d9; }"
+            " border-radius: 4px; text-align: center; color: #e6edf3; }"
             " QProgressBar::chunk { background: #2ea043; border-radius: 4px; }"
         )
         layout.addWidget(self._progress_bar)
@@ -364,8 +364,8 @@ class BatchPreprocessDialog(QDialog):
         self._log_output = QTextEdit()
         self._log_output.setReadOnly(True)
         self._log_output.setStyleSheet(
-            "QTextEdit { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;"
-            " border-radius: 4px; font-family: monospace; font-size: 11px; }"
+            "QTextEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d;"
+            " border-radius: 4px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; }"
         )
         self._log_output.setMinimumHeight(200)
         layout.addWidget(self._log_output)
@@ -378,14 +378,14 @@ class BatchPreprocessDialog(QDialog):
         layout = QVBoxLayout(page)
 
         title = QLabel("Preprocessing Complete")
-        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e0e0e0;")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #e6edf3;")
         layout.addWidget(title)
 
         self._result_summary = QTextEdit()
         self._result_summary.setReadOnly(True)
         self._result_summary.setStyleSheet(
-            "QTextEdit { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;"
-            " border-radius: 4px; font-family: monospace; font-size: 12px; }"
+            "QTextEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d;"
+            " border-radius: 4px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; }"
         )
         layout.addWidget(self._result_summary)
 

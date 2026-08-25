@@ -48,7 +48,7 @@ class FieldRotationDialog(QDialog):
             "zenith. Rate = 15.04 x cos(lat) x cos(az) / cos(alt) arcsec/sec."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         outer.addWidget(intro)
 
         form = QFormLayout()
@@ -125,7 +125,7 @@ class FieldRotationDialog(QDialog):
 
         self._status = QLabel("")
         self._status.setWordWrap(True)
-        self._status.setStyleSheet("color: #cc8844;")
+        self._status.setStyleSheet("color: #d29922;")
         outer.addWidget(self._status)
         outer.addStretch(1)
 

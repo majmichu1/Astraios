@@ -50,21 +50,21 @@ class _PySyntaxHighlighter(QSyntaxHighlighter):
     def __init__(self, doc):
         super().__init__(doc)
         kw_fmt = QTextCharFormat()
-        kw_fmt.setForeground(QColor("#c678dd"))
+        kw_fmt.setForeground(QColor("#ff7b72"))
         kw_fmt.setFontWeight(700)
 
         bi_fmt = QTextCharFormat()
-        bi_fmt.setForeground(QColor("#56b6c2"))
+        bi_fmt.setForeground(QColor("#d2a8ff"))
 
         str_fmt = QTextCharFormat()
-        str_fmt.setForeground(QColor("#98c379"))
+        str_fmt.setForeground(QColor("#3fb950"))
 
         cmt_fmt = QTextCharFormat()
-        cmt_fmt.setForeground(QColor("#5c6370"))
+        cmt_fmt.setForeground(QColor("#8b949e"))
         cmt_fmt.setFontItalic(True)
 
         num_fmt = QTextCharFormat()
-        num_fmt.setForeground(QColor("#d19a66"))
+        num_fmt.setForeground(QColor("#79c0ff"))
 
         self._rules = []
         for kw in _KEYWORDS:
@@ -204,8 +204,8 @@ class PythonConsoleWidget(QWidget):
         self._build_ui()
         self._thread_message.connect(self._write)
         self._thread_refresh.connect(lambda: self._inspector.refresh(self._namespace))
-        self._write(_BANNER, color="#888888")
-        self._write(">>> ", color="#61afef")
+        self._write(_BANNER, color="#8b949e")
+        self._write(">>> ", color="#58a6ff")
 
     def _setup_namespace(self):
         console_ref = self
@@ -215,7 +215,7 @@ class PythonConsoleWidget(QWidget):
             import numpy as _np
             arr = _np.asarray(arr, dtype=_np.float32)
             console_ref.image_updated.emit(arr)
-            console_ref._thread_message.emit("Image updated.\n", "#98c379")
+            console_ref._thread_message.emit("Image updated.\n", "#3fb950")
             console_ref._thread_refresh.emit()
 
         def show(arr):
@@ -223,7 +223,7 @@ class PythonConsoleWidget(QWidget):
             import numpy as _np
             arr = _np.asarray(arr, dtype=_np.float32)
             console_ref.image_preview.emit(arr)
-            console_ref._thread_message.emit("Showing preview.\n", "#56b6c2")
+            console_ref._thread_message.emit("Showing preview.\n", "#d2a8ff")
 
         import numpy as np
         try:
@@ -279,7 +279,7 @@ class PythonConsoleWidget(QWidget):
         font.setStyleHint(QFont.StyleHint.Monospace)
         self._output.setFont(font)
         self._output.setStyleSheet(
-            "background: #1a1a2e; color: #e0e0e0; border: 1px solid #444;"
+            "background: #21262d; color: #e6edf3; border: 1px solid #30363d;"
         )
         tabs.addTab(self._output, "Output")
 
@@ -297,7 +297,7 @@ class PythonConsoleWidget(QWidget):
 
         self._input = _HistoryLineEdit()
         self._input.setStyleSheet(
-            "background: #16213e; color: #e0e0e0; border: 1px solid #555;"
+            "background: #21262d; color: #e6edf3; border: 1px solid #30363d;"
         )
         self._input.execute_requested.connect(self._execute)
         input_layout.addWidget(self._input)
@@ -348,7 +348,7 @@ class PythonConsoleWidget(QWidget):
             self._clear_output()
             return
 
-        self._write(f">>> {source}\n", color="#61afef")
+        self._write(f">>> {source}\n", color="#58a6ff")
 
         import threading
         result_box: dict = {}
@@ -382,7 +382,7 @@ class PythonConsoleWidget(QWidget):
                 f"[timeout] Command exceeded {self._timeout_sec}s. "
                 f"Background thread continues; UI is responsive. "
                 f"Increase with `set_timeout(N)`.\n",
-                color="#e06c75",
+                color="#f85149",
             )
             return
 
@@ -390,12 +390,12 @@ class PythonConsoleWidget(QWidget):
         output = result_box.get("output", "")
         result = result_box.get("result")
         if kind == "error":
-            self._write(output, color="#e06c75")
+            self._write(output, color="#f85149")
             return
         if output:
             self._write(output)
         if result is not None:
-            self._write(repr(result) + "\n", color="#e5c07b")
+            self._write(repr(result) + "\n", color="#e3b341")
 
         self._inspector.refresh(self._namespace)
         self._output.moveCursor(QTextCursor.MoveOperation.End)
@@ -403,7 +403,7 @@ class PythonConsoleWidget(QWidget):
     def set_timeout(self, seconds: float):
         """Set the per-command timeout in seconds. 0 disables the timeout."""
         self._timeout_sec = max(0.0, float(seconds))
-        self._write(f"Timeout set to {self._timeout_sec}s.\n", color="#888888")
+        self._write(f"Timeout set to {self._timeout_sec}s.\n", color="#8b949e")
 
     def _write(self, text: str, color: str | None = None):
         self._output.moveCursor(QTextCursor.MoveOperation.End)
@@ -419,7 +419,7 @@ class PythonConsoleWidget(QWidget):
 
     def _clear_output(self):
         self._output.clear()
-        self._write(_BANNER, color="#888888")
+        self._write(_BANNER, color="#8b949e")
 
     def _load_script(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -431,7 +431,7 @@ class PythonConsoleWidget(QWidget):
                     code = f.read()
                 self._input.setPlainText(code)
             except Exception as exc:
-                self._write(f"Could not load {path}: {exc}\n", color="#e06c75")
+                self._write(f"Could not load {path}: {exc}\n", color="#f85149")
 
     def _save_script(self):
         text = self._input.toPlainText()
@@ -444,6 +444,6 @@ class PythonConsoleWidget(QWidget):
             try:
                 with open(path, "w") as f:
                     f.write(text)
-                self._write(f"Script saved to {path}\n", color="#98c379")
+                self._write(f"Script saved to {path}\n", color="#3fb950")
             except Exception as exc:
-                self._write(f"Could not save: {exc}\n", color="#e06c75")
+                self._write(f"Could not save: {exc}\n", color="#f85149")

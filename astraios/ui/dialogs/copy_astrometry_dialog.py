@@ -51,7 +51,7 @@ class CopyAstrometryDialog(QDialog):
             "solution, or to seed a tile with a neighbor's placement."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "Copies CTYPE/CRVAL/CRPIX/CD/PC/CDELT/SIP distortion keywords "

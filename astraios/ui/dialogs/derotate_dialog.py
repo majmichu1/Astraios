@@ -124,7 +124,7 @@ class DerotateDialog(QDialog):
             "The de-rotated frames are then mean-combined."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         file_row = QHBoxLayout()
@@ -137,7 +137,7 @@ class DerotateDialog(QDialog):
         file_row.addWidget(browse)
         lay.addLayout(file_row)
         self._info_label = QLabel("")
-        self._info_label.setStyleSheet("color: #80c0ff; font-size: 11px;")
+        self._info_label.setStyleSheet("color: #58a6ff; font-size: 11px;")
         lay.addWidget(self._info_label)
 
         disc = QGroupBox("Disc Geometry")

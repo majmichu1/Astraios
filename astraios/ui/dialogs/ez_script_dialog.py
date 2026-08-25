@@ -83,7 +83,7 @@ class EZScriptDialog(QDialog):
 
         self._desc = QLabel("")
         self._desc.setWordWrap(True)
-        self._desc.setStyleSheet("color: #aaa; padding: 4px;")
+        self._desc.setStyleSheet("color: #8b949e; padding: 4px;")
         lay.addWidget(self._desc)
 
         self._progress = QProgressBar()

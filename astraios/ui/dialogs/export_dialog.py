@@ -78,7 +78,7 @@ class ExportDialog(QDialog):
 
         # Info label
         info_label = QLabel(
-            "<span style='color: #888;'>TIFF and PNG support 16-bit for "
+            "<span style='color: #8b949e;'>TIFF and PNG support 16-bit for "
             "high-quality output. JPEG is always 8-bit.</span>"
         )
         info_label.setWordWrap(True)

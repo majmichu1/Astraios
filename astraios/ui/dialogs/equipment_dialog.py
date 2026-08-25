@@ -54,7 +54,7 @@ class EquipmentDialog(QDialog):
         self._camera_combo = QComboBox()
         cam_layout.addWidget(self._camera_combo)
         self._camera_info = QLabel("")
-        self._camera_info.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._camera_info.setStyleSheet("color: #8b949e; font-size: 11px;")
         cam_layout.addWidget(self._camera_info)
         layout.addWidget(cam_group)
 
@@ -64,7 +64,7 @@ class EquipmentDialog(QDialog):
         self._telescope_combo = QComboBox()
         scope_layout.addWidget(self._telescope_combo)
         self._scope_info = QLabel("")
-        self._scope_info.setStyleSheet("color: #aaa; font-size: 11px;")
+        self._scope_info.setStyleSheet("color: #8b949e; font-size: 11px;")
         scope_layout.addWidget(self._scope_info)
 
         # Manual telescope entry (initially hidden)
@@ -121,7 +121,7 @@ class EquipmentDialog(QDialog):
 
         # --- Computed info ---
         self._computed_label = QLabel("")
-        self._computed_label.setStyleSheet("color: #80c0ff; font-size: 12px;")
+        self._computed_label.setStyleSheet("color: #58a6ff; font-size: 12px;")
         layout.addWidget(self._computed_label)
 
         # --- Buttons ---

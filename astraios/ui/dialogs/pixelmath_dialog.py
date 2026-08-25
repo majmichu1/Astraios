@@ -35,7 +35,7 @@ from astraios.core.pixel_math import (
 )
 
 _ACCENT = "#58a6ff"
-_ACCENT_DARK = "#1f3a5f"
+_ACCENT_DARK = "#1a4d2e"
 _BG_PRIMARY = "#0d1117"
 _BG_SECONDARY = "#161b22"
 _BG_TERTIARY = "#21262d"
@@ -163,7 +163,7 @@ class PixelMathDialog(QDialog):
                 background: {_BG_TERTIARY}; color: {_TEXT_PRIMARY};
                 selection-background-color: {_ACCENT_DARK};
                 border: 1px solid {_BORDER};
-                font-family: monospace; font-size: 11px;
+                font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px;
             }}
         """)
         self._history_combo.setPlaceholderText("History…")
@@ -238,7 +238,7 @@ class PixelMathDialog(QDialog):
                 self._ref_table.setItem(row, 1, ni)
                 ve = QLineEdit(f"ref{row + 1}")
                 ve.setStyleSheet(
-                    f"font-family: monospace; font-size: 11px; "
+                    f"font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; "
                     f"background: transparent; border: 1px solid {_BORDER}; "
                     f"color: {_TEXT_PRIMARY}; padding: 1px 4px;"
                 )
@@ -318,7 +318,7 @@ class PixelMathDialog(QDialog):
         btn_row.addStretch()
 
         self._btn_close = QPushButton("Close")
-        self._btn_close.setStyleSheet(self._style_btn("#454545"))
+        self._btn_close.setStyleSheet(self._style_btn("#21262d"))
         self._btn_close.clicked.connect(self.reject)
         btn_row.addWidget(self._btn_close)
 

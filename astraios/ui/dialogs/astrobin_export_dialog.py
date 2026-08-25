@@ -64,7 +64,7 @@ class AstroBinExportDialog(QDialog):
             "CSV format AstroBin's acquisition-details importer expects."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "AstroBin's filter field wants a numeric equipment-database ID, "

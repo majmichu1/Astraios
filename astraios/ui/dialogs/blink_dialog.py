@@ -110,11 +110,11 @@ class BlinkDialog(QDialog):
 
         self._frame_info = QLabel()
         self._frame_info.setStyleSheet(
-            "font-family: 'JetBrains Mono', monospace; font-size: 12px;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px;"
         )
         self._filename_label = QLabel()
         self._filename_label.setStyleSheet(
-            "font-family: 'JetBrains Mono', monospace; font-size: 12px;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px;"
         )
 
         info.addWidget(self._frame_info)
@@ -130,7 +130,7 @@ class BlinkDialog(QDialog):
         # Stats bar ─────────────────────────────────────────────────────────
         self._stats_label = QLabel()
         self._stats_label.setStyleSheet(
-            "font-family: 'JetBrains Mono', monospace; font-size: 11px;"
+            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px;"
         )
         layout.addWidget(self._stats_label)
 

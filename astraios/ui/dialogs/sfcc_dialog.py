@@ -121,7 +121,7 @@ class SFCCDialog(QDialog):
                 "stars by RA/Dec."
             )
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #cc8800;")
+            warn.setStyleSheet("color: #d29922;")
             lay.addWidget(warn)
 
         # ── Filters / sensor group ────────────────────────────────────────

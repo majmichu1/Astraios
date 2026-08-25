@@ -85,7 +85,7 @@ class MagnitudeToolDialog(QDialog):
             "each. Does not modify the working image."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         form = QFormLayout()

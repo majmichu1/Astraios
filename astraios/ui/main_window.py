@@ -2729,14 +2729,14 @@ class MainWindow(QMainWindow):
         self._tb_progress_bar.setValue(int(fraction * 1000))
         self._tb_status_label.setText(message[:30] if message else "Working…")
         self._tb_status_label.setStyleSheet(
-            "color: #d29922; font-size: 10px; font-family: monospace; padding: 0 4px;"
+            "color: #d29922; font-size: 10px; font-family: 'JetBrains Mono', 'Fira Code', monospace; padding: 0 4px;"
         )
 
     def _reset_tb_progress(self):
         self._tb_progress_bar.setValue(0)
         self._tb_status_label.setText("Ready")
         self._tb_status_label.setStyleSheet(
-            "color: #2ea043; font-size: 10px; font-family: monospace; padding: 0 4px;"
+            "color: #2ea043; font-size: 10px; font-family: 'JetBrains Mono', 'Fira Code', monospace; padding: 0 4px;"
         )
 
     def _update_canvas_coord_label(self, x: int, y: int, values: list):

@@ -70,7 +70,7 @@ class LinearFitDialog(QDialog):
             "one frame onto another's levels."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #aaa;")
+        intro.setStyleSheet("color: #8b949e;")
         lay.addWidget(intro)
 
         ref_row = QHBoxLayout()
