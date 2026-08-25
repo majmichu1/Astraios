@@ -84,13 +84,21 @@ class TestModelUrls:
             assert "RealESRGAN_x4.pth" not in url
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def isolated_weights(tmp_path, monkeypatch):
     """Point the weight cache at an empty dir and make downloading impossible.
 
     Both halves matter. Without the empty dir a developer who has already
     cached real weights runs a different test from CI; without the blocked
-    download the suite would fetch 64 MB from GitHub on every run.
+    download the suite fetches 134 MB from GitHub and then runs a 16.7M
+    parameter network on the CPU, repeatedly.
+
+    autouse, and deliberately so. While the AI path was unreachable (basicsr
+    never imported) every upscale() call in this file quietly took the
+    interpolation branch, so no test needed protecting. Vendoring RRDBNet made
+    the neural path live and turned those same calls into downloads. Opting in
+    per test is exactly the mistake that made: a test written later reaches the
+    network by default. Protect the module, not the test.
     """
     import astraios.ai.inference.super_resolution as sr
 
