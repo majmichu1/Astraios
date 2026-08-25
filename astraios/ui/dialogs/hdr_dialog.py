@@ -103,6 +103,7 @@ class HDRDialog(QDialog):
         # Run / Cancel buttons
         btn_row = QHBoxLayout()
         self._run_btn = QPushButton("Compose HDR")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)

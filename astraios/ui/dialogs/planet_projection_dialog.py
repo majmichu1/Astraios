@@ -202,6 +202,7 @@ class PlanetProjectionDialog(QDialog):
 
         btns = QHBoxLayout()
         self._run_btn = QPushButton("Project")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         btns.addWidget(self._run_btn)
         close_btn = QPushButton("Close")

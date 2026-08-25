@@ -1,4 +1,4 @@
-"""Processing Log Panel — displays operation logs and progress."""
+"""Processing Log Panel — operation log, with progress and Cancel while a job runs."""
 
 from __future__ import annotations
 
@@ -16,72 +16,110 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from astraios.ui.theme import (
+    ACCENT,
+    BG_SECONDARY,
+    BORDER,
+    ORANGE,
+    RED,
+    TEXT_DIM,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+
+_MONO = "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace"
+
 
 class LogPanel(QWidget):
-    """Bottom panel showing processing log and progress bar."""
+    """Bottom panel: header, an on-demand progress row, and the log."""
 
     cancel_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("LogPanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(
+            f"#LogPanel {{ background: {BG_SECONDARY}; border-top: 1px solid {BORDER}; }}"
+        )
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout.setSpacing(0)
 
-        # Header row: title + live GPU status + clear button
-        header_row = QHBoxLayout()
-        header_row.setContentsMargins(8, 4, 8, 2)
-        _title = QLabel("Processing Log")
-        _title.setStyleSheet("color: #e6edf3; font-size: 11px; font-weight: 700;")
+        # ── Header: title · GPU status · Clear ───────────────────────────
+        header = QWidget()
+        header.setObjectName("LogHeader")
+        header.setStyleSheet(
+            f"#LogHeader {{ background: transparent; border-bottom: 1px solid {BORDER}; }}"
+        )
+        header_row = QHBoxLayout(header)
+        header_row.setContentsMargins(10, 3, 10, 3)
+        header_row.setSpacing(6)
+        _title = QLabel("PROCESSING LOG")
+        _title.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 11px; font-weight: 600;"
+            " letter-spacing: 0.6px; background: transparent;"
+        )
         self._log_header_gpu = QLabel("")
-        self._log_header_gpu.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._log_header_gpu.setStyleSheet(
+            f"color: {ACCENT}; font-size: 10px; font-family: {_MONO}; background: transparent;"
+        )
         _clear_btn = QPushButton("Clear")
-        _clear_btn.setMaximumWidth(52)
-        _clear_btn.setMaximumHeight(18)
+        _clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         _clear_btn.setStyleSheet(
-            "QPushButton { color: #8b949e; font-size: 10px; border: 1px solid #30363d;"
-            " border-radius: 3px; padding: 0 4px; background: transparent; }"
-            " QPushButton:hover { color: #e6edf3; border-color: #8b949e; }"
+            f"QPushButton {{ color: {TEXT_PRIMARY}; font-size: 9px; padding: 1px 6px;"
+            f" background: transparent; border: 1px solid {BORDER}; border-radius: 6px; }}"
+            f" QPushButton:hover {{ background: {BORDER}; }}"
         )
         _clear_btn.clicked.connect(self.clear_log)
         header_row.addWidget(_title)
         header_row.addStretch()
         header_row.addWidget(self._log_header_gpu)
         header_row.addWidget(_clear_btn)
-        layout.addLayout(header_row)
+        layout.addWidget(header)
 
-        # Progress bar row
-        progress_row = QHBoxLayout()
+        # ── Progress row: only while something runs ──────────────────────
+        # At rest this was a full-width empty bar under a "Ready" label,
+        # duplicating the toolbar's status and costing a row of log lines.
+        # It now appears with the job and carries the Cancel button.
+        self._progress_row = QWidget()
+        self._progress_row.setStyleSheet("background: transparent;")
+        progress_row = QHBoxLayout(self._progress_row)
+        progress_row.setContentsMargins(10, 4, 10, 2)
+        progress_row.setSpacing(10)
         self._progress_label = QLabel("Ready")
-        self._progress_label.setStyleSheet("color: #969696; font-size: 12px;")
+        self._progress_label.setStyleSheet(
+            f"color: {TEXT_SECONDARY}; font-size: 11px; background: transparent;"
+        )
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 1000)
         self._progress_bar.setValue(0)
         self._progress_bar.setTextVisible(False)
-        self._progress_bar.setMaximumHeight(16)
+        self._progress_bar.setFixedHeight(4)
         self._cancel_btn = QPushButton("Cancel")
-        self._cancel_btn.setMaximumWidth(70)
-        self._cancel_btn.setMaximumHeight(18)
+        self._cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._cancel_btn.setStyleSheet(
-            "QPushButton { color: #e06c75; font-size: 11px; border: 1px solid #e06c75;"
-            " border-radius: 3px; padding: 0 4px; }"
+            f"QPushButton {{ color: {RED}; font-size: 10px; font-weight: 600; padding: 2px 10px;"
+            f" background: transparent; border: 1px solid {RED}; border-radius: 6px; }}"
             " QPushButton:hover { background: #3a1a1a; }"
         )
         self._cancel_btn.clicked.connect(self.cancel_requested)
         self._cancel_btn.setVisible(False)
         progress_row.addWidget(self._progress_label, 1)
-        progress_row.addWidget(self._progress_bar, 2)
+        progress_row.addWidget(self._progress_bar, 3)
         progress_row.addWidget(self._cancel_btn)
-        layout.addLayout(progress_row)
+        self._progress_row.setVisible(False)
+        layout.addWidget(self._progress_row)
 
-        # Log text
+        # ── Log text ─────────────────────────────────────────────────────
         self._log_text = QTextEdit()
         self._log_text.setReadOnly(True)
-        self._log_text.setMaximumHeight(120)
+        self._log_text.setFrameShape(QTextEdit.Shape.NoFrame)
         self._log_text.setStyleSheet(
-            "QTextEdit { font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 11px; }"
+            f"QTextEdit {{ background: {BG_SECONDARY}; border: none; border-radius: 0;"
+            f" padding: 2px 4px; font-size: 10px; font-family: {_MONO}; }}"
         )
-        layout.addWidget(self._log_text)
+        layout.addWidget(self._log_text, 1)
 
     @pyqtSlot(float, str)
     def update_progress(self, fraction: float, message: str):
@@ -89,6 +127,7 @@ class LogPanel(QWidget):
             self._progress_bar.setRange(0, 1000)  # leave busy/indeterminate mode
         self._progress_bar.setValue(int(fraction * 1000))
         self._progress_label.setText(message)
+        self._progress_row.setVisible(True)
 
     def set_busy(self, busy: bool, message: str = ""):
         """Indeterminate (marquee) progress for operations that report no fraction
@@ -97,30 +136,36 @@ class LogPanel(QWidget):
             self._progress_bar.setRange(0, 0)
             if message:
                 self._progress_label.setText(message)
+            self._progress_row.setVisible(True)
         else:
             self._progress_bar.setRange(0, 1000)
             self._progress_bar.setValue(0)
+            if not self._cancel_btn.isVisible():
+                self._progress_row.setVisible(False)
 
     @pyqtSlot(str, str)
     def log(self, message: str, level: str = "info"):
         timestamp = datetime.now().strftime("%H:%M:%S")
         colors = {
-            "info": "#d4d4d4",
-            "warning": "#e5c07b",
-            "error": "#e06c75",
-            "success": "#98c379",
+            "info": TEXT_SECONDARY,
+            "warning": ORANGE,
+            "error": RED,
+            "success": ACCENT,
         }
         icons = {
-            "info": "·",
-            "warning": "⚠",
-            "error": "✕",
-            "success": "✓",
+            "info": "",
+            "warning": "⚠ ",
+            "error": "✕ ",
+            "success": "✓ ",
         }
-        color = colors.get(level, "#d4d4d4")
-        icon = icons.get(level, "·")
+        color = colors.get(level, TEXT_SECONDARY)
+        icon = icons.get(level, "")
+        safe = (
+            message.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        )
         self._log_text.append(
-            f'<span style="color:#6e6e6e">[{timestamp}]</span> '
-            f'<span style="color:{color}">{icon} {message}</span>'
+            f'<span style="color:{TEXT_DIM}">{timestamp}</span>&nbsp;&nbsp;'
+            f'<span style="color:{color}">{icon}{safe}</span>'
         )
         self._log_text.verticalScrollBar().setValue(
             self._log_text.verticalScrollBar().maximum()
@@ -138,9 +183,12 @@ class LogPanel(QWidget):
         self._progress_bar.setValue(0)
         self._progress_label.setText("Ready")
         self._cancel_btn.setVisible(False)
+        self._progress_row.setVisible(False)
 
     def set_cancel_visible(self, visible: bool):
         self._cancel_btn.setVisible(visible)
+        if visible:
+            self._progress_row.setVisible(True)
 
 
 class _LogSignalBridge(QObject):

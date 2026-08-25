@@ -192,6 +192,7 @@ class FlythroughDialog(QDialog):
 
         btns = QHBoxLayout()
         self._render_btn = QPushButton("Render Video")
+        self._render_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._render_btn.clicked.connect(self._render)
         btns.addWidget(self._render_btn)
         close_btn = QPushButton("Close")

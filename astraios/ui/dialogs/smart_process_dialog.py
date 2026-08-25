@@ -27,6 +27,7 @@ from astraios.ai.smart_processor import (
 from astraios.core.equipment import EquipmentProfile
 from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
+from astraios.ui.widgets.ui_kit import make_dialog_scrollable
 
 
 class _ProcessCancelled(BaseException):
@@ -328,6 +329,7 @@ class SmartProcessDialog(QDialog):
         btn_row.addStretch()
 
         self._run_btn = QPushButton("Run Smart Processor")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         btn_row.addWidget(self._run_btn)
 
@@ -342,6 +344,9 @@ class SmartProcessDialog(QDialog):
         btn_row.addWidget(self._apply_btn)
 
         layout.addLayout(btn_row)
+
+        # Fits a 768px-tall laptop screen; see make_dialog_scrollable.
+        make_dialog_scrollable(self)
 
     def set_image_data(self, data, fits_header=None, wcs=None):
         """Set the image data to process."""

@@ -159,6 +159,7 @@ class SignatureDialog(QDialog):
         lay.addWidget(self._status)
         btns = QHBoxLayout()
         apply_btn = QPushButton("Apply Signature")
+        apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         apply_btn.clicked.connect(self._apply)
         btns.addWidget(apply_btn)
         close_btn = QPushButton("Close")

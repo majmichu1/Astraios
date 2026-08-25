@@ -134,6 +134,7 @@ class BatchPreprocessDialog(QDialog):
         nav.addWidget(self._next_btn)
 
         self._run_btn = QPushButton("Run Preprocessing")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._start_preprocessing)
         self._run_btn.setVisible(False)
         self._run_btn.setStyleSheet(

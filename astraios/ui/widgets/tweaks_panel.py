@@ -72,7 +72,7 @@ class TweaksPanel(QWidget):
         layout.setSpacing(10)
 
         # Title
-        title = QLabel("UI Tweaks")
+        title = QLabel("Appearance")
         title.setStyleSheet(
             f"color: {TEXT_PRIMARY}; font-size: 13px; font-weight: 600; background: transparent;"
         )

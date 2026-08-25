@@ -74,6 +74,7 @@ class ACVExportDialog(QDialog):
         btns = QHBoxLayout()
         btns.addStretch(1)
         self._save_btn = QPushButton("Save .acv...")
+        self._save_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._save_btn.clicked.connect(self._save)
         self._save_btn.setEnabled(bool(self._curves))
         btns.addWidget(self._save_btn)

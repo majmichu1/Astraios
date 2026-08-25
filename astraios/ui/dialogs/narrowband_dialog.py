@@ -50,6 +50,7 @@ class NarrowbandDialog(QDialog):
 
         self._ha_label = QLabel("Ha: (none)")
         self._btn_ha = QPushButton("Load Ha...")
+        self._btn_ha.setAutoDefault(False)
         self._btn_ha.clicked.connect(lambda: self._load_filter("ha", self._ha_label))
         row = QHBoxLayout()
         row.addWidget(self._ha_label, 1)
@@ -58,6 +59,7 @@ class NarrowbandDialog(QDialog):
 
         self._oiii_label = QLabel("OIII: (none)")
         self._btn_oiii = QPushButton("Load OIII...")
+        self._btn_oiii.setAutoDefault(False)
         self._btn_oiii.clicked.connect(lambda: self._load_filter("oiii", self._oiii_label))
         row = QHBoxLayout()
         row.addWidget(self._oiii_label, 1)
@@ -66,6 +68,7 @@ class NarrowbandDialog(QDialog):
 
         self._sii_label = QLabel("SII: (none)")
         self._btn_sii = QPushButton("Load SII...")
+        self._btn_sii.setAutoDefault(False)
         self._btn_sii.clicked.connect(lambda: self._load_filter("sii", self._sii_label))
         row = QHBoxLayout()
         row.addWidget(self._sii_label, 1)
@@ -110,6 +113,7 @@ class NarrowbandDialog(QDialog):
         # Buttons
         btn_row = QHBoxLayout()
         self._btn_combine = QPushButton("Combine")
+        self._btn_combine.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._btn_combine.setEnabled(False)
         self._btn_combine.clicked.connect(self._combine)
         btn_row.addWidget(self._btn_combine)

@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.ui.dialogs.dialog_workers import stop_worker
-from astraios.ui.widgets.ui_kit import help_dot, param_help
+from astraios.ui.widgets.ui_kit import help_dot, make_dialog_scrollable, param_help
 
 log = logging.getLogger(__name__)
 
@@ -333,6 +333,7 @@ class NBNormalizationDialog(QDialog):
 
         btns = QHBoxLayout()
         self._apply_btn = QPushButton("Apply")
+        self._apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._apply_btn.setEnabled(False)
         self._apply_btn.clicked.connect(self._apply)
         btns.addWidget(self._apply_btn)
@@ -343,6 +344,9 @@ class NBNormalizationDialog(QDialog):
 
         self._on_scenario_changed(self._scenario_combo.currentText())
         self._update_enabled_state()
+
+        # Fits a 768px-tall laptop screen; see make_dialog_scrollable.
+        make_dialog_scrollable(self)
 
     @staticmethod
     def _row(widget, tip: str) -> QHBoxLayout:

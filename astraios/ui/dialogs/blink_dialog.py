@@ -73,12 +73,15 @@ class BlinkDialog(QDialog):
         controls.setSpacing(6)
 
         self._btn_prev = QPushButton("◀  Prev")
+        self._btn_prev.setAutoDefault(False)
         self._btn_prev.clicked.connect(self._prev)
 
         self._btn_next = QPushButton("Next  ▶")
+        self._btn_next.setAutoDefault(False)
         self._btn_next.clicked.connect(self._next)
 
         self._btn_auto = QPushButton("▶▶  Auto")
+        self._btn_auto.setAutoDefault(False)
         self._btn_auto.setCheckable(True)
         self._btn_auto.clicked.connect(self._toggle_auto)
 

@@ -312,6 +312,9 @@ class SubframeDialog(QDialog):
         self._on_filter_mode_changed(0)
 
         # ── Buttons ───────────────────────────────────────────────────────────
+        # Two rows: what you do with the frame list, then what you do with the
+        # selection. In one row the nine buttons were squeezed until their
+        # labels were cut to "oad Frames." and "orce Accept".
         btn_row = QHBoxLayout()
         load_btn = QPushButton("Load Frames...")
         load_btn.clicked.connect(self._load_frames)
@@ -332,10 +335,14 @@ class SubframeDialog(QDialog):
         self._score_btn.setEnabled(False)
         self._score_btn.clicked.connect(self._run_scoring)
         btn_row.addWidget(self._score_btn)
-
-        btn_row.addSpacing(16)
+        btn_row.addStretch()
+        self._frame_count_label = QLabel("No frames loaded")
+        self._frame_count_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        btn_row.addWidget(self._frame_count_label)
+        layout.addLayout(btn_row)
 
         # Manual accept/reject buttons
+        btn_row = QHBoxLayout()
         self._accept_sel_btn = QPushButton("Force Accept")
         self._accept_sel_btn.setToolTip("Mark selected frames as accepted regardless of score")
         self._accept_sel_btn.setEnabled(False)
@@ -353,16 +360,10 @@ class SubframeDialog(QDialog):
         self._clear_override_btn.setEnabled(False)
         self._clear_override_btn.clicked.connect(self._clear_override_selected)
         btn_row.addWidget(self._clear_override_btn)
-
-        btn_row.addStretch()
-
-        self._frame_count_label = QLabel("No frames loaded")
-        self._frame_count_label.setStyleSheet("color: #aaa; font-size: 11px;")
-        btn_row.addWidget(self._frame_count_label)
-
         btn_row.addStretch()
 
         accept_btn = QPushButton("Use Accepted Frames")
+        accept_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         accept_btn.setToolTip("Send accepted frames to the stacking pipeline")
         accept_btn.clicked.connect(self._emit_accepted)
         btn_row.addWidget(accept_btn)

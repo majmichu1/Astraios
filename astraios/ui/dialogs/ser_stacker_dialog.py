@@ -181,6 +181,7 @@ class SERStackerDialog(QDialog):
 
         btns = QHBoxLayout()
         self._stack_btn = QPushButton("Stack SER")
+        self._stack_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._stack_btn.setEnabled(False)
         self._stack_btn.clicked.connect(self._stack)
         btns.addWidget(self._stack_btn)

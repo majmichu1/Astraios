@@ -138,6 +138,7 @@ class MaskDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.addStretch()
         self._btn_apply = QPushButton("Create Mask")
+        self._btn_apply.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._btn_apply.clicked.connect(self._on_create)
         btn_row.addWidget(self._btn_apply)
         self._btn_cancel = QPushButton("Cancel")

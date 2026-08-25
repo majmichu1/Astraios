@@ -190,6 +190,7 @@ class MagnitudeToolDialog(QDialog):
 
         btns = QHBoxLayout()
         self._run_btn = QPushButton("Measure")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         btns.addWidget(self._run_btn)
         self._export_btn = QPushButton("Export CSV...")

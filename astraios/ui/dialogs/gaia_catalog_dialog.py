@@ -161,6 +161,7 @@ class GaiaCatalogDialog(QDialog):
         btns.addWidget(self._cancel_btn)
         btns.addStretch()
         close_btn = QPushButton("Close")
+        close_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         close_btn.clicked.connect(self.reject)
         btns.addWidget(close_btn)
         lay.addLayout(btns)

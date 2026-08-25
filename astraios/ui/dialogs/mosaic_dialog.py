@@ -158,6 +158,7 @@ class MosaicDialog(QDialog):
         btn_row.addWidget(cancel_btn)
 
         self._run_btn = QPushButton("Stitch Mosaic")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         btn_row.addWidget(self._run_btn)
 

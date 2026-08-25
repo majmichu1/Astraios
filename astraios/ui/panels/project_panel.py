@@ -284,17 +284,17 @@ class ProjectPanel(QWidget):
         title_row.addWidget(title_lbl)
         title_row.addStretch()
         btn_new = QPushButton("＋")
-        btn_new.setFixedSize(22, 22)
+        btn_new.setFixedSize(26, 22)
         btn_new.setToolTip("New Project")
-        btn_new.setStyleSheet(
-            f"QPushButton {{ color: {TEXT_SECONDARY}; background: transparent; border: none;"
-            "font-size: 13px; }"
-            f"QPushButton:hover {{ color: {TEXT_PRIMARY}; }}"
-        )
+        btn_new.setProperty("small", True)
+        btn_new.setStyleSheet("QPushButton { padding: 0; }")
+        btn_new.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_open = QPushButton("⌂")
-        btn_open.setFixedSize(22, 22)
+        btn_open.setFixedSize(26, 22)
         btn_open.setToolTip("Open Project")
-        btn_open.setStyleSheet(btn_new.styleSheet())
+        btn_open.setProperty("small", True)
+        btn_open.setStyleSheet("QPushButton { padding: 0; }")
+        btn_open.setCursor(Qt.CursorShape.PointingHandCursor)
         # These two header buttons were rendered but wired to nothing.
         btn_new.clicked.connect(self.new_project_clicked)
         btn_open.clicked.connect(self.open_project_clicked)
@@ -303,20 +303,26 @@ class ProjectPanel(QWidget):
         header_layout.addLayout(title_row)
 
         # Project name box
+        # The selector matters: an unscoped "border" rule here was inherited
+        # by both child labels, which drew a second empty box under the name.
         self._name_box = QWidget()
+        self._name_box.setObjectName("pp_name_box")
+        self._name_box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self._name_box.setStyleSheet(
-            f"border: 1px solid {BORDER}; border-radius: 5px;"
+            f"#pp_name_box {{ background: {BG_TERTIARY}; border: 1px solid {BORDER};"
+            " border-radius: 5px; }"
         )
         name_box_layout = QVBoxLayout(self._name_box)
         name_box_layout.setContentsMargins(8, 5, 8, 5)
         name_box_layout.setSpacing(1)
-        self._proj_name_lbl = QLabel("No Project")
+        self._proj_name_lbl = QLabel("No project open")
         self._proj_name_lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px; background-color: transparent;")
         self._proj_stats_lbl = QLabel("")
         self._proj_stats_lbl.setStyleSheet(
-            f"color: {ACCENT}; font-size: 10px;"
+            f"color: {ACCENT}; font-size: 10px; background: transparent;"
             "font-family: 'JetBrains Mono', 'Cascadia Code', monospace;"
         )
+        self._proj_stats_lbl.hide()
         name_box_layout.addWidget(self._proj_name_lbl)
         name_box_layout.addWidget(self._proj_stats_lbl)
         header_layout.addWidget(self._name_box)
@@ -324,26 +330,24 @@ class ProjectPanel(QWidget):
         # Import buttons
         import_row = QHBoxLayout()
         import_row.setSpacing(4)
+        # The design's small Btn variants: "+ Lights" accent, the rest flat.
+        _small_ss = "QPushButton { padding: 0 6px; font-size: 10px; }"
         btn_lights = QPushButton("+ Lights")
-        btn_lights.setFixedHeight(26)
-        btn_lights.setStyleSheet(
-            f"QPushButton {{ background-color: {ACCENT}; color: #fff; border: none;"
-            "border-radius: 4px; font-size: 10px; font-weight: 600; }"
-            f"QPushButton:hover {{ background-color: #3fb950; }}"
-        )
+        btn_lights.setFixedHeight(24)
+        btn_lights.setProperty("accent", True)
+        btn_lights.setStyleSheet(_small_ss)
+        btn_lights.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_lights.clicked.connect(lambda: self._import_frames(FrameType.LIGHT))
         btn_cals = QPushButton("+ Cals")
-        btn_cals.setFixedHeight(26)
-        btn_cals.setStyleSheet(
-            f"QPushButton {{ color: {TEXT_PRIMARY}; background: transparent;"
-            f"border: 1px solid {BORDER}; border-radius: 4px; font-size: 10px; }}"
-            f"QPushButton:hover {{ background-color: {BG_HOVER}; }}"
-        )
+        btn_cals.setFixedHeight(24)
+        btn_cals.setStyleSheet(_small_ss)
+        btn_cals.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_cals.clicked.connect(self._import_cals)
         btn_auto = QPushButton("Auto…")
-        btn_auto.setFixedHeight(26)
+        btn_auto.setFixedHeight(24)
         btn_auto.setToolTip("Auto-import folder (detect frame types from FITS headers)")
-        btn_auto.setStyleSheet(btn_cals.styleSheet())
+        btn_auto.setStyleSheet(_small_ss)
+        btn_auto.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_auto.clicked.connect(self._import_folder_auto)
         import_row.addWidget(btn_lights)
         import_row.addWidget(btn_cals)
@@ -379,12 +383,7 @@ class ProjectPanel(QWidget):
         self._search_edit = QLineEdit()
         self._search_edit.setPlaceholderText("Search frames…")
         self._search_edit.setFixedHeight(26)
-        self._search_edit.setStyleSheet(
-            f"QLineEdit {{ background-color: {BG_TERTIARY}; color: {TEXT_PRIMARY};"
-            f"border: 1px solid {BORDER}; border-radius: 5px; padding: 3px 8px;"
-            "font-size: 11px; }"
-            f"QLineEdit:focus {{ border-color: {ACCENT}; }}"
-        )
+        self._search_edit.setStyleSheet("QLineEdit { font-size: 11px; padding: 3px 8px; }")
         self._search_edit.textChanged.connect(self._on_search)
         search_layout.addWidget(self._search_edit)
         outer.addWidget(search_wrap)
@@ -394,11 +393,7 @@ class ProjectPanel(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_area.setStyleSheet(
-            "QScrollArea { border: none; background: transparent; }"
-            f"QScrollBar:vertical {{ background: transparent; width: 6px; }}"
-            f"QScrollBar::handle:vertical {{ background: {BG_HOVER}; border-radius: 3px; }}"
-        )
+        scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
         self._frame_list_widget = QWidget()
         self._frame_list_widget.setStyleSheet("background: transparent;")
         self._frame_list_layout = QVBoxLayout(self._frame_list_widget)
@@ -424,12 +419,14 @@ class ProjectPanel(QWidget):
         plate_btn_row = QHBoxLayout()
         plate_btn_row.setSpacing(4)
         btn_solve = QPushButton("Solve WCS")
-        btn_solve.setMinimumHeight(28)
-        btn_solve.setStyleSheet(btn_cals.styleSheet().replace("font-size: 10px;", "font-size: 10px;"))
+        btn_solve.setFixedHeight(24)
+        btn_solve.setStyleSheet(_small_ss)
+        btn_solve.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_solve.clicked.connect(self.plate_solve_clicked)
         btn_dso = QPushButton("DSO Overlay")
-        btn_dso.setMinimumHeight(28)
-        btn_dso.setStyleSheet(btn_cals.styleSheet())
+        btn_dso.setFixedHeight(24)
+        btn_dso.setStyleSheet(_small_ss)
+        btn_dso.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_dso.clicked.connect(self.dso_overlay_clicked)
         plate_btn_row.addWidget(btn_solve)
         plate_btn_row.addWidget(btn_dso)
@@ -453,12 +450,14 @@ class ProjectPanel(QWidget):
         stats_layout.setContentsMargins(8, 6, 8, 8)
         stats_layout.setSpacing(4)
         btn_stats = QPushButton("Statistics")
-        btn_stats.setMinimumHeight(28)
-        btn_stats.setStyleSheet(btn_cals.styleSheet())
+        btn_stats.setFixedHeight(24)
+        btn_stats.setStyleSheet(_small_ss)
+        btn_stats.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_stats.clicked.connect(self.show_statistics)
         btn_header = QPushButton("FITS Header")
-        btn_header.setMinimumHeight(28)
-        btn_header.setStyleSheet(btn_cals.styleSheet())
+        btn_header.setFixedHeight(24)
+        btn_header.setStyleSheet(_small_ss)
+        btn_header.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_header.clicked.connect(self.show_fits_header)
         stats_layout.addWidget(btn_stats)
         stats_layout.addWidget(btn_header)
@@ -620,9 +619,11 @@ class ProjectPanel(QWidget):
             lights = [e for e in project.frames if e.frame_type == FrameType.LIGHT]
             good = sum(1 for e in lights if e.path.exists())
             self._proj_stats_lbl.setText(f"{good}/{len(lights)} frames")
+            self._proj_stats_lbl.show()
         else:
-            self._proj_name_lbl.setText("No Project")
+            self._proj_name_lbl.setText("No project open")
             self._proj_stats_lbl.setText("")
+            self._proj_stats_lbl.hide()
         self.refresh()
 
     def refresh(self):
@@ -634,6 +635,7 @@ class ProjectPanel(QWidget):
             lights = [e for e in self._project.frames if e.frame_type == FrameType.LIGHT]
             good = sum(1 for e in lights if e.path.exists())
             self._proj_stats_lbl.setText(f"{good}/{len(lights)} frames")
+            self._proj_stats_lbl.show()
 
     def set_fallback_history_provider(self, provider):
         """Set a zero-arg callable returning [(name, time_str), ...] used for

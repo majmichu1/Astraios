@@ -510,7 +510,8 @@ class MainWindow(QMainWindow):
         )
         version_badge = QLabel(f"v{astraios.__version__}")
         version_badge.setStyleSheet(
-            "color: #8b949e; font-size: 10px; padding: 1px 5px;"
+            "color: #8b949e; font-size: 9px; padding: 2px 0 0 0;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         left_layout.addWidget(logo_widget)
         left_layout.addWidget(logo_label)
@@ -522,21 +523,17 @@ class MainWindow(QMainWindow):
         right_corner.setStyleSheet("background-color: transparent;")
         right_layout = QHBoxLayout(right_corner)
         right_layout.setContentsMargins(4, 0, 8, 0)
-        right_layout.setSpacing(6)
+        right_layout.setSpacing(8)
+        # Pill chips, styled by QLabel#StatusChip in the theme.
         self._gpu_chip_label = QLabel("")
-        self._gpu_chip_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; padding: 1px 4px;"
-        )
+        self._gpu_chip_label.setObjectName("StatusChip")
+        self._gpu_chip_label.setTextFormat(Qt.TextFormat.RichText)
         self._ram_chip_label = QLabel("")
-        self._ram_chip_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; padding: 1px 4px;"
-        )
+        self._ram_chip_label.setObjectName("StatusChip")
         export_btn = QPushButton("⬆ Export Image…")
-        export_btn.setStyleSheet(
-            "QPushButton { color: #ffffff; background: #2ea043; border: none; border-radius: 4px;"
-            " font-size: 11px; font-weight: 600; padding: 3px 10px; }"
-            " QPushButton:hover { background: #3fb950; }"
-        )
+        export_btn.setProperty("accent", True)
+        export_btn.setProperty("small", True)
+        export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         export_btn.clicked.connect(self._save_image)
         right_layout.addWidget(self._gpu_chip_label)
         right_layout.addWidget(self._ram_chip_label)
@@ -701,6 +698,11 @@ class MainWindow(QMainWindow):
         view_menu.addAction(fullscreen_act)
 
         view_menu.addSeparator()
+
+        appearance_act = QAction("&Appearance…", self)
+        appearance_act.setToolTip("Accent colour, workflow bar and log visibility")
+        appearance_act.triggered.connect(self._on_toggle_tweaks)
+        view_menu.addAction(appearance_act)
 
         history_act = QAction("&Processing History", self)
         history_act.setShortcut("Ctrl+H")
@@ -1053,9 +1055,10 @@ class MainWindow(QMainWindow):
         open_btn.setToolTip("Open an image to start  (Ctrl+Shift+I)")
         open_btn.clicked.connect(self._open_image)
         open_btn.setStyleSheet(
-            "QToolButton { background: #2ea043; color: #ffffff; font-weight: 700; "
-            "border-radius: 4px; padding: 3px 12px; } "
-            "QToolButton:hover { background: #3fb950; }"
+            "QToolButton { background: #2ea043; color: #ffffff; font-weight: 600;"
+            " font-size: 11px; border: 1px solid transparent; border-radius: 6px;"
+            " padding: 2px 10px; }"
+            " QToolButton:hover { background: #3fb950; color: #ffffff; }"
         )
         tb.addWidget(open_btn)
         tb.addSeparator()
@@ -1135,7 +1138,8 @@ class MainWindow(QMainWindow):
         # Operation status: "Ready" label + thin 4px progress bar
         self._tb_status_label = QLabel("Ready")
         self._tb_status_label.setStyleSheet(
-            "color: #2ea043; font-size: 10px; font-family: monospace; padding: 0 4px;"
+            "color: #2ea043; font-size: 10px; padding: 0 4px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         tb.addWidget(self._tb_status_label)
 
@@ -1150,13 +1154,9 @@ class MainWindow(QMainWindow):
         )
         tb.addWidget(self._tb_progress_bar)
 
-        tb.addSeparator()
-
-        tweaks_btn = _tbtn("⚙ Tweaks", "UI Tweaks")
-        tweaks_btn.clicked.connect(self._on_toggle_tweaks)
-        tb.addWidget(tweaks_btn)
-
-        # Tweaks panel (created here, shown/hidden on demand)
+        # Appearance panel (accent colour, workflow bar, log). Reached from
+        # View > Appearance; it used to be a "Tweaks" button on this toolbar,
+        # a label that told a new user nothing about what it did.
         self._tweaks_panel = TweaksPanel(self)
         self._tweaks_panel.hide()
         self._tweaks_panel.accent_changed.connect(self._on_tweaks_accent_changed)
@@ -1208,30 +1208,38 @@ class MainWindow(QMainWindow):
         center_layout.setSpacing(0)
 
         # ── Canvas toolbar ──────────────────────────────────────────────────
+        # Styled by #CanvasToolbar in the theme (the design's "Btn small flat").
         canvas_tb = QFrame()
-        canvas_tb.setFixedHeight(32)
+        canvas_tb.setFixedHeight(34)
         canvas_tb.setObjectName("CanvasToolbar")
-        canvas_tb.setStyleSheet(
-            "#CanvasToolbar { background: #161b22; border-bottom: 1px solid #30363d; }"
-        )
         tb_layout = QHBoxLayout(canvas_tb)
-        tb_layout.setContentsMargins(6, 0, 6, 0)
-        tb_layout.setSpacing(2)
+        tb_layout.setContentsMargins(10, 0, 10, 0)
+        tb_layout.setSpacing(6)
 
         def _ctb(text: str, tip: str = "", checkable: bool = False) -> QToolButton:
             b = QToolButton()
             b.setText(text)
             b.setToolTip(tip)
             b.setCheckable(checkable)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
             return b
+
+        def _vsep() -> QWidget:
+            sep = QWidget()
+            sep.setFixedSize(1, 16)
+            sep.setStyleSheet("background: #30363d;")
+            return sep
 
         zoom_out_tb = _ctb("−", "Zoom Out")
         self._canvas_zoom_label = QLabel("100%")
-        self._canvas_zoom_label.setFixedWidth(44)
+        self._canvas_zoom_label.setFixedWidth(40)
         self._canvas_zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._canvas_zoom_label.setStyleSheet("color: #8b949e; font-size: 11px;")
-        zoom_in_tb = _ctb("+", "Zoom In")
-        fit_tb = _ctb("Fit", "Fit to Window")
+        self._canvas_zoom_label.setStyleSheet(
+            "color: #8b949e; font-size: 11px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
+        )
+        zoom_in_tb = _ctb("＋", "Zoom In")
+        fit_tb = _ctb("⊡ Fit", "Fit to Window")
         one_to_one_tb = _ctb("1:1", "100% Zoom")
         tb_layout.addWidget(zoom_out_tb)
         tb_layout.addWidget(self._canvas_zoom_label)
@@ -1239,10 +1247,7 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(fit_tb)
         tb_layout.addWidget(one_to_one_tb)
 
-        _sep1 = QFrame()
-        _sep1.setFrameShape(QFrame.Shape.VLine)
-        _sep1.setStyleSheet("color: #30363d;")
-        tb_layout.addWidget(_sep1)
+        tb_layout.addWidget(_vsep())
 
         # After / Before / Split — manually exclusive
         self._view_btn_group = QButtonGroup(canvas_tb)
@@ -1255,12 +1260,9 @@ class MainWindow(QMainWindow):
             self._view_btn_group.addButton(_b)
             tb_layout.addWidget(_b)
 
-        _sep2 = QFrame()
-        _sep2.setFrameShape(QFrame.Shape.VLine)
-        _sep2.setStyleSheet("color: #30363d;")
-        tb_layout.addWidget(_sep2)
+        tb_layout.addWidget(_vsep())
 
-        self._grid_tb = _ctb("Grid", "Toggle grid overlay", checkable=True)
+        self._grid_tb = _ctb("⊞ Grid", "Toggle grid overlay", checkable=True)
         self._wcs_tb = _ctb("WCS", "Toggle WCS star overlay", checkable=True)
         tb_layout.addWidget(self._grid_tb)
         tb_layout.addWidget(self._wcs_tb)
@@ -1270,7 +1272,11 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(spacer_tb)
 
         self._hist_toggle_tb = _ctb("▾ Histogram", "Show/hide histogram", checkable=True)
+        self._hist_toggle_tb.setProperty("quiet", True)
         self._hist_toggle_tb.setChecked(True)
+        self._hist_toggle_tb.toggled.connect(
+            lambda on: self._hist_toggle_tb.setText("▾ Histogram" if on else "▸ Histogram")
+        )
         tb_layout.addWidget(self._hist_toggle_tb)
 
         fullscreen_tb = _ctb("⛶", "Fullscreen  F11")
@@ -1278,8 +1284,10 @@ class MainWindow(QMainWindow):
         tb_layout.addWidget(fullscreen_tb)
 
         self._canvas_coord_label = QLabel("")
+        self._canvas_coord_label.setTextFormat(Qt.TextFormat.RichText)
         self._canvas_coord_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; font-family: monospace;"
+            "color: #8b949e; font-size: 10px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         tb_layout.addWidget(self._canvas_coord_label)
 
@@ -1292,27 +1300,30 @@ class MainWindow(QMainWindow):
         center_layout.addWidget(self._canvas, 1)
 
         # ── Histogram container ─────────────────────────────────────────────
+        # Styled by #HistogramPanel in the theme: 100px strip, channel tabs
+        # with the accent underline, statistics in monospace on the right.
         self._hist_container = QWidget()
+        self._hist_container.setObjectName("HistogramPanel")
+        self._hist_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._hist_container.setFixedHeight(100)
         hist_v = QVBoxLayout(self._hist_container)
-        hist_v.setContentsMargins(4, 2, 4, 2)
-        hist_v.setSpacing(2)
+        hist_v.setContentsMargins(0, 0, 0, 0)
+        hist_v.setSpacing(0)
 
         hist_header = QWidget()
+        hist_header.setObjectName("HistogramHeader")
+        hist_header.setStyleSheet(
+            "#HistogramHeader { background: transparent; border-bottom: 1px solid #30363d; }"
+        )
         hist_header_layout = QHBoxLayout(hist_header)
-        hist_header_layout.setContentsMargins(0, 0, 0, 0)
-        hist_header_layout.setSpacing(4)
+        hist_header_layout.setContentsMargins(8, 0, 10, 0)
+        hist_header_layout.setSpacing(0)
 
         self._hist_channel_group = QButtonGroup(hist_header)
         for _ch in ("RGB", "R", "G", "B", "L"):
             ch_btn = QPushButton(_ch)
             ch_btn.setCheckable(True)
-            ch_btn.setFixedWidth(32)
-            ch_btn.setStyleSheet(
-                "QPushButton { background: transparent; border: none;"
-                " border-bottom: 2px solid transparent;"
-                " color: #8b949e; font-size: 11px; padding: 2px 0; }"
-                " QPushButton:checked { color: #e6edf3; border-bottom-color: #2ea043; }"
-            )
+            ch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             self._hist_channel_group.addButton(ch_btn)
             hist_header_layout.addWidget(ch_btn)
         self._hist_channel_group.buttons()[0].setChecked(True)
@@ -1321,7 +1332,8 @@ class MainWindow(QMainWindow):
 
         self._hist_stats_label = QLabel("")
         self._hist_stats_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; font-family: monospace;"
+            "color: #8b949e; font-size: 10px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         hist_header_layout.addWidget(self._hist_stats_label)
 
@@ -1575,8 +1587,12 @@ class MainWindow(QMainWindow):
         def _sb_label(text="", val: bool = False) -> QLabel:
             lbl = QLabel(text)
             color = "#e6edf3" if val else "#8b949e"
-            font = "monospace" if val else "sans"
-            lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-family: {font}; padding: 0 6px 0 0;")
+            font = (
+                "font-family: 'JetBrains Mono', 'Fira Code', monospace;" if val else ""
+            )
+            lbl.setStyleSheet(
+                f"color: {color}; font-size: 10px; {font} padding: 0 {10 if val else 2}px 0 0;"
+            )
             return lbl
 
         self._status_filename_lbl = _sb_label("Image:")
@@ -1589,30 +1605,42 @@ class MainWindow(QMainWindow):
         self._status_channels = _sb_label("", val=True)
         self._status_history_lbl = _sb_label("Steps:")
         self._status_history = _sb_label("", val=True)
-        for lbl in (
+        self._status_image_widgets = (
             self._status_filename_lbl, self._status_filename,
             self._status_size_lbl, self._status_size,
             self._status_depth_lbl, self._status_depth,
             self._status_channels_lbl, self._status_channels,
             self._status_history_lbl, self._status_history,
-        ):
+        )
+        for lbl in self._status_image_widgets:
             sb.addWidget(lbl)
+        # Five bare "Image: Size: Depth:" captions with nothing after them is
+        # what the bar showed before any image was open. The captions are
+        # blanked rather than hidden: QStatusBar does not reliably re-show a
+        # widget that was hidden before the bar was first laid out.
+        self._status_captions = {
+            self._status_filename_lbl: "Image:", self._status_size_lbl: "Size:",
+            self._status_depth_lbl: "Depth:", self._status_channels_lbl: "Ch:",
+            self._status_history_lbl: "Steps:",
+        }
+        for lbl in self._status_captions:
+            lbl.setText("")
 
         self._preview_indicator = QLabel("")
         self._preview_indicator.setStyleSheet(
-            "color: #00cc44; font-weight: bold; padding: 0 8px;"
+            "color: #2ea043; font-weight: 600; font-size: 10px; padding: 0 8px;"
         )
         self._vram_label = QLabel("")
-        self._vram_label.setStyleSheet("color: #8b949e; font-size: 11px; padding: 0 8px;")
-        self._cuda_badge = QLabel("")
-        self._cuda_badge.setStyleSheet(
-            "color: #2ea043; font-size: 10px; background: #1a4d2e; border: 1px solid #2ea043;"
-            " border-radius: 3px; padding: 1px 5px;"
+        self._vram_label.setStyleSheet(
+            "color: #8b949e; font-size: 10px; padding: 0 8px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
+        self._cuda_badge = QLabel("")
+        self._cuda_badge.setTextFormat(Qt.TextFormat.RichText)
+        self._cuda_badge.setStyleSheet("color: #8b949e; font-size: 10px; padding: 0 4px;")
         sb.addPermanentWidget(self._cuda_badge)
         sb.addPermanentWidget(self._vram_label)
         sb.addPermanentWidget(self._preview_indicator)
-        sb.showMessage("Ready")
 
         self._vram_timer = QTimer(self)
         self._vram_timer.timeout.connect(self._update_vram_label)
@@ -1643,21 +1671,29 @@ class MainWindow(QMainWindow):
                         _gpu_raw = _gpu_raw[len(_pfx):]
                         break
                 _gpu_short = " ".join(_gpu_raw.split()[:2])
-                gpu_text = f"● {_gpu_short}"
-                self._gpu_chip_label.setText(gpu_text)
-                self._cuda_badge.setText("CUDA active")
+                self._gpu_chip_label.setText(
+                    f'<span style="color:#2ea043">●</span> {_gpu_short}'
+                )
+                self._cuda_badge.setText(
+                    'GPU-accelerated · <span style="color:#2ea043">CUDA active</span>'
+                )
                 self._cuda_badge.show()
-                self._log_panel.update_gpu_status(f"{gpu_text} · {vram_text}")
+                self._log_panel.update_gpu_status(f"{_gpu_short} · {vram_text}")
             elif dm.device.type == "mps":
-                self._vram_label.setText("GPU: MPS")
-                self._gpu_chip_label.setText("● Apple MPS")
-                self._cuda_badge.setText("MPS")
+                self._vram_label.setText("GPU: Metal")
+                self._gpu_chip_label.setText(
+                    '<span style="color:#2ea043">●</span> Apple Metal'
+                )
+                self._cuda_badge.setText(
+                    'GPU-accelerated · <span style="color:#2ea043">Metal active</span>'
+                )
                 self._cuda_badge.show()
-                self._log_panel.update_gpu_status("Apple MPS")
+                self._log_panel.update_gpu_status("Apple Metal")
             else:
-                self._vram_label.setText("CPU mode")
+                self._vram_label.setText("")
                 self._gpu_chip_label.setText("CPU")
-                self._cuda_badge.hide()
+                self._cuda_badge.setText("CPU mode")
+                self._cuda_badge.show()
                 self._log_panel.update_gpu_status("CPU mode")
         except Exception:
             self._vram_label.setText("")
@@ -2449,6 +2485,10 @@ class MainWindow(QMainWindow):
         hist_data = compute_histogram(image.data)
         self._histogram.set_histogram_data(hist_data)
         self._update_hist_stats()
+        # The status bar's image fields were only refreshed by project and
+        # tool paths, never by opening a file, so a freshly opened image
+        # showed no name, size or depth until something was applied to it.
+        self._update_image_status()
         self._update_curves_histogram(hist_data)
         self._sync_console_image()
 
@@ -2510,8 +2550,10 @@ class MainWindow(QMainWindow):
         if hasattr(self, "_tb_redo_btn"):
             self._tb_redo_btn.setEnabled(can_redo)
         if hasattr(self, "_canvas"):
-            self._canvas._overlay_undo_btn.setVisible(can_undo)
-            self._canvas._overlay_redo_btn.setVisible(can_redo)
+            # Disabled rather than hidden: a control that vanishes and
+            # reappears is harder to learn than one that is simply greyed.
+            self._canvas._overlay_undo_btn.setEnabled(can_undo)
+            self._canvas._overlay_redo_btn.setEnabled(can_redo)
         undo_text = self._undo_stack.undo_text()
         redo_text = self._undo_stack.redo_text()
         self._undo_act.setText(f"&Undo ({undo_text})" if undo_text else "&Undo")
@@ -2656,7 +2698,11 @@ class MainWindow(QMainWindow):
             for lbl in (self._status_filename, self._status_size, self._status_depth,
                         self._status_channels, self._status_history):
                 lbl.setText("")
+            for lbl in self._status_captions:
+                lbl.setText("")
             return
+        for lbl, caption in self._status_captions.items():
+            lbl.setText(caption)
         fp = getattr(img, "file_path", None)
         name = Path(fp).name if fp else "unsaved"
         self._status_filename.setText(name)
@@ -2695,11 +2741,14 @@ class MainWindow(QMainWindow):
 
     def _update_canvas_coord_label(self, x: int, y: int, values: list):
         if len(values) == 1:
-            self._canvas_coord_label.setText(f"x={x} y={y}  L={values[0]:.4f}")
+            vals = f"{values[0]:.4f}"
         elif len(values) >= 3:
-            self._canvas_coord_label.setText(
-                f"x={x} y={y}  R={values[0]:.3f} G={values[1]:.3f} B={values[2]:.3f}"
-            )
+            vals = f"{values[0]:.3f} {values[1]:.3f} {values[2]:.3f}"
+        else:
+            return
+        self._canvas_coord_label.setText(
+            f'x:{x} y:{y} · <span style="color:#2ea043">{vals}</span>'
+        )
 
     def _on_hist_channel_clicked(self, btn):
         ch = btn.text()
@@ -2713,7 +2762,7 @@ class MainWindow(QMainWindow):
         else:
             mean, median, sd, clip = stats
             self._hist_stats_label.setText(
-                f"Mean {mean:.3f}  Med {median:.3f}  SD {sd:.3f}  Clip {clip:.1f}%"
+                f"Mean: {mean:.3f} · Med: {median:.3f} · SD: {sd:.3f} · Clip: {clip:.2f}%"
             )
 
     # ---------- Drag and drop ----------
@@ -2770,8 +2819,8 @@ class MainWindow(QMainWindow):
             if hasattr(self, "_tb_redo_btn"):
                 self._tb_redo_btn.setEnabled(False)
             if hasattr(self, "_canvas"):
-                self._canvas._overlay_undo_btn.setVisible(False)
-                self._canvas._overlay_redo_btn.setVisible(False)
+                self._canvas._overlay_undo_btn.setEnabled(False)
+                self._canvas._overlay_redo_btn.setEnabled(False)
         else:
             self._update_undo_actions()
 

@@ -152,6 +152,7 @@ class AstroBinExportDialog(QDialog):
         act_row = QHBoxLayout()
         act_row.addStretch(1)
         self._save_btn = QPushButton("Save CSV...")
+        self._save_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._save_btn.clicked.connect(self._save_csv)
         act_row.addWidget(self._save_btn)
         close_btn = QPushButton("Close")

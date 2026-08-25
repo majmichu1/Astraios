@@ -73,32 +73,34 @@ class ImageCanvas(QWidget):
         # Canvas overlay widgets (child widgets paint on top automatically)
         self._info_chip = QLabel(self)
         self._info_chip.setStyleSheet(
-            "QLabel { background: rgba(13,17,23,180); color: #8b949e;"
-            " border: 1px solid #30363d; border-radius: 4px;"
-            " padding: 2px 8px; font-size: 11px; }"
+            "QLabel { background: rgba(13,17,23,217); color: #2ea043;"
+            " border: 1px solid #30363d; border-radius: 6px;"
+            " padding: 4px 10px; font-size: 10px;"
+            " font-family: 'JetBrains Mono', 'Fira Code', monospace; }"
         )
         self._info_chip.hide()
 
         _ovr_style = (
-            "QPushButton { background: rgba(22,27,34,200); color: #e6edf3;"
-            " border: 1px solid #30363d; border-radius: 4px;"
+            "QPushButton { background: rgba(13,17,23,204); color: #e6edf3;"
+            " border: 1px solid #30363d; border-radius: 6px;"
             " padding: 3px 10px; font-size: 11px; font-weight: 500; }"
-            " QPushButton:hover { background: rgba(48,54,61,220); }"
+            " QPushButton:hover { background: rgba(48,54,61,230); }"
+            " QPushButton:disabled { background: rgba(13,17,23,160); color: #4a5260; }"
         )
-        self._overlay_undo_btn = QPushButton("← Undo", self)
+        self._overlay_undo_btn = QPushButton("↩ Undo", self)
         self._overlay_undo_btn.setStyleSheet(_ovr_style)
         self._overlay_undo_btn.clicked.connect(self.undo_requested)
 
-        self._overlay_redo_btn = QPushButton("↷ Redo", self)
+        self._overlay_redo_btn = QPushButton("↪ Redo", self)
         self._overlay_redo_btn.setStyleSheet(_ovr_style)
         self._overlay_redo_btn.clicked.connect(self.redo_requested)
 
         self._overlay_export_btn = QPushButton("↑ Export", self)
         self._overlay_export_btn.setStyleSheet(
-            "QPushButton { background: rgba(46,160,67,200); color: #ffffff;"
-            " border: none; border-radius: 4px;"
+            "QPushButton { background: rgba(46,160,67,230); color: #ffffff;"
+            " border: 1px solid transparent; border-radius: 6px;"
             " padding: 3px 10px; font-size: 11px; font-weight: 600; }"
-            " QPushButton:hover { background: rgba(63,185,80,220); }"
+            " QPushButton:hover { background: rgba(63,185,80,240); }"
         )
         self._overlay_export_btn.clicked.connect(self.export_requested)
 
@@ -261,7 +263,7 @@ class ImageCanvas(QWidget):
         if self._pixmap is None:
             painter = QPainter(self)
             painter.fillRect(self.rect(), Qt.GlobalColor.black)
-            painter.setPen(QPen(Qt.GlobalColor.gray))
+            painter.setPen(QPen(QColor("#8b949e")))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                              "No image loaded\nDrag & drop FITS/XISF files here")
             painter.end()

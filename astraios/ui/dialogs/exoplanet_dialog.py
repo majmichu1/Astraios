@@ -247,6 +247,7 @@ class ExoplanetDialog(QDialog):
 
         btns = QHBoxLayout()
         self._run_btn = QPushButton("Analyze Transit")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.setEnabled(len(self._frame_paths) >= 3)
         self._run_btn.clicked.connect(self._run)
         btns.addWidget(self._run_btn)

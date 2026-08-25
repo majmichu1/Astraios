@@ -59,7 +59,7 @@ class PreferencesDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Preferences")
-        self.setMinimumSize(520, 480)
+        self.setMinimumSize(640, 500)
         self._settings = QSettings("Astraios", "Astraios")
         self._setup_ui()
         self._load_settings()

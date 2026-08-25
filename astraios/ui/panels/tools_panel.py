@@ -6,17 +6,19 @@ Visual style matches the HTML prototype exactly using ui_kit widgets.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QFrame,
     QHBoxLayout,
     QInputDialog,
     QLabel,
     QListWidget,
     QMessageBox,
+    QPushButton,
+    QScrollArea,
     QTabWidget,
     QTextEdit,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -60,7 +62,6 @@ from astraios.ui.widgets.ui_kit import (
     ACCENT,
     ACCENT_DARK,
     ACCENT_PURPLE,
-    BG_HOVER,
     BG_PRIMARY,
     BG_SECONDARY,
     BG_TERTIARY,
@@ -81,40 +82,85 @@ from astraios.ui.widgets.ui_kit import (
     styled_spin,
 )
 
-# Tab-bar stylesheet
+# The QTabWidget only holds the pages; its own tab bar is hidden and the
+# strip below draws the tabs.
 _TAB_SS = f"""
 QTabWidget::pane {{
     border: none; background: {BG_PRIMARY};
 }}
-QTabBar {{
+"""
+
+_STRIP_SS = f"""
+QScrollArea#ToolsTabStrip {{
+    background: {BG_PRIMARY}; border: none; border-bottom: 1px solid {BORDER};
+}}
+QWidget#ToolsTabStripInner {{
     background: {BG_PRIMARY};
 }}
-QTabBar::tab {{
-    background: {BG_PRIMARY}; color: {TEXT_SECONDARY};
+QWidget#ToolsTabStripInner QPushButton {{
+    background: transparent; color: {TEXT_SECONDARY};
     padding: 7px 10px; font-size: 10px; font-weight: 600;
-    border: none; border-bottom: 2px solid transparent;
-    min-width: 0;
+    border: none; border-radius: 0;
+    border-top: 2px solid transparent; border-bottom: 2px solid transparent;
 }}
-QTabBar::tab:selected {{
-    color: {ACCENT}; border-bottom: 2px solid {ACCENT};
-}}
-QTabBar::tab:hover:!selected {{
+QWidget#ToolsTabStripInner QPushButton:hover {{
     color: {TEXT_PRIMARY};
 }}
-QTabBar::scroller {{
-    width: 52px;
-}}
-QTabBar QToolButton {{
-    background-color: {BG_TERTIARY}; border: 1px solid {BORDER};
-    border-radius: 4px; color: {TEXT_PRIMARY};
-    width: 22px; height: 22px;
-    padding: 0px; margin: 1px;
-    font-size: 12px;
-}}
-QTabBar QToolButton:hover {{
-    background-color: {BG_HOVER}; color: #ffffff;
+QWidget#ToolsTabStripInner QPushButton:checked {{
+    color: {ACCENT}; border-bottom: 2px solid {ACCENT};
 }}
 """
+
+
+class _TabStrip(QScrollArea):
+    """The design's tools tab bar: a row of underlined labels that scrolls
+    sideways under the wheel, with no scroll arrows.
+
+    QTabBar's answer to more tabs than fit is a pair of arrow buttons that
+    page the bar; that is what the design replaced. Here the strip scrolls
+    with the wheel, and selecting a tab (from a click, the workflow bar, or
+    code) scrolls it into view.
+    """
+
+    tab_clicked = pyqtSignal(int)
+
+    def __init__(self, labels: list[str], parent=None):
+        super().__init__(parent)
+        self.setObjectName("ToolsTabStrip")
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFixedHeight(31)
+        self.setStyleSheet(_STRIP_SS)
+
+        inner = QWidget()
+        inner.setObjectName("ToolsTabStripInner")
+        lay = QHBoxLayout(inner)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._btns: list[QPushButton] = []
+        for i, text in enumerate(labels):
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.clicked.connect(lambda _c=False, idx=i: self.tab_clicked.emit(idx))
+            lay.addWidget(b)
+            self._btns.append(b)
+        lay.addStretch()
+        self.setWidget(inner)
+
+    def set_current(self, idx: int) -> None:
+        for i, b in enumerate(self._btns):
+            b.setChecked(i == idx)
+        if 0 <= idx < len(self._btns):
+            self.ensureWidgetVisible(self._btns[idx], 24, 0)
+
+    def wheelEvent(self, event):
+        bar = self.horizontalScrollBar()
+        delta = event.angleDelta().y() or event.angleDelta().x()
+        bar.setValue(bar.value() - delta // 2)
+        event.accept()
 
 _BOTTOM_SS = f"""
 QWidget#tools_bottom {{
@@ -256,14 +302,19 @@ class ToolsPanel(QWidget):
         # an asset to someone who already knows which one they need; for
         # everyone else this is the way in, and a menu entry alone is not
         # discoverable enough to serve that purpose.
-        self._btn_guided = RunBtn("Guided Processing", accent=True)
+        top = QWidget()
+        top.setStyleSheet(f"background: {BG_SECONDARY};")
+        top_lay = QVBoxLayout(top)
+        top_lay.setContentsMargins(8, 8, 8, 8)
+        top_lay.setSpacing(6)
+        self._btn_guided = RunBtn("✦ Guided Processing", accent=True)
         self._btn_guided.setToolTip(
             "Not sure where to start? Walk through the whole workflow one "
             "step at a time, with an explanation and a suggested setting for "
             "each (Ctrl+G)."
         )
         self._btn_guided.clicked.connect(self.open_guided.emit)
-        outer.addWidget(self._btn_guided)
+        top_lay.addWidget(self._btn_guided)
 
         # Tool search — filters/expands matching sections across all tabs, so a
         # user can find a tool by name or keyword instead of hunting 9 tabs.
@@ -273,16 +324,17 @@ class ToolsPanel(QWidget):
         self._tool_search.setClearButtonEnabled(True)
         self._tool_search.textChanged.connect(self._filter_tools)
         self._tool_search.setStyleSheet(
-            "QLineEdit { background: #0d1117; color: #e6edf3; border: 1px solid "
-            "#30363d; border-radius: 4px; padding: 5px 8px; margin: 4px; }"
+            f"QLineEdit {{ background: {BG_PRIMARY}; padding: 4px 8px; font-size: 11px; }}"
         )
-        outer.addWidget(self._tool_search)
+        top_lay.addWidget(self._tool_search)
+        outer.addWidget(top)
 
         self._tabs = QTabWidget()
         self._tabs.setTabPosition(QTabWidget.TabPosition.North)
-        self._tabs.setUsesScrollButtons(True)
-        self._tabs.tabBar().setExpanding(False)
+        self._tabs.setDocumentMode(True)
+        self._tabs.tabBar().hide()
         self._tabs.setStyleSheet(_TAB_SS)
+        # The strip is inserted above the pages once the tabs exist (below).
         outer.addWidget(self._tabs)
 
         # bottom preset/undo bar
@@ -329,7 +381,12 @@ class ToolsPanel(QWidget):
         self._build_ai_tab()
         self._build_utility_tab()
 
-        QTimer.singleShot(0, self._fix_tab_scroll_buttons)
+        labels = [self._tabs.tabText(i) for i in range(self._tabs.count())]
+        self._tab_strip = _TabStrip(labels)
+        self._tab_strip.tab_clicked.connect(self._tabs.setCurrentIndex)
+        self._tabs.currentChanged.connect(self._tab_strip.set_current)
+        outer.insertWidget(outer.indexOf(self._tabs), self._tab_strip)
+        self._tab_strip.set_current(self._tabs.currentIndex())
 
     def _filter_tools(self, text: str):
         """Filter tool sections by the search box: show + expand matches across
@@ -348,18 +405,6 @@ class ToolsPanel(QWidget):
             sec.setVisible(hit)
             if hit:
                 sec.set_open(True)
-
-    def _fix_tab_scroll_buttons(self):
-        from PyQt6.QtCore import Qt
-
-        tb = self._tabs.tabBar()
-        for btn in tb.findChildren(QToolButton):
-            if btn.arrowType() == Qt.ArrowType.LeftArrow:
-                btn.setText("◀")
-                btn.setArrowType(Qt.ArrowType.NoArrow)
-            elif btn.arrowType() == Qt.ArrowType.RightArrow:
-                btn.setText("▶")
-                btn.setArrowType(Qt.ArrowType.NoArrow)
 
     # ── TAB 1: Pre-Process ────────────────────────────────
     def _build_preprocess_tab(self):
@@ -528,7 +573,7 @@ class ToolsPanel(QWidget):
         ped.add_run("▶ Apply Pedestal", self.run_pedestal.emit)
         lay.addWidget(ped)
 
-        self._tabs.addTab(scrollable_tab(lay), "⬡  Pre-Process")
+        self._tabs.addTab(scrollable_tab(lay), "⬡ Pre-Process")
 
     def _cal_frame_row(self, sec: CollapsibleSection, frame_type: str):
         rl = QHBoxLayout()
@@ -926,7 +971,7 @@ class ToolsPanel(QWidget):
         mosaic.add_run("⊞ Open Mosaic Dialog…", self.open_mosaic_dialog.emit, flat=True)
         lay.addWidget(mosaic)
 
-        self._tabs.addTab(scrollable_tab(lay), "⧉  Stacking")
+        self._tabs.addTab(scrollable_tab(lay), "⧉ Stacking")
 
     # ── TAB 3: Background ─────────────────────────────────
     def _build_background_tab(self):
@@ -1176,7 +1221,7 @@ class ToolsPanel(QWidget):
         band.add_run("▶ Reduce Banding", self.run_banding.emit)
         lay.addWidget(band)
 
-        self._tabs.addTab(scrollable_tab(lay), "◫  Background")
+        self._tabs.addTab(scrollable_tab(lay), "◫ Background")
 
     # ── TAB 4: Stretch ────────────────────────────────────
     def _build_stretch_tab(self):
@@ -1574,7 +1619,7 @@ class ToolsPanel(QWidget):
         btns[1].clicked.connect(self._curve_editor.reset)
         lay.addWidget(crv)
 
-        self._tabs.addTab(scrollable_tab(lay), "◑  Stretch")
+        self._tabs.addTab(scrollable_tab(lay), "◑ Stretch")
 
     # ── TAB 5: Transform ──────────────────────────────────
     def _build_transform_tab(self):
@@ -1729,7 +1774,7 @@ class ToolsPanel(QWidget):
         inv.add_run("▶ Invert Image", self.run_invert.emit)
         lay.addWidget(inv)
 
-        self._tabs.addTab(scrollable_tab(lay), "⟳  Transform")
+        self._tabs.addTab(scrollable_tab(lay), "⟳ Transform")
 
     # ── TAB 6: Color ──────────────────────────────────────
     def _build_color_tab(self):
@@ -2143,7 +2188,7 @@ class ToolsPanel(QWidget):
         lc.add_run("▶ Split Channels", self.run_split_channels.emit, flat=True)
         lay.addWidget(lc)
 
-        self._tabs.addTab(scrollable_tab(lay), "◈  Color")
+        self._tabs.addTab(scrollable_tab(lay), "◈ Color")
 
     # ── TAB 7: Detail ─────────────────────────────────────
     def _build_detail_tab(self):
@@ -2882,7 +2927,7 @@ class ToolsPanel(QWidget):
         blm.add_info("Tick, then click blemishes on the image. Untick when done.")
         lay.addWidget(blm)
 
-        self._tabs.addTab(scrollable_tab(lay), "◎  Detail")
+        self._tabs.addTab(scrollable_tab(lay), "◎ Detail")
 
     # ── TAB: Effects ──────────────────────────────────────
     def _build_effects_tab(self):
@@ -3163,7 +3208,7 @@ class ToolsPanel(QWidget):
         lay.addWidget(sp)
 
         lay.addStretch()
-        self._tabs.addTab(scrollable_tab(lay), "✧  Effects")
+        self._tabs.addTab(scrollable_tab(lay), "✧ Effects")
 
     def _update_fx_rows(self):
         """Show only the sliders that belong to the selected FX effect."""
@@ -3423,7 +3468,7 @@ class ToolsPanel(QWidget):
         train.add_run("Open Training Guide…", self._show_training_guide, flat=True)
         lay.addWidget(train)
 
-        self._tabs.addTab(scrollable_tab(lay), "✦  AI Tools")
+        self._tabs.addTab(scrollable_tab(lay), "✦ AI Tools")
 
     def get_fx_params(self):
         from astraios.core.fx_effects import BlendMode, FXEffect, FXParams
@@ -3821,7 +3866,7 @@ class ToolsPanel(QWidget):
         hdr.add_run("⊞ Edit FITS Header…", self.edit_fits_header.emit, flat=True)
         lay.addWidget(hdr)
 
-        self._tabs.addTab(scrollable_tab(lay), "⚙  Utility")
+        self._tabs.addTab(scrollable_tab(lay), "⚙ Utility")
 
     # ── Internal helpers ──────────────────────────────────
 

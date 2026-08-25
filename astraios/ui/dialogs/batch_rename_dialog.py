@@ -162,6 +162,7 @@ class BatchRenameDialog(QDialog):
 
         btn_row = QHBoxLayout()
         self._apply_btn = QPushButton("Apply")
+        self._apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._apply_btn.clicked.connect(self._apply)
         btn_row.addWidget(self._apply_btn)
         btn_row.addStretch(1)

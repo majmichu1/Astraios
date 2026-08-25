@@ -7,22 +7,49 @@ import os
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QEvent, QThread, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QLocale, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
-from PyQt6.QtWidgets import QApplication, QComboBox, QSplashScreen
+from PyQt6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QDialogButtonBox,
+    QPushButton,
+    QSplashScreen,
+)
 
 import astraios
-from astraios.ui.theme import DARK_THEME
+from astraios.ui.theme import DARK_THEME, load_bundled_fonts
 
 log = logging.getLogger(__name__)
 
 
 class _AstraiosApp(QApplication):
-    """QApplication subclass that blocks scroll-wheel on all QComboBox instances."""
+    """QApplication with two app-wide widget rules.
+
+    * Scroll-wheel events never reach a QComboBox, so scrolling a panel
+      cannot silently change a setting the pointer happens to pass over.
+    * A push button is a dialog's default button only when the dialog says
+      so. Qt's own rule is that any focused ``autoDefault`` button becomes
+      the default, and the theme draws the default button in the accent
+      colour: clicking "Browse..." would turn it green and make Enter fire
+      it, and a dialog whose primary action starts disabled would hand the
+      accent to whichever button got focus first. Buttons inside a
+      QDialogButtonBox keep Qt's behaviour, since the box manages its own
+      default.
+    """
 
     def notify(self, obj, event):
-        if event.type() == QEvent.Type.Wheel and isinstance(obj, QComboBox):
+        etype = event.type()
+        if etype == QEvent.Type.Wheel and isinstance(obj, QComboBox):
             return True
+        if (
+            etype == QEvent.Type.Polish
+            and isinstance(obj, QPushButton)
+            and obj.autoDefault()
+            and not obj.isDefault()
+            and not isinstance(obj.parent(), QDialogButtonBox)
+        ):
+            obj.setAutoDefault(False)
         return super().notify(obj, event)
 
 
@@ -147,11 +174,20 @@ def run_application(argv: list[str] | None = None) -> int:
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    # Set default font — Space Grotesk first, then fallbacks
-    for family in ("Space Grotesk", "Inter", "Segoe UI", "Roboto", "Ubuntu"):
-        font = QFont(family, 13)
-        if font.exactMatch():
-            break
+    # Numbers everywhere in this UI are written with a decimal point: slider
+    # readouts, FITS headers, pixel math, the histogram statistics. Without
+    # this a Polish or German system rendered "3,0" in every spin box beside a
+    # "3.0" slider label, and typed values with a point were rejected.
+    QLocale.setDefault(QLocale.c())
+
+    # The design's fonts ship with the app (resources/fonts, SIL OFL), so the
+    # interface looks the same on every machine instead of falling through the
+    # fallback list to whatever the OS has.
+    loaded = load_bundled_fonts()
+    if loaded:
+        log.debug("Loaded bundled fonts: %s", ", ".join(loaded))
+    font = QFont("Space Grotesk" if "Space Grotesk" in loaded else "Inter")
+    font.setPixelSize(12)
     app.setFont(font)
 
     # Apply dark theme

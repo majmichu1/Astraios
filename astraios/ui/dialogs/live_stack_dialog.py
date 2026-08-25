@@ -114,6 +114,7 @@ class LiveStackDialog(QDialog):
         ctrl.addSpacing(8)
 
         self._btn_start = QPushButton("▶  Start Stacking")
+        self._btn_start.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._btn_start.setEnabled(False)
         self._btn_start.clicked.connect(self._toggle_stacking)
         self._btn_start.setStyleSheet(self._accent_btn_ss())

@@ -138,6 +138,7 @@ class EquipmentDialog(QDialog):
         btn_row.addStretch()
 
         apply_btn = QPushButton("Apply")
+        apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         apply_btn.clicked.connect(self._apply)
         btn_row.addWidget(apply_btn)
 

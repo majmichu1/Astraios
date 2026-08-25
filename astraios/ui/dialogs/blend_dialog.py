@@ -99,6 +99,7 @@ class BlendDialog(QDialog):
         cancel_btn = QPushButton("Cancel")
         cancel_btn.clicked.connect(self.reject)
         self._apply_btn = QPushButton("Apply")
+        self._apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._apply_btn.clicked.connect(self._apply)
         self._apply_btn.setEnabled(False)
         btn_row.addStretch(1)

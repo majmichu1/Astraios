@@ -214,6 +214,7 @@ class ImagePeekerDialog(QDialog):
         controls.addStretch()
 
         self._peek_btn = QPushButton("Peek")
+        self._peek_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._peek_btn.setEnabled(False)
         self._peek_btn.clicked.connect(self._run_peek)
         controls.addWidget(self._peek_btn)

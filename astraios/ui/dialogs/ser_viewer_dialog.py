@@ -137,6 +137,7 @@ class SERViewerDialog(QDialog):
 
         btns = QHBoxLayout()
         self._send_btn = QPushButton("Send Current Frame to Canvas")
+        self._send_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._send_btn.setEnabled(False)
         self._send_btn.clicked.connect(self._send_current_frame)
         btns.addWidget(self._send_btn)

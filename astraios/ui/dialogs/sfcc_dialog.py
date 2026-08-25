@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.ui.dialogs.dialog_workers import stop_worker
-from astraios.ui.widgets.ui_kit import help_dot, param_help
+from astraios.ui.widgets.ui_kit import help_dot, make_dialog_scrollable, param_help
 
 log = logging.getLogger(__name__)
 
@@ -315,6 +315,7 @@ class SFCCDialog(QDialog):
 
         btns = QHBoxLayout()
         self._run_btn = QPushButton("Run SFCC")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.setEnabled(bool(is_color))
         self._run_btn.clicked.connect(self._run)
         btns.addWidget(self._run_btn)
@@ -325,6 +326,9 @@ class SFCCDialog(QDialog):
         lay.addLayout(btns)
 
     # ── helpers ──────────────────────────────────────────────────────────
+
+        # Fits a 768px-tall laptop screen; see make_dialog_scrollable.
+        make_dialog_scrollable(self)
 
     def _filter_combo(self, default: str | None, include_none: bool = False) -> QComboBox:
         combo = QComboBox()

@@ -70,6 +70,7 @@ class FITSHeaderDialog(QDialog):
 
         if file_path:
             btn_save = QPushButton("Save to FITS")
+            btn_save.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
             btn_save.setToolTip("Write edited header back to the FITS file")
             btn_save.clicked.connect(self._save_to_file)
             btn_row.addWidget(btn_save)

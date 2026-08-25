@@ -79,6 +79,7 @@ class StarMaskDialog(QDialog):
 
         btn_row = QHBoxLayout()
         generate_btn = QPushButton("Generate Mask")
+        generate_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         generate_btn.clicked.connect(self._generate)
         btn_row.addWidget(generate_btn)
         btn_row.addStretch()

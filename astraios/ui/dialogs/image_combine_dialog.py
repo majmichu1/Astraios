@@ -157,6 +157,7 @@ class ImageCombineDialog(QDialog):
 
         btns = QHBoxLayout()
         self._apply_btn = QPushButton("Combine")
+        self._apply_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._apply_btn.setEnabled(False)
         self._apply_btn.clicked.connect(self._apply)
         btns.addWidget(self._apply_btn)

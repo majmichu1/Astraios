@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.ui.dialogs.dialog_workers import stop_worker
-from astraios.ui.widgets.ui_kit import help_dot, param_help
+from astraios.ui.widgets.ui_kit import help_dot, make_dialog_scrollable, param_help
 
 log = logging.getLogger(__name__)
 
@@ -216,6 +216,7 @@ class SNRDialog(QDialog):
 
         btns = QHBoxLayout()
         self._run_btn = QPushButton("Measure")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         btns.addWidget(self._run_btn)
         self._copy_btn = QPushButton("Copy Results")
@@ -227,6 +228,9 @@ class SNRDialog(QDialog):
         close_btn.clicked.connect(self.reject)
         btns.addWidget(close_btn)
         lay.addLayout(btns)
+
+        # Fits a 768px-tall laptop screen; see make_dialog_scrollable.
+        make_dialog_scrollable(self)
 
     @staticmethod
     def _r(label, widget, tip):

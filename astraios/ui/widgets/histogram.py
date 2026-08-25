@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from PyQt6.QtCore import QRectF, Qt
+from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
@@ -11,17 +11,21 @@ from PyQt6.QtWidgets import QWidget
 class HistogramWidget(QWidget):
     """Renders R/G/B/Luminance histograms with log scale and clip indicators."""
 
+    # From the design prototype's HistogramDisplay.
     CHANNEL_COLORS = {
-        "red": QColor(220, 50, 50, 180),
-        "green": QColor(50, 200, 50, 180),
-        "blue": QColor(50, 100, 220, 180),
-        "luminance": QColor(200, 200, 200, 120),
-        "gray": QColor(200, 200, 200, 180),
+        "red": QColor(255, 100, 100, 180),
+        "green": QColor(100, 200, 100, 180),
+        "blue": QColor(100, 150, 255, 180),
+        "luminance": QColor(230, 237, 243, 110),
+        "gray": QColor(230, 237, 243, 180),
     }
+    BG = QColor("#0d1117")
+    GRID = QColor("#1e2530")
+    MARKER = QColor(255, 255, 255, 100)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumSize(200, 100)
+        self.setMinimumSize(200, 40)
         self.setMaximumHeight(160)
         self._data: dict | None = None
         self._log_scale = True
@@ -82,17 +86,29 @@ class HistogramWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.fillRect(self.rect(), QColor(30, 30, 30))
+        painter.fillRect(self.rect(), self.BG)
 
-        if self._data is None:
-            painter.setPen(QPen(QColor(100, 100, 100)))
-            painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "No histogram data")
-            painter.end()
-            return
-
-        margin = 4
+        margin = 0
         w = self.width() - 2 * margin
         h = self.height() - 2 * margin
+
+        # Grid: quarters across, thirds down.
+        painter.setPen(QPen(self.GRID, 1.0))
+        for i in range(1, 4):
+            x = margin + w * i / 4
+            painter.drawLine(QPointF(x, margin), QPointF(x, margin + h))
+        for i in range(1, 3):
+            y = margin + h * i / 3
+            painter.drawLine(QPointF(margin, y), QPointF(margin + w, y))
+
+        if self._data is None:
+            painter.setPen(QPen(QColor("#8b949e")))
+            painter.drawText(
+                self.rect(), Qt.AlignmentFlag.AlignCenter,
+                "No histogram data yet",
+            )
+            painter.end()
+            return
 
         _channel_map = {
             "RGB": ["luminance", "gray", "red", "green", "blue"],
@@ -133,28 +149,22 @@ class HistogramWidget(QWidget):
             path.closeSubpath()
 
             fill_color = QColor(color)
-            fill_color.setAlpha(60)
+            fill_color.setAlpha(38)
             painter.fillPath(path, fill_color)
 
             painter.setPen(QPen(color, 1.0))
             painter.drawPath(path)
 
-        # Draw clip indicator lines
+        # Black / white point markers: dashed, like the design.
+        pen = QPen(self.MARKER, 1.0)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        pen.setDashPattern([3, 3])
+        painter.setPen(pen)
         if self._clip_shadow is not None and 0.0 < self._clip_shadow < 1.0:
             sx = margin + self._clip_shadow * w
-            pen = QPen(QColor(80, 160, 255, 220), 1.5)
-            pen.setStyle(Qt.PenStyle.DashLine)
-            painter.setPen(pen)
-            painter.drawLine(int(sx), margin, int(sx), margin + h)
+            painter.drawLine(QPointF(sx, margin), QPointF(sx, margin + h))
         if self._clip_highlight is not None and 0.0 < self._clip_highlight < 1.0:
             hx = margin + self._clip_highlight * w
-            pen = QPen(QColor(255, 200, 80, 220), 1.5)
-            pen.setStyle(Qt.PenStyle.DashLine)
-            painter.setPen(pen)
-            painter.drawLine(int(hx), margin, int(hx), margin + h)
-
-        # Draw border
-        painter.setPen(QPen(QColor(60, 60, 60)))
-        painter.drawRect(QRectF(margin, margin, w, h))
+            painter.drawLine(QPointF(hx, margin), QPointF(hx, margin + h))
 
         painter.end()

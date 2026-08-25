@@ -304,6 +304,7 @@ class PixelMathDialog(QDialog):
         btn_row.setSpacing(6)
 
         self._btn_apply = QPushButton("Apply")
+        self._btn_apply.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._btn_apply.setEnabled(False)
         self._btn_apply.setStyleSheet(self._style_btn(_ACCENT))
         self._btn_apply.clicked.connect(self._evaluate)

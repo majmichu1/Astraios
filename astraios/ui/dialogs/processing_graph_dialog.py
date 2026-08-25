@@ -116,6 +116,7 @@ class ProcessingGraphDialog(QDialog):
         self._base_btn.clicked.connect(lambda: self.view_stage.emit(-1))
         row2.addWidget(self._base_btn)
         close_btn = QPushButton("Close")
+        close_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         close_btn.clicked.connect(self.accept)
         row2.addWidget(close_btn)
         lay.addLayout(row2)

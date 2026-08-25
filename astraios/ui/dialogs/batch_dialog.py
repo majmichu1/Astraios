@@ -145,6 +145,7 @@ class BatchDialog(QDialog):
 
         # Run button
         self._run_btn = QPushButton("Run Batch")
+        self._run_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._run_btn.clicked.connect(self._run)
         layout.addWidget(self._run_btn)
 

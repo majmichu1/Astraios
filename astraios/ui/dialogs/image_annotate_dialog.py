@@ -227,6 +227,7 @@ class ImageAnnotateDialog(QDialog):
         self._identify_btn.clicked.connect(self._identify)
         btns.addWidget(self._identify_btn)
         self._annotate_btn = QPushButton("Annotate onto Image")
+        self._annotate_btn.setDefault(True)  # the dialog's primary action: Enter runs it, drawn in accent
         self._annotate_btn.setEnabled(False)
         self._annotate_btn.clicked.connect(self._annotate)
         btns.addWidget(self._annotate_btn)

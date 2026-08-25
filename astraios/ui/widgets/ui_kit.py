@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QAbstractSpinBox,
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -54,16 +55,7 @@ def scrollable_tab(layout: QVBoxLayout) -> QScrollArea:
     scroll.setWidgetResizable(True)
     scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setWidget(container)
-    scroll.setStyleSheet(f"""
-        QScrollArea {{ border: none; background: {BG_PRIMARY}; }}
-        QScrollBar:vertical {{
-            background: {BG_PRIMARY}; width: 6px; margin: 0;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {BG_HOVER}; border-radius: 3px; min-height: 20px;
-        }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-    """)
+    scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {BG_PRIMARY}; }}")
     return scroll
 
 
@@ -109,31 +101,18 @@ class RunBtn(QPushButton):
         self.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
         )
-        self.setFixedHeight(30)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # The theme styles QPushButton as the design's flat "Btn" and
+        # QPushButton[accent="true"] as the green primary; a full-width run
+        # button is the design's RunBtn (30px), the flat row buttons are its
+        # "small" variant.
         if flat:
-            self.setStyleSheet(f"""
-                QPushButton {{
-                    background: {BG_TERTIARY}; color: {TEXT_PRIMARY};
-                    border: 1px solid {BORDER}; border-radius: 6px;
-                    padding: 0 8px; font-size: 12px; font-weight: 500;
-                }}
-                QPushButton:hover {{ background: {BG_HOVER}; }}
-                QPushButton:pressed {{ background: {ACCENT_DARK}; }}
-                QPushButton:disabled {{ color: {TEXT_SECONDARY}; }}
-            """)
+            self.setFixedHeight(26)
+            self.setProperty("small", True)
         else:
-            self.setStyleSheet(f"""
-                QPushButton {{
-                    background: {ACCENT}; color: #ffffff;
-                    border: none; border-radius: 6px;
-                    padding: 0 8px; font-size: 12px; font-weight: 600;
-                }}
-                QPushButton:hover {{ background: {ACCENT_HOVER}; }}
-                QPushButton:pressed {{ background: {ACCENT_DARK}; }}
-                QPushButton:disabled {{
-                    background: {BG_TERTIARY}; color: {TEXT_SECONDARY};
-                }}
-            """)
+            self.setFixedHeight(30)
+            self.setProperty("accent", True)
+        self.setStyleSheet("QPushButton { padding: 0 8px; }")
 
 
 # ── SliderRow ─────────────────────────────────────────────
@@ -179,21 +158,6 @@ class SliderRow(QWidget):
             int(min_val * self._scale), int(max_val * self._scale)
         )
         self._slider.setValue(int(value * self._scale))
-        self._slider.setStyleSheet(f"""
-            QSlider {{ background: transparent; border: none; }}
-            QSlider::groove:horizontal {{
-                height: 4px; background: {BG_TERTIARY}; border-radius: 2px;
-            }}
-            QSlider::handle:horizontal {{
-                background: {ACCENT}; width: 14px; height: 14px;
-                margin: -5px 0; border-radius: 7px;
-                border: 2px solid {BG_PRIMARY};
-            }}
-            QSlider::handle:horizontal:hover {{ background: {ACCENT_HOVER}; }}
-            QSlider::sub-page:horizontal {{
-                background: {ACCENT}; border-radius: 2px;
-            }}
-        """)
         self._slider.valueChanged.connect(self._on_slider)
         vbox.addWidget(self._slider)
 
@@ -226,13 +190,9 @@ class _ResetSlider(QSlider):
 
 
 # ── Styled input factories ────────────────────────────────
-
-_INPUT_SS = f"""
-    background: {BG_TERTIARY}; color: {TEXT_PRIMARY};
-    border: 1px solid {BORDER}; border-radius: 5px;
-    padding: 4px 8px; font-size: 12px;
-"""
-_INPUT_FOCUS = f"border-color: {ACCENT};"
+# Inputs take their look from the application theme (astraios.ui.theme), so
+# these factories only set behaviour. Keeping the styling in one place is
+# what lets the accent colour switch apply to every control at once.
 
 
 def styled_combo(options: list[str], current: str | None = None) -> QComboBox:
@@ -240,16 +200,7 @@ def styled_combo(options: list[str], current: str | None = None) -> QComboBox:
     combo.addItems(options)
     if current and (idx := combo.findText(current)) >= 0:
         combo.setCurrentIndex(idx)
-    combo.setStyleSheet(f"""
-        QComboBox {{ {_INPUT_SS} }}
-        QComboBox:focus {{ {_INPUT_FOCUS} }}
-        QComboBox::drop-down {{ border: none; padding-right: 8px; }}
-        QComboBox QAbstractItemView {{
-            background: {BG_SECONDARY}; color: {TEXT_PRIMARY};
-            selection-background-color: {ACCENT_DARK};
-            border: 1px solid {BORDER};
-        }}
-    """)
+    combo.setCursor(Qt.CursorShape.PointingHandCursor)
     return combo
 
 
@@ -267,30 +218,17 @@ def styled_spin(min_val: float, max_val: float, value: float,
     w.setValue(value)
     if suffix:
         w.setSuffix(suffix)
-    w.setStyleSheet(f"""
-        QDoubleSpinBox, QSpinBox {{
-            {_INPUT_SS} font-family: {FONT_MONO};
-        }}
-        QDoubleSpinBox:focus, QSpinBox:focus {{ {_INPUT_FOCUS} }}
-    """)
+    # The design's NumberInput: monospace, right-aligned, no spin arrows.
+    # Wheel and arrow keys still step the value.
+    w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+    w.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     return w
 
 
 def styled_check(label: str, checked: bool = False) -> QCheckBox:
     cb = QCheckBox(label)
     cb.setChecked(checked)
-    cb.setStyleSheet(f"""
-        QCheckBox {{ color: {TEXT_PRIMARY}; font-size: 12px; spacing: 6px; background-color: transparent; }}
-        QCheckBox::indicator {{
-            width: 14px; height: 14px;
-            border: 1.5px solid {BORDER}; border-radius: 3px;
-            background: {BG_TERTIARY};
-        }}
-        QCheckBox::indicator:checked {{
-            background: {ACCENT}; border-color: {ACCENT};
-        }}
-        QCheckBox::indicator:hover {{ border-color: {ACCENT}; }}
-    """)
+    cb.setCursor(Qt.CursorShape.PointingHandCursor)
     return cb
 
 
@@ -652,3 +590,46 @@ class CollapsibleSection(QWidget):
             grid.addWidget(lbl, row_i * 2,     col)
             grid.addWidget(w,   row_i * 2 + 1, col)
         self.body.addLayout(grid)
+
+
+# ── Tall dialogs ──────────────────────────────────────────
+
+def make_dialog_scrollable(dialog: QWidget, reserve: int = 80) -> QScrollArea:
+    """Wrap a finished dialog's layout in a scroll area so it fits the screen.
+
+    Several tool dialogs lay out 700-900px of controls in one column. On a
+    1366x768 laptop such a dialog cannot be shown whole: Qt enforces the
+    layout's minimum height, the window opens taller than the screen, and the
+    buttons at the bottom are off the display with no way to reach them.
+    Call this as the last line of ``__init__``: the existing layout moves onto
+    a content widget inside a scroll area, the dialog keeps its natural size
+    where the screen allows it, and gets a scrollbar where it does not.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    inner = dialog.layout()
+    if inner is None:
+        raise ValueError("make_dialog_scrollable needs a dialog that already has a layout")
+    hint = dialog.sizeHint()
+
+    # Assigning the layout to a fresh widget re-parents it (the documented
+    # way to detach a layout from a widget).
+    content = QWidget()
+    content.setLayout(inner)
+    content.setStyleSheet("background: transparent;")
+
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+    scroll.setWidget(content)
+
+    outer = QVBoxLayout(dialog)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.addWidget(scroll)
+
+    screen = QApplication.primaryScreen()
+    avail_h = screen.availableGeometry().height() if screen else 800
+    # A little extra width keeps the scrollbar from eating the right margin.
+    dialog.resize(hint.width() + 12, min(hint.height() + 4, avail_h - reserve))
+    return scroll
