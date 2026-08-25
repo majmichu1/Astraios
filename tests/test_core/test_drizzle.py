@@ -92,3 +92,62 @@ class TestDrizzle:
             [data], transforms=[np.eye(2, 3, dtype=np.float32)], params=params
         )
         assert result.data.shape == (25, 25)
+
+
+class TestGaussianDropKernel:
+    """DrizzleParams.pixel_weight documented "uniform" or "gaussian" and the
+    code read neither, so asking for a gaussian drop silently got a square
+    one."""
+
+    @staticmethod
+    def _drizzle_point(mode: str, scale: int = 2):
+        from astraios.core.drizzle import _drizzle_frame_numpy
+
+        img = np.zeros((8, 8), dtype=np.float32)
+        img[4, 4] = 1.0
+        out = np.zeros((8 * scale, 8 * scale), dtype=np.float32)
+        weight = np.zeros((8 * scale, 8 * scale), dtype=np.float32)
+        _drizzle_frame_numpy(img, out, weight, None, scale, 0.7, mode)
+        return out, weight
+
+    def test_gaussian_changes_the_weighting(self):
+        _, w_uniform = self._drizzle_point("uniform")
+        _, w_gauss = self._drizzle_point("gaussian")
+        assert not np.allclose(w_uniform, w_gauss), "gaussian must not equal uniform"
+
+    def test_uniform_weights_stay_flat(self):
+        """The square kernel gives every covered output pixel the same share."""
+        _, weight = self._drizzle_point("uniform")
+        covered = weight[weight > 0]
+        assert np.allclose(covered, covered[0])
+
+    def test_gaussian_weights_fall_off_from_the_centre(self):
+        _, weight = self._drizzle_point("gaussian")
+        covered = weight[weight > 0]
+        assert covered.max() > covered.min(), "gaussian weights should vary"
+        assert covered.min() > 0
+
+    def test_normalised_amplitude_is_preserved(self):
+        """Signal and weight carry the same kernel, so a point source must
+        normalise back to its own value under either kernel."""
+        for mode in ("uniform", "gaussian"):
+            out, weight = self._drizzle_point(mode)
+            lit = weight > 0
+            norm = np.zeros_like(out)
+            norm[lit] = out[lit] / weight[lit]
+            assert np.isfinite(norm).all()
+            assert abs(float(norm.max()) - 1.0) < 1e-4, mode
+
+    def test_gaussian_forces_the_cpu_path(self):
+        """Both backends must agree on what the settings mean, so the gaussian
+        kernel is not silently squared off on the GPU."""
+        from astraios.core.drizzle import DrizzleParams, drizzle_integrate
+
+        data = np.zeros((12, 12), dtype=np.float32)
+        data[6, 6] = 1.0
+        params = DrizzleParams(scale=2, pixel_weight="gaussian", use_gpu=True)
+        result = drizzle_integrate(
+            [data], transforms=[np.eye(2, 3, dtype=np.float32)], params=params
+        )
+        assert result.data.shape == (24, 24)
+        assert np.isfinite(result.data).all()

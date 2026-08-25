@@ -34,7 +34,10 @@ class DrizzleParams:
 
     scale: int = 2           # output scale factor (2 = 2× resolution)
     drop_shrink: float = 0.7  # pixel footprint fraction (0.5–1.0)
-    pixel_weight: str = "uniform"  # "uniform" or "gaussian"
+    # "uniform" (square drop kernel) or "gaussian" (share falls off from the
+    # drop centre). Gaussian runs on the numpy path regardless of use_gpu, so
+    # the two backends cannot disagree about what the same settings mean.
+    pixel_weight: str = "uniform"
     use_gpu: bool = True     # prefer GPU; auto-falls back to CPU
 
 
@@ -60,11 +63,23 @@ def _drizzle_frame_numpy(
     transform: np.ndarray | None,
     scale: int,
     drop_shrink: float,
+    pixel_weight: str = "uniform",
 ) -> None:
     """Vectorized CPU drizzle for a single frame using numpy.
 
     Replaces the pure Python double loop — processes all pixels in one
     batch of numpy operations (no Python iteration over pixels).
+
+    ``pixel_weight`` selects the drop kernel:
+
+    * ``"uniform"`` — every output pixel the drop touches receives the same
+      share, which is the classic square drizzle kernel.
+    * ``"gaussian"`` — the share falls off with distance from the drop centre,
+      the same idea as DrizzlePac's gaussian kernel. Softer, and less prone to
+      the blocky look a small drop_shrink can give, at some resolution cost.
+
+    Both the signal and the weight map get the same kernel, so the normalised
+    result stays a proper weighted mean and total flux is preserved.
     """
     is_color = image.ndim == 3
     if is_color:
@@ -125,18 +140,38 @@ def _drizzle_frame_numpy(
 
     max_fh = int(fh[covers].max())
     max_fw = int(fw[covers].max())
+    gaussian = pixel_weight == "gaussian"
+    # Sigma in output pixels. half_drop is the drop's half-width, so this puts
+    # the kernel edge near 2 sigma: weight there is about 0.135 of centre,
+    # which softens the drop without throwing its outskirts away entirely.
+    sigma = max(float(half_drop) * 0.5, 0.5)
+    two_sigma_sq = 2.0 * sigma * sigma
+
     for dy in range(max_fh):
         for dx in range(max_fw):
             sel = covers & (dy < fh) & (dx < fw)
             if not np.any(sel):
                 continue
             tgt = (y0[sel] + dy) * out_w + (x0[sel] + dx)
+
+            if gaussian:
+                # Centre per pixel, because edge footprints are clamped and so
+                # are not centred on the drop the way interior ones are.
+                cy = (fh[sel] - 1) * 0.5
+                cx = (fw[sel] - 1) * 0.5
+                r2 = (dy - cy) ** 2 + (dx - cx) ** 2
+                w = np.exp(-r2 / two_sigma_sq).astype(np.float32)
+            else:
+                w = None
+
             if is_color:
                 for c in range(n_ch):
-                    np.add.at(out_flat[c], tgt, img_flat[c][sel])
+                    vals = img_flat[c][sel]
+                    np.add.at(out_flat[c], tgt, vals if w is None else vals * w)
             else:
-                np.add.at(out_flat, tgt, img_flat[sel])
-            np.add.at(w_flat, tgt, 1.0)
+                vals = img_flat[sel]
+                np.add.at(out_flat, tgt, vals if w is None else vals * w)
+            np.add.at(w_flat, tgt, 1.0 if w is None else w)
 
 
 @torch.no_grad()
@@ -283,6 +318,13 @@ def drizzle_integrate(
 
     # Decide execution path
     use_gpu = params.use_gpu
+    if use_gpu and params.pixel_weight == "gaussian":
+        # The gaussian drop kernel is implemented on the numpy path only.
+        # Running it on one backend and the square kernel on the other would
+        # make the same settings produce different pixels depending on the
+        # machine, which is a worse failure than being slower here.
+        log.info("Gaussian drop kernel runs on the CPU path; using numpy for this stack")
+        use_gpu = False
     if use_gpu:
         try:
             import torch
@@ -339,7 +381,10 @@ def drizzle_integrate(
             if transform is None and i > 0:
                 log.warning("Skipping frame %d: no transform", i)
                 continue
-            _drizzle_frame_numpy(img, output, weight_map_f, transform, scale, params.drop_shrink)
+            _drizzle_frame_numpy(
+                img, output, weight_map_f, transform, scale,
+                params.drop_shrink, params.pixel_weight,
+            )
 
         valid = weight_map_f > 0
         if is_color:
