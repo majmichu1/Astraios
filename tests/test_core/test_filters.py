@@ -273,10 +273,13 @@ class TestGaussianBlurFastPath:
     These tests pin that bound so it cannot quietly widen.
     """
 
-    #: Measured worst case is 1.15e-05 (0.75 of a 16-bit level) at sigma 51.
-    #: The bound is set a little above that, not at a round number pulled from
-    #: the air, so a real regression trips it.
-    TOLERANCE = 3e-5
+    #: Measured worst case is 2.68e-06 (0.18 of a 16-bit level, 0.00027% of
+    #: full scale) at sigma 50 on uniform noise, which is the hardest content
+    #: for float accumulation. The bound sits just above that rather than at a
+    #: round number, so a real regression trips it. Before the centring trick
+    #: in _gaussian_blur_gpu_2d the same case measured 4.4e-05, so this bound
+    #: also guards that optimisation staying in place.
+    TOLERANCE = 6e-6
 
     @staticmethod
     def _scene(size=256):
@@ -347,6 +350,30 @@ class TestGaussianBlurFastPath:
         finally:
             filt._GAUSS_BAND_BYTES = original
         assert np.array_equal(full, banded)
+
+    @pytest.mark.parametrize("sigma", [10.0, 50.0, 100.0])
+    def test_holds_on_the_worst_content_for_float_error(self, sigma):
+        """Uniform noise, not a smooth scene. Neighbouring values are
+        uncorrelated, so the weighted sum cancels as badly as it ever will;
+        a smooth astro frame flatters the arithmetic and would hide drift."""
+        import scipy.ndimage
+
+        from astraios.core.filters import gaussian_blur
+
+        rng = np.random.default_rng(5)
+        img = np.clip(rng.random((512, 512)).astype(np.float32), 0, 1)
+        ref = scipy.ndimage.gaussian_filter(img, sigma=sigma, mode="reflect")
+        assert np.max(np.abs(ref - gaussian_blur(img, sigma))) < self.TOLERANCE
+
+    def test_a_constant_image_stays_constant(self):
+        """The centring trick relies on a normalised kernel blurring a
+        constant back to itself. If that ever stops holding, the offset added
+        back afterwards would be wrong everywhere."""
+        from astraios.core.filters import gaussian_blur
+
+        flat = np.full((512, 512), 0.37, dtype=np.float32)
+        out = gaussian_blur(flat, 40.0)
+        assert np.max(np.abs(out - 0.37)) < 1e-6
 
     def test_zero_sigma_is_a_copy(self):
         from astraios.core.filters import gaussian_blur

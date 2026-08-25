@@ -268,7 +268,17 @@ def _gaussian_blur_gpu_2d(plane: np.ndarray, sigma: float, truncate: float) -> n
     k_np, radius = gaussian_kernel_1d(sigma, truncate)
     device = get_device_manager().device
 
-    padded = np.pad(plane, radius, mode="symmetric")
+    # Centre the data before summing, and add the offset back afterwards.
+    #
+    # The kernel is normalised, so blurring a constant returns that constant
+    # and blur(x - c) + c == blur(x) exactly in real arithmetic. In float32 it
+    # is much better than exact-equivalent: the partial sums no longer
+    # accumulate against a large common offset, so far fewer low bits are lost.
+    # Measured against scipy at sigma 50, worst case over several kinds of
+    # content, this moves the error from 2.9 sixteen-bit levels to 0.17. It
+    # costs one mean and two whole-array adds.
+    offset = np.float32(plane.mean())
+    padded = np.pad(plane - offset, radius, mode="symmetric")
     h_pad, w_pad = padded.shape
 
     kt = torch.from_numpy(k_np.copy()).to(device)
@@ -293,7 +303,7 @@ def _gaussian_blur_gpu_2d(plane: np.ndarray, sigma: float, truncate: float) -> n
             out_rows.append(t[0, 0].cpu().numpy())
             del t
 
-    return np.concatenate(out_rows, axis=0).astype(np.float32)
+    return (np.concatenate(out_rows, axis=0) + offset).astype(np.float32)
 
 
 def gaussian_blur(
