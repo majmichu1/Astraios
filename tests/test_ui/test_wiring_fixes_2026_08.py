@@ -105,7 +105,7 @@ def test_spcc_panel_builds_a_real_sfcc_configuration(panel):
     from astraios.core.sfcc import FILTER_CURVES, SENSOR_QE_CURVES, SFCCParams
 
     panel._spcc_filter_combo.setCurrentText("OSC (Bayer RGB)")
-    panel._spcc_sensor_combo.setCurrentText("Generic CCD (Kodak KAF-class)")
+    panel._spcc_sensor_combo.setCurrentText("CCD (Kodak KAF)")
     panel._spcc_lp_combo.setCurrentText("UV/IR Cut (generic, 400-700nm)")
     p = panel.get_spcc_params()
     assert isinstance(p, SFCCParams)

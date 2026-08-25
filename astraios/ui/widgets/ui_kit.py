@@ -218,6 +218,12 @@ def styled_combo(options: list[str], current: str | None = None) -> QComboBox:
     if current and (idx := combo.findText(current)) >= 0:
         combo.setCurrentIndex(idx)
     combo.setCursor(Qt.CursorShape.PointingHandCursor)
+    # A combo sizes itself to its longest entry by default, and one long
+    # option then pushes the whole panel wider than its scroll area, cutting
+    # the help dots off the right edge. The field takes the row's width; the
+    # popup list still shows every entry in full.
+    combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+    combo.setMinimumContentsLength(8)
     return combo
 
 

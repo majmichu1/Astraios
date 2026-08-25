@@ -231,6 +231,14 @@ QWidget#tools_bottom {{
 """
 
 
+# Short labels for the SFCC sensor curves; the keys are what the combo shows.
+_SPCC_SENSORS = {
+    "CMOS back-illuminated (Sony IMX)": "Generic CMOS back-illuminated (Sony IMX-class)",
+    "CCD (Kodak KAF)": "Generic CCD (Kodak KAF-class)",
+    "Ideal (100% QE)": "Ideal (100% QE)",
+}
+
+
 class ToolsPanel(QWidget):
     """Right-side tabbed processing controls."""
 
@@ -2317,9 +2325,8 @@ class ToolsPanel(QWidget):
                     "R, G and B interference filters.",
             ),
         )
-        from astraios.core.sfcc import SENSOR_QE_CURVES
         self._spcc_sensor_combo = spcc.add_combo(
-            "Sensor", list(SENSOR_QE_CURVES), "Generic CMOS back-illuminated (Sony IMX-class)",
+            "Sensor", list(_SPCC_SENSORS), "CMOS back-illuminated (Sony IMX)",
             help_text=param_help(
                 "The sensor's quantum-efficiency curve, multiplied into "
                 "every channel's response.",
@@ -4888,7 +4895,7 @@ class ToolsPanel(QWidget):
             filter_r=f"{prefix}R{suffix}",
             filter_g=f"{prefix}G{suffix}",
             filter_b=f"{prefix}B{suffix}",
-            sensor=self._spcc_sensor_combo.currentText(),
+            sensor=_SPCC_SENSORS[self._spcc_sensor_combo.currentText()],
             lp_filter_1=None if lp == "(None)" else lp,
             detection_sigma=float(self._spcc_sigma.value()),
         )
