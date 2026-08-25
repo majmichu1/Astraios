@@ -181,8 +181,7 @@ def tonemap_core_blend(
         from astraios.core.stretch import StretchParams, auto_stretch
         return auto_stretch(data, StretchParams())
 
-    from scipy.ndimage import gaussian_filter as _gf
-
+    from astraios.core.filters import gaussian_blur as _gf
     from astraios.core.stretch import StretchParams, auto_stretch
 
     sigma = max(8, min(data.shape[-2], data.shape[-1]) * params.blur_sigma_factor)
@@ -190,6 +189,11 @@ def tonemap_core_blend(
     # channel axis, and the later [np.newaxis, ...] broadcast would then
     # inflate a color image to (C, C, H, W).
     core_2d = core_linear.max(axis=0) if data.ndim == 3 else core_linear
+    # gaussian_blur runs this on the GPU when the work is worth the transfer.
+    # sigma is 1.5% of the short side, so the kernel grows with the image: 123
+    # taps at 1024px, 721 taps on a 6000px frame. That convolution was 55ms of
+    # this tool's 226ms at 1024px and would dominate outright at full size;
+    # it is about 3.6ms now.
     core_mask = _gf(core_2d, sigma=sigma)
     core_mask = np.clip(core_mask, 0, 1)
 

@@ -1,6 +1,7 @@
 """Tests for image filters — unsharp mask and median filter."""
 
 import numpy as np
+import pytest
 
 from astraios.core.filters import (
     MedianFilterParams,
@@ -260,3 +261,109 @@ class TestMedianFilter:
         result = median_filter(img, MedianFilterParams(kernel_size=5))
         assert result.min() >= 0.0
         assert result.max() <= 1.0
+
+
+class TestGaussianBlurFastPath:
+    """gaussian_blur matches scipy's gaussian_filter(mode='reflect') and runs
+    the large kernels on the GPU.
+
+    It is deliberately NOT bit-identical there: scipy accumulates the weighted
+    sum in float64 while the GPU accumulates in float32 and in a different
+    order. The agreement is about 1e-5 of full scale, under one 16-bit level.
+    These tests pin that bound so it cannot quietly widen.
+    """
+
+    #: Measured worst case is 1.15e-05 (0.75 of a 16-bit level) at sigma 51.
+    #: The bound is set a little above that, not at a round number pulled from
+    #: the air, so a real regression trips it.
+    TOLERANCE = 3e-5
+
+    @staticmethod
+    def _scene(size=256):
+        rng = np.random.default_rng(7)
+        yy, xx = np.mgrid[0:size, 0:size]
+        base = 0.08 + 0.05 * (xx / size) + rng.normal(0, 0.004, (size, size))
+        for _ in range(20):
+            cy, cx = rng.uniform(10, size - 10, 2)
+            base += 0.6 * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / 3.0)
+        return np.clip(base, 0, 1).astype(np.float32)
+
+    @pytest.mark.parametrize("sigma", [1.0, 4.0, 12.0, 30.0])
+    def test_agrees_with_scipy(self, sigma):
+        import scipy.ndimage
+
+        from astraios.core.filters import gaussian_blur
+
+        img = self._scene()
+        ref = scipy.ndimage.gaussian_filter(img, sigma=sigma, mode="reflect")
+        got = gaussian_blur(img, sigma)
+        assert got.shape == img.shape
+        assert np.max(np.abs(ref - got)) < self.TOLERANCE
+
+    def test_small_sigma_stays_exact(self):
+        """Below the size threshold the CPU path runs, and scipy compared with
+        scipy is exact. A tolerance would hide a wrong branch here."""
+        import scipy.ndimage
+
+        from astraios.core.filters import gaussian_blur
+
+        img = self._scene(128)
+        ref = scipy.ndimage.gaussian_filter(img, sigma=1.5, mode="reflect").astype(np.float32)
+        assert np.array_equal(ref, gaussian_blur(img, 1.5))
+
+    def test_colour_matches_per_channel_scipy(self):
+        import scipy.ndimage
+
+        from astraios.core.filters import gaussian_blur
+
+        mono = self._scene()
+        img = np.stack([mono, mono * 0.9, mono * 0.8]).astype(np.float32)
+        ref = np.stack([
+            scipy.ndimage.gaussian_filter(img[c], sigma=10.0, mode="reflect")
+            for c in range(3)
+        ])
+        got = gaussian_blur(img, 10.0)
+        assert got.shape == img.shape
+        assert np.max(np.abs(ref - got)) < self.TOLERANCE
+
+    def test_banding_does_not_change_the_result(self):
+        """The VRAM guard splits the work into row bands with halos. Every
+        output row still sees the same window, so banding must be exactly
+        invisible -- a previous GPU port OOMed at 73MP and the caller silently
+        skipped the step, which is what the banding exists to prevent."""
+        from astraios.core.device_manager import get_device_manager
+
+        if not get_device_manager().is_gpu:
+            pytest.skip("no GPU available")
+
+        import astraios.core.filters as filt
+
+        img = self._scene(512)
+        full = filt._gaussian_blur_gpu_2d(img, 12.0, 4.0)
+        original = filt._GAUSS_BAND_BYTES
+        try:
+            filt._GAUSS_BAND_BYTES = 64 * 1024      # force many tiny bands
+            banded = filt._gaussian_blur_gpu_2d(img, 12.0, 4.0)
+        finally:
+            filt._GAUSS_BAND_BYTES = original
+        assert np.array_equal(full, banded)
+
+    def test_zero_sigma_is_a_copy(self):
+        from astraios.core.filters import gaussian_blur
+
+        img = self._scene(64)
+        out = gaussian_blur(img, 0.0)
+        assert np.array_equal(out, img)
+        assert out is not img
+
+    def test_kernel_matches_scipys_radius_rule(self):
+        from scipy.ndimage import _filters
+
+        from astraios.core.filters import gaussian_kernel_1d
+
+        for sigma in (1.0, 7.5, 30.0):
+            k, radius = gaussian_kernel_1d(sigma)
+            expected_radius = int(4.0 * sigma + 0.5)
+            assert radius == expected_radius
+            ref = _filters._gaussian_kernel1d(sigma, 0, expected_radius)[::-1]
+            assert np.max(np.abs(k - ref.astype(np.float32))) < 1e-7

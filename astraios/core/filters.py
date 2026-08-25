@@ -218,6 +218,140 @@ def _validate_kernel_size(kernel_size: int) -> int:
     return kernel_size
 
 
+# --------------------------------------------------------------------------
+# Fast Gaussian blur
+# --------------------------------------------------------------------------
+
+_GAUSS_BAND_BYTES = 256 * 1024 * 1024
+"""Peak transient budget for the banded GPU path.
+
+A previous GPU port stacked ksize^2 shifted copies of a channel, reached ~7GB
+on a 73MP frame, and the caller caught the OOM and silently skipped the step
+-- so the tool quietly stopped working on exactly the large images that needed
+it. Bounding the transient here keeps that from repeating.
+"""
+
+
+def gaussian_kernel_1d(sigma: float, truncate: float = 4.0) -> tuple[np.ndarray, int]:
+    """The same 1D Gaussian weights scipy.ndimage.gaussian_filter builds.
+
+    Computed in float64 and returned as float32, matching scipy's radius rule
+    ``int(truncate * sigma + 0.5)`` so the two agree on kernel extent as well
+    as on weights.
+    """
+    radius = int(truncate * float(sigma) + 0.5)
+    x = np.arange(-radius, radius + 1, dtype=np.float64)
+    k = np.exp(-0.5 * (x / float(sigma)) ** 2)
+    k /= k.sum()
+    return k.astype(np.float32), radius
+
+
+def _gaussian_blur_gpu_2d(plane: np.ndarray, sigma: float, truncate: float) -> np.ndarray:
+    """Separable Gaussian on the GPU, matching scipy's mode='reflect'.
+
+    scipy's "reflect" is numpy's "symmetric" (d c b a | a b c d); torch's
+    F.pad has no symmetric mode and its "reflect" is scipy's "mirror", so the
+    padding is done with numpy before the transfer rather than trusting a
+    same-named option to mean the same thing.
+
+    Not bit-identical to scipy: scipy accumulates the weighted sum in float64
+    while this accumulates in float32, and a GPU sums in a different order
+    besides. The difference is around 1e-5 of full scale, which is under one
+    16-bit level. :func:`gaussian_blur` decides when that trade is worth
+    making.
+    """
+    import torch
+    import torch.nn.functional as F
+
+    from astraios.core.device_manager import get_device_manager
+
+    k_np, radius = gaussian_kernel_1d(sigma, truncate)
+    device = get_device_manager().device
+
+    padded = np.pad(plane, radius, mode="symmetric")
+    h_pad, w_pad = padded.shape
+
+    kt = torch.from_numpy(k_np.copy()).to(device)
+    k_v = kt.view(1, 1, -1, 1)
+    k_h = kt.view(1, 1, 1, -1)
+
+    # Band the vertical pass so the transient stays bounded on large frames.
+    # Every output row still sees the same window, so banding changes nothing
+    # about the result; a test asserts that against the single-shot path.
+    rows_budget = max(1, _GAUSS_BAND_BYTES // max(1, w_pad * 4))
+    band = max(1, min(plane.shape[0], rows_budget))
+
+    out_rows = []
+    with torch.no_grad():
+        for start in range(0, plane.shape[0], band):
+            stop = min(start + band, plane.shape[0])
+            chunk = padded[start:stop + 2 * radius]          # halo included
+            t = torch.from_numpy(np.ascontiguousarray(chunk)).to(device)
+            t = t.view(1, 1, *t.shape)
+            t = F.conv2d(t, k_v)                             # vertical
+            t = F.conv2d(t, k_h)                             # horizontal
+            out_rows.append(t[0, 0].cpu().numpy())
+            del t
+
+    return np.concatenate(out_rows, axis=0).astype(np.float32)
+
+
+def gaussian_blur(
+    image: np.ndarray,
+    sigma: float,
+    *,
+    truncate: float = 4.0,
+    prefer_gpu: bool = True,
+) -> np.ndarray:
+    """Gaussian blur matching ``scipy.ndimage.gaussian_filter(mode="reflect")``.
+
+    Uses the GPU when one is present and the work is large enough to pay for
+    the transfer, otherwise scipy. The GPU path is not bit-identical to scipy
+    (see :func:`_gaussian_blur_gpu_2d`); it agrees to about 1e-5 of full scale,
+    below one 16-bit level.
+
+    A small blur is left on the CPU on purpose. Measured on Apple Silicon
+    earlier in this project, a tool can be 0.35x on the GPU at 256px and 1.79x
+    at 1024px: below some size the transfer costs more than the arithmetic
+    saves, and a blanket "GPU is faster" would make small images slower.
+    """
+    sigma = float(sigma)
+    if sigma <= 0:
+        return image.astype(np.float32, copy=True)
+
+    radius = int(truncate * sigma + 0.5)
+    pixels = int(np.prod(image.shape[-2:]))
+    # Work scales with pixels * kernel taps; below this there is nothing to win.
+    worth_gpu = prefer_gpu and pixels * (2 * radius + 1) > 20_000_000
+
+    if worth_gpu:
+        try:
+            from astraios.core.device_manager import get_device_manager
+
+            if get_device_manager().is_gpu:
+                if image.ndim == 2:
+                    return _gaussian_blur_gpu_2d(image, sigma, truncate)
+                return np.stack([
+                    _gaussian_blur_gpu_2d(image[c], sigma, truncate)
+                    for c in range(image.shape[0])
+                ]).astype(np.float32)
+        except Exception as exc:  # pragma: no cover - falls back below
+            # Never let a GPU problem silently drop the blur: say so, then do
+            # the work on the CPU anyway.
+            log.warning("GPU gaussian blur unavailable (%s); using scipy", exc)
+
+    if image.ndim == 2:
+        return scipy.ndimage.gaussian_filter(
+            image, sigma=sigma, truncate=truncate, mode="reflect"
+        ).astype(np.float32)
+    return np.stack([
+        scipy.ndimage.gaussian_filter(
+            image[c], sigma=sigma, truncate=truncate, mode="reflect"
+        )
+        for c in range(image.shape[0])
+    ]).astype(np.float32)
+
+
 def _median_2d(plane: np.ndarray, ksize: int) -> np.ndarray:
     """Median-filter one 2D plane, matching scipy's default border exactly.
 
