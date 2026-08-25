@@ -72,7 +72,14 @@ class GaiaSolveParams:
     scale_hint: float | None = None  # seed pixel scale, arcsec/pixel
     rotation_hint: float = 0.0  # seed camera rotation, degrees
 
-    search_radius: float = 1.0  # deg; kept for API/UI parity, informational
+    # Informational only, and deliberately so: n_search_rings below is the
+    # knob that actually widens the search. The spiral steps out by 0.4x the
+    # field of view per ring, so the real search radius is
+    # n_search_rings * 0.4 * fov_deg -- with the default 2 rings and a 1 deg
+    # field, about 0.8 deg. Set n_search_rings, not this, to search further.
+    # (The catalog cone query sizes itself from the field, not from here;
+    # driving it off a user radius would query the wrong patch of sky.)
+    search_radius: float = 1.0
     n_search_rings: int = 2  # spiral rings of alternate centers around the hint
     scale_tolerance: float = 0.10  # +/- fractional pixel-scale search range
 
