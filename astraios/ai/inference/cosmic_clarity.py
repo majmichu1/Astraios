@@ -42,6 +42,15 @@ def apply(
     if params is None:
         params = CosmicClarityParams()
 
+    # This function used to accept `progress` and never call it, which cost
+    # more than a still progress bar. ProcessingWorker injects its
+    # _emit_progress here, and that callback raises _ProcessingCancelled when
+    # the user cancels -- so progress() is also the cancellation checkpoint. A
+    # tiled inference that never calls it cannot be interrupted at all: Cancel
+    # does nothing until the whole image finishes.
+    report = progress if progress is not None else (lambda _f, _m: None)
+
+    report(0.0, "Loading Cosmic Clarity model...")
     model = _load_model(params.model)
     if model is None:
         raise ValueError(
@@ -62,13 +71,24 @@ def apply(
     model = model.to(device)
     model.eval()
 
-    def _run_mono(chan_2d: np.ndarray) -> np.ndarray:
+    n_ch = img.shape[0] if img.ndim == 3 else 1
+
+    def _run_mono(chan_2d: np.ndarray, ch_index: int = 0) -> np.ndarray:
+        def ch_progress(frac: float, message: str) -> None:
+            # Scale each channel's own 0..1 into its slice of the whole job.
+            report((ch_index + frac) / n_ch, message)
+
         tensor = torch.from_numpy(chan_2d[None, None, :, :]).float().to(device)
         use_tiles = params.tile_size > 0 and max(tensor.shape[2:]) > params.tile_size
         with torch.no_grad():
             if use_tiles:
-                output = _tiled_inference(model, tensor, params.tile_size, device)
+                output = _tiled_inference(
+                    model, tensor, params.tile_size, device, ch_progress
+                )
             else:
+                # Untiled runs in one shot, so this is the only chance to
+                # report, and the only place a cancel can land.
+                ch_progress(0.0, f"Channel {ch_index + 1}/{n_ch}...")
                 output = model(tensor)
                 if isinstance(output, (list, tuple)):
                     output = output[0]
@@ -79,9 +99,11 @@ def apply(
     # The network is single-channel; a (1, C, H, W) color tensor crashed the
     # first conv. Run each channel independently instead.
     if img.ndim == 3:
-        result = np.stack([_run_mono(img[c]) for c in range(img.shape[0])])
+        result = np.stack([_run_mono(img[c], c) for c in range(img.shape[0])])
     else:
-        result = _run_mono(img)
+        result = _run_mono(img, 0)
+
+    report(1.0, "Cosmic Clarity complete")
 
     if params.strength < 1.0:
         result = img * (1.0 - params.strength) + result * params.strength
@@ -199,7 +221,7 @@ class _ConvBlock(torch.nn.Module):
         return self.conv(x)
 
 
-def _tiled_inference(model, tensor, tile_size, device):
+def _tiled_inference(model, tensor, tile_size, device, progress=None):
     _, c, h, w = tensor.shape
     out = torch.zeros_like(tensor)
     count = torch.zeros_like(tensor)
@@ -207,8 +229,13 @@ def _tiled_inference(model, tensor, tile_size, device):
     overlap = tile_size // 4
     stride = tile_size - overlap
 
-    for y in range(0, h, stride):
-        for x in range(0, w, stride):
+    ys = list(range(0, h, stride))
+    xs = list(range(0, w, stride))
+    total_tiles = max(len(ys) * len(xs), 1)
+    done = 0
+
+    for y in ys:
+        for x in xs:
             y1, x1 = y, x
             y2 = min(y + tile_size, h)
             x2 = min(x + tile_size, w)
@@ -222,5 +249,12 @@ def _tiled_inference(model, tensor, tile_size, device):
             out_tile = model(tile)[:, :, :y2 - y1, :x2 - x1]
             out[:, :, y1:y2, x1:x2] += out_tile
             count[:, :, y1:y2, x1:x2] += 1
+
+            done += 1
+            if progress is not None:
+                # Per tile, not per row: this is both the progress tick and
+                # the point a cancel can take effect, so a coarser interval
+                # would leave Cancel feeling dead on a big image.
+                progress(done / total_tiles, f"Tile {done}/{total_tiles}")
 
     return out / count.clamp(min=1)
