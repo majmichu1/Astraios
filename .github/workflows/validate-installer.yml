@@ -230,5 +230,13 @@ jobs:
           # wavelet scales on top, does not fit in the memory an Apple Silicon
           # runner has. 256 -> 1024 is still a 16x range in pixel count, which
           # is enough to show which way each curve is heading.
-          "$PY" scripts/mps_check.py --bench 3 --sizes 256,512,1024
+          #
+          # Two sizes and one timed pass, not three and three. The first
+          # version of this took the Apple Silicon job from 10 minutes to 24,
+          # which is a lot of runner time for a measurement that gates
+          # nothing. Correctness is still checked at both sizes; the timing is
+          # noisier best-of-one, which is fine when the useful signal is a
+          # ratio of several x rather than a precise millisecond count. The
+          # warm-up call inside _time still runs, so lazy init is not counted.
+          "$PY" scripts/mps_check.py --bench 1 --sizes 256,1024
 
