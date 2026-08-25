@@ -79,6 +79,23 @@ def divider() -> QFrame:
     return line
 
 
+class _HelpDot(QLabel):
+    """The "?" marker: hovering shows the explanation, and so does a click.
+
+    Tooltips need the pointer to rest on a 14px target; on a trackpad that
+    is easy to miss, and nothing tells a new user that the dot is the place
+    to look. A click opens the same text immediately.
+    """
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self.toolTip():
+            from PyQt6.QtWidgets import QToolTip
+            QToolTip.showText(event.globalPosition().toPoint(), self.toolTip(), self)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 # ── InfoLabel ─────────────────────────────────────────────
 
 class InfoLabel(QLabel):
@@ -256,7 +273,7 @@ def help_dot(text: str, parent=None) -> QLabel:
     plain-language explanation without cluttering the panel. The tooltip is
     rich text and wraps at a readable width.
     """
-    dot = QLabel("?", parent)
+    dot = _HelpDot("?", parent)
     dot.setFixedSize(14, 14)
     dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
     dot.setStyleSheet(
@@ -318,6 +335,28 @@ def param_help(
     if tip:
         parts.append(tip)
     return "<br><br>".join(parts)
+
+
+def form_label(text: str, help_text: str | None = None) -> QWidget:
+    """A label for QFormLayout.addRow() that carries the "?" help dot.
+
+    The dialogs build their forms with plain string labels, which leaves no
+    place for an explanation. This returns a small widget (label + dot) that
+    drops into addRow() unchanged, so a dialog can explain a setting the
+    same way the tools panel does.
+    """
+    w = QWidget()
+    w.setStyleSheet("background: transparent;")
+    lay = QHBoxLayout(w)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(5)
+    lbl = QLabel(text)
+    lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 12px; background: transparent;")
+    lay.addWidget(lbl)
+    if help_text:
+        lay.addWidget(help_dot(help_text))
+    lay.addStretch()
+    return w
 
 
 def btn_row(specs: list[tuple[str, bool]]) -> tuple[QHBoxLayout, list[QPushButton]]:
@@ -405,6 +444,25 @@ class CollapsibleSection(QWidget):
             self._search_text += " " + help_text.lower()
         hdr_inner.addStretch()
 
+        # Every control added through add_* registers (widget, default) so
+        # the section can put itself back the way it was. The reset button
+        # is the small circular arrow in the header.
+        self._resettable: list[tuple[QWidget, object]] = []
+        self._reset_btn = QPushButton("↺")
+        self._reset_btn.setFixedSize(18, 18)
+        self._reset_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._reset_btn.setToolTip("Reset every setting in this tool to its default")
+        self._reset_btn.setAutoDefault(False)
+        self._reset_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; color: {TEXT_SECONDARY};"
+            " font-size: 12px; padding: 0; }"
+            f"QPushButton:hover {{ color: {TEXT_PRIMARY}; }}"
+        )
+        self._reset_btn.clicked.connect(self.reset_to_defaults)
+        self._reset_btn.hide()
+        hdr_inner.addWidget(self._reset_btn)
+        hdr_inner.addSpacing(6)
+
         self._chevron = QLabel("▲" if default_open else "▼")
         self._chevron.setStyleSheet(
             f"color: {TEXT_SECONDARY}; font-size: 9px; background-color: transparent; border: none;"
@@ -455,6 +513,23 @@ class CollapsibleSection(QWidget):
     def title(self) -> str:
         return self._title_lbl.text()
 
+    def _register(self, widget: QWidget, default: object) -> None:
+        self._resettable.append((widget, default))
+        self._reset_btn.show()
+
+    def reset_to_defaults(self) -> None:
+        """Put every registered control back to the value it was built with."""
+        for w, default in self._resettable:
+            if isinstance(w, SliderRow):
+                w.setValue(w._default)
+            elif isinstance(w, (QSpinBox, QDoubleSpinBox)):
+                w.setValue(default)
+            elif isinstance(w, QComboBox):
+                idx = w.findText(str(default))
+                w.setCurrentIndex(idx if idx >= 0 else 0)
+            elif isinstance(w, QCheckBox):
+                w.setChecked(bool(default))
+
     def matches(self, query: str) -> bool:
         """True if the (lowercased) query appears in the title or info text."""
         return query in self._search_text
@@ -484,10 +559,12 @@ class CollapsibleSection(QWidget):
         help_text: str | None = None,
     ) -> SliderRow:
         row = SliderRow(label, value, min_val, max_val, step, decimals, default)
-        if help_text:
-            row.setToolTip(f"<qt>{help_text}</qt>")
-            row.setToolTipDuration(60000)
+        # The reset-on-double-click is invisible unless someone says so.
+        hint = "Double-click the slider to reset it."
+        row.setToolTip(f"<qt>{help_text}<br><br><i>{hint}</i></qt>" if help_text else hint)
+        row.setToolTipDuration(60000)
         self.body.addWidget(row)
+        self._register(row, default if default is not None else value)
         return row
 
     def add_combo(
@@ -497,6 +574,7 @@ class CollapsibleSection(QWidget):
     ) -> QComboBox:
         combo = styled_combo(options, current)
         self.body.addLayout(field_row(label, combo, lw, help_text=help_text))
+        self._register(combo, combo.currentText())
         return combo
 
     def add_spin(
@@ -508,6 +586,7 @@ class CollapsibleSection(QWidget):
     ) -> QDoubleSpinBox | QSpinBox:
         spin = styled_spin(min_val, max_val, value, step, decimals, suffix)
         self.body.addLayout(field_row(label, spin, lw, help_text=help_text))
+        self._register(spin, value)
         return spin
 
     def add_check(self, label: str, checked: bool = False,
@@ -516,6 +595,7 @@ class CollapsibleSection(QWidget):
         if help_text:
             check.setToolTip(f"<qt>{help_text}</qt>")
             check.setToolTipDuration(60000)
+        self._register(check, checked)
         return self.add_widget(check)
 
     def add_preview_check(self, checked: bool = False) -> QCheckBox:

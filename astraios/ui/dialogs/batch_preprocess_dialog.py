@@ -31,6 +31,7 @@ from astraios.core.preprocessing import (
     scan_folder_for_frames,
 )
 from astraios.core.stacking import RejectionMethod, StackingParams
+from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
 def _combo_ss() -> str:
@@ -265,15 +266,38 @@ class BatchPreprocessDialog(QDialog):
         )
         stage_layout = QVBoxLayout(stage_group)
         self._cb_calibrate = QCheckBox("Calibrate frames (bias → dark → flat)")
+        self._cb_calibrate.setToolTip("<qt>" + param_help(
+            "Removes the camera's own signal from every light frame.",
+            how="Bias removes the readout offset, dark the thermal signal, "
+                "flat the vignetting and dust shadows. Uses whatever "
+                "calibration frames you loaded and skips the rest.",
+        ) + "</qt>")
         self._cb_calibrate.setChecked(True)
         stage_layout.addWidget(self._cb_calibrate)
         self._cb_cosmetic = QCheckBox("Cosmetic correction (hot/cold pixels)")
+        self._cb_cosmetic.setToolTip("<qt>" + param_help(
+            "Replaces stuck pixels that a dark frame did not catch.",
+            how="Lone pixels far brighter or darker than their neighbours "
+                "are swapped for the local median.",
+        ) + "</qt>")
         self._cb_cosmetic.setChecked(True)
         stage_layout.addWidget(self._cb_cosmetic)
         self._cb_register = QCheckBox("Register (align) frames")
+        self._cb_register.setToolTip("<qt>" + param_help(
+            "Shifts and rotates every frame so the stars line up.",
+            how="Stars are detected in each frame and matched to a "
+                "reference. Required before stacking unless the frames were "
+                "aligned elsewhere.",
+        ) + "</qt>")
         self._cb_register.setChecked(True)
         stage_layout.addWidget(self._cb_register)
         self._cb_stack = QCheckBox("Stack frames")
+        self._cb_stack.setToolTip("<qt>" + param_help(
+            "Combines the aligned frames into one deep image.",
+            how="Averaging N frames cuts the noise by about the square root "
+                "of N; the rejection setting below throws out satellites, "
+                "planes and cosmic rays first.",
+        ) + "</qt>")
         self._cb_stack.setChecked(True)
         stage_layout.addWidget(self._cb_stack)
         layout.addWidget(stage_group)
@@ -290,7 +314,14 @@ class BatchPreprocessDialog(QDialog):
         if idx >= 0:
             self._rejection_combo.setCurrentIndex(idx)
         self._rejection_combo.setStyleSheet(_combo_ss())
-        stack_form.addRow("Rejection:", self._rejection_combo)
+        stack_form.addRow(form_label("Rejection:", param_help(
+            "How outlier pixels (satellite trails, cosmic rays, hot pixels) "
+            "are excluded before averaging.",
+            how="Sigma Clip is the standard choice for 10 or more frames. "
+                "Winsorized is gentler on small stacks. Percentile clip suits "
+                "very few frames; Min Max drops the single brightest and "
+                "darkest value. None keeps everything.",
+        )), self._rejection_combo)
 
         kappa_row = QHBoxLayout()
         self._kappa_low = QSpinBox()
@@ -303,7 +334,17 @@ class BatchPreprocessDialog(QDialog):
         self._kappa_high.setValue(3)
         kappa_row.addWidget(QLabel("High"))
         kappa_row.addWidget(self._kappa_high)
-        stack_form.addRow("Kappa (σ):", kappa_row)
+        stack_form.addRow(form_label("Kappa (σ):", param_help(
+            "How far from the average a pixel may stray before it is "
+            "rejected, in standard deviations.",
+            how="Low applies to pixels darker than average, High to "
+                "brighter ones; satellites and cosmic rays are bright, so "
+                "High matters most.",
+            higher="Keeps more data, lower noise, but faint trails survive.",
+            lower="Rejects more aggressively; below 2 you start rejecting "
+                  "real star cores and adding noise.",
+            default="3 and 3 is right for most stacks.",
+        )), kappa_row)
 
         self._use_gpu = QCheckBox("Use GPU acceleration")
         self._use_gpu.setChecked(True)
@@ -330,6 +371,12 @@ class BatchPreprocessDialog(QDialog):
         out_form.addRow("Directory:", out_dir_row)
 
         self._save_calibrated = QCheckBox("Save calibrated frames to subfolder")
+        self._save_calibrated.setToolTip("<qt>" + param_help(
+            "Also writes every calibrated light frame to disk.",
+            how="Useful to inspect single frames or to restack later with "
+                "different settings without calibrating again. Needs as much "
+                "space as the raw lights.",
+        ) + "</qt>")
         self._save_calibrated.setChecked(True)
         out_form.addRow("", self._save_calibrated)
 

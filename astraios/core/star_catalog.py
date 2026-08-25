@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import json
 import logging
-import shutil
 import subprocess
 import time
 import urllib.error
@@ -170,9 +169,14 @@ def plate_solve_astap(
     dict with keys: ra, dec, scale, rotation, wcs_header
     or None if failed.
     """
-    astap_path = shutil.which("astap_cli") or shutil.which("astap")
+    from astraios.core.user_paths import astap_command
+
+    astap_path = astap_command()
     if astap_path is None:
-        log.warning("ASTAP not found in PATH (install astap or astap_cli)")
+        log.warning(
+            "ASTAP not found: install astap_cli or set its path in "
+            "Preferences > Plate Solver"
+        )
         return None
 
     cmd = [astap_path, "-f", str(image_path), "-update"]
@@ -488,7 +492,9 @@ def plate_solve_auto(
         astrometry.net API key (needed for fallback).
     """
     # Try ASTAP first (offline, fast)
-    if shutil.which("astap_cli") or shutil.which("astap"):
+    from astraios.core.user_paths import astap_command
+
+    if astap_command():
         result = plate_solve_astap(image_path, ra_hint, dec_hint, scale_hint)
         if result:
             return result

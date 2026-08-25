@@ -19,6 +19,8 @@ __all__ = [
     "starnet_binary",
     "model_override",
     "cosmic_clarity_dir",
+    "astap_command",
+    "default_dir",
 ]
 
 
@@ -58,6 +60,44 @@ def model_override(kind: str) -> Path | None:
         if p.is_file():
             return p
     return None
+
+
+def _setting(key: str) -> str | None:
+    """Read any Astraios QSettings key as stripped text, or None."""
+    try:
+        from PyQt6.QtCore import QSettings
+        val = QSettings("Astraios", "Astraios").value(key)
+    except Exception:
+        return None
+    if val is None:
+        return None
+    text = str(val).strip()
+    return text or None
+
+
+def astap_command() -> str | None:
+    """The ASTAP executable to run: the one set in Preferences if it exists,
+    else whatever is on PATH, else None.
+
+    ASTAP installs outside PATH on Windows and macOS, which used to make the
+    offline solver silently unavailable there.
+    """
+    import shutil
+
+    raw = _setting("platesolver/astap_path")
+    if raw and Path(raw).is_file():
+        return raw
+    return shutil.which("astap_cli") or shutil.which("astap")
+
+
+def default_dir(kind: str) -> str:
+    """Starting folder for file dialogs: ``kind`` is ``"import"`` or ``"export"``.
+
+    Returns "" (the platform default) when the preference is unset or the
+    folder no longer exists.
+    """
+    raw = _setting(f"paths/default_{kind}_dir")
+    return raw if raw and Path(raw).is_dir() else ""
 
 
 def cosmic_clarity_dir() -> Path | None:

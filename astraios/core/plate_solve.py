@@ -372,8 +372,8 @@ def plate_solve_auto(
             return result
         log.info("Gaia offline solve failed or found no match, trying ASTAP…")
 
-    import shutil
-    astap = shutil.which("astap_cli") or shutil.which("astap")
+    from astraios.core.user_paths import astap_command
+    astap = astap_command()
     if astap:
         log.info("Using ASTAP for plate solving")
         result = plate_solve_astap(image, params, progress=progress)

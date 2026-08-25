@@ -29,6 +29,7 @@ from astraios.core.equipment import (
     load_filter_database,
     load_telescope_database,
 )
+from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
 class EquipmentDialog(QDialog):
@@ -80,7 +81,13 @@ class EquipmentDialog(QDialog):
         manual_layout.addLayout(name_row)
 
         fl_row = QHBoxLayout()
-        fl_row.addWidget(QLabel("Focal length (mm):"))
+        fl_row.addWidget(form_label("Focal length (mm):", param_help(
+            "Effective focal length of the telescope or lens, including "
+            "any reducer or Barlow.",
+            how="With the camera's pixel size this gives the image scale in "
+                "arcseconds per pixel, which plate solving, star sizing and "
+                "the field-of-view readout all depend on.",
+        )))
         self._manual_focal_spin = QDoubleSpinBox()
         self._manual_focal_spin.setRange(50, 10000)
         self._manual_focal_spin.setValue(1000)
@@ -89,7 +96,11 @@ class EquipmentDialog(QDialog):
         manual_layout.addLayout(fl_row)
 
         ap_row = QHBoxLayout()
-        ap_row.addWidget(QLabel("Aperture (mm):"))
+        ap_row.addWidget(form_label("Aperture (mm):", param_help(
+            "Clear diameter of the objective or mirror.",
+            how="Sets the focal ratio and the diffraction limit used when "
+                "judging star sizes.",
+        )))
         self._manual_aperture_spin = QDoubleSpinBox()
         self._manual_aperture_spin.setRange(10, 2000)
         self._manual_aperture_spin.setValue(200)

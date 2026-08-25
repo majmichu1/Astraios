@@ -26,17 +26,37 @@ _DEFAULT_TILE = 2048
 # Tile only when the frame is large enough to matter.
 _TILE_THRESHOLD_MP = 24.0
 
+# Runtime settings, driven by Preferences > Processing through configure().
+_enabled = True
+_tile_size = _DEFAULT_TILE
+
+
+def configure(enabled: bool | None = None, tile: int | None = None) -> None:
+    """Set whether large frames are processed in tiles, and how large a tile is.
+
+    Called by the UI when preferences are applied. ``enabled=False`` makes
+    :func:`should_tile` always answer False, so a machine with plenty of RAM
+    can skip the per-tile overhead; ``tile`` bounds the working memory on a
+    constrained one.
+    """
+    global _enabled, _tile_size
+    if enabled is not None:
+        _enabled = bool(enabled)
+    if tile is not None:
+        _tile_size = max(256, int(tile))
+
 
 def should_tile(image: np.ndarray, threshold_mp: float = _TILE_THRESHOLD_MP) -> bool:
     """True if ``image`` is large enough that tiled application is worthwhile."""
-    if image.ndim < 2:
+    if not _enabled or image.ndim < 2:
         return False
     h, w = image.shape[-2], image.shape[-1]
     return (h * w) / 1e6 >= threshold_mp
 
 
-def iter_tiles(h: int, w: int, tile: int = _DEFAULT_TILE):
+def iter_tiles(h: int, w: int, tile: int | None = None):
     """Yield ``(y0, y1, x0, x1)`` bounds covering an ``h x w`` grid in tiles."""
+    tile = tile or _tile_size
     for y0 in range(0, h, tile):
         y1 = min(h, y0 + tile)
         for x0 in range(0, w, tile):
@@ -47,7 +67,7 @@ def iter_tiles(h: int, w: int, tile: int = _DEFAULT_TILE):
 def apply_pixelwise_tiled(
     image: np.ndarray,
     fn: Callable[[np.ndarray], np.ndarray],
-    tile: int = _DEFAULT_TILE,
+    tile: int | None = None,
     progress: Callable[[float], None] | None = None,
 ) -> np.ndarray:
     """Apply a pixel-wise ``fn`` to ``image`` tile-by-tile, **in place**.
@@ -66,6 +86,7 @@ def apply_pixelwise_tiled(
     Returns:
         ``image`` (the same object), mutated.
     """
+    tile = tile or _tile_size
     h, w = image.shape[-2], image.shape[-1]
     n_tiles = ((h + tile - 1) // tile) * ((w + tile - 1) // tile)
     for done, (y0, y1, x0, x1) in enumerate(iter_tiles(h, w, tile), start=1):

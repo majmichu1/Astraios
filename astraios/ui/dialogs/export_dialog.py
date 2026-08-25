@@ -100,7 +100,8 @@ class ExportDialog(QDialog):
         # Start in the last-used export folder, with a name seeded from the image.
         from PyQt6.QtCore import QSettings
         settings = QSettings("Astraios", "Astraios")
-        last_dir = settings.value("paths/last_export_dir", "", type=str)
+        from astraios.core.user_paths import default_dir
+        last_dir = settings.value("paths/last_export_dir", "", type=str) or default_dir("export")
         suggested = (self._source_name or "astraios_export")
         start = str(Path(last_dir) / f"{suggested}.tif") if last_dir else f"{suggested}.tif"
 

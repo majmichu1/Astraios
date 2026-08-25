@@ -275,6 +275,13 @@ class ModelManager:
         Convenience method that combines download + load.
         """
         if self.needs_download(model_type):
+            if not _auto_download:
+                raise RuntimeError(
+                    f"The {model_type.name.lower()} model is not downloaded and "
+                    "automatic downloads are off. Turn on 'Download models when "
+                    "needed' in Preferences > AI Models, or point Astraios at a "
+                    "model file you already have."
+                )
             self.download_model(model_type, progress=progress)
         return self.load_model(model_type, device=device)
 
@@ -376,6 +383,17 @@ def _sha256_file(path: Path) -> str:
 
 # Module-level singleton
 _model_manager_instance: ModelManager | None = None
+
+
+# Preferences > AI Models > "Download models when needed". Read at the moment a
+# model is first required, so a change applies without a restart.
+_auto_download = True
+
+
+def set_auto_download(enabled: bool) -> None:
+    """Allow or forbid fetching missing models from the CDN."""
+    global _auto_download
+    _auto_download = bool(enabled)
 
 
 def get_model_manager() -> ModelManager:

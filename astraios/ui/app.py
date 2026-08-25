@@ -169,6 +169,18 @@ def run_application(argv: list[str] | None = None) -> int:
     # rename doesn't silently wipe a returning user's saved configuration.
     _migrate_legacy_settings()
 
+    # Preferences that must be known before any GPU work starts. The device
+    # is chosen once, when the device manager is first used, so "Use GPU"
+    # has to be turned into an environment variable before that happens.
+    from PyQt6.QtCore import QSettings
+
+    _settings = QSettings("Astraios", "Astraios")
+    if str(_settings.value("processing/use_gpu", "true")).lower() in ("false", "0"):
+        os.environ["ASTRAIOS_FORCE_CPU"] = "1"
+    _check_updates = str(_settings.value("update/check_on_startup", "true")).lower() not in (
+        "false", "0"
+    )
+
     # Set application icon
     icon_path = Path(__file__).resolve().parent.parent / "resources" / "icons" / "astraios.svg"
     if icon_path.exists():
@@ -215,5 +227,6 @@ def run_application(argv: list[str] | None = None) -> int:
     splash.finish(window)
 
     log.info("Astraios %s started", astraios.__version__)
-    _schedule_update_check(window)
+    if _check_updates:
+        _schedule_update_check(window)
     return app.exec()

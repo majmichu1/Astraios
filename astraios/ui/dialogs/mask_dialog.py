@@ -26,6 +26,7 @@ from astraios.core.masks import (
     create_range_mask,
     invert_mask,
 )
+from astraios.ui.widgets.ui_kit import form_label, param_help
 
 if TYPE_CHECKING:
     pass
@@ -54,7 +55,16 @@ class MaskDialog(QDialog):
 
         # Type selector
         type_row = QHBoxLayout()
-        type_row.addWidget(QLabel("Mask type:"))
+        type_row.addWidget(form_label("Mask type:", param_help(
+            "How the mask decides which pixels a tool may touch.",
+            how="Luminance Mask follows brightness smoothly: bright areas get "
+                "weight 1, dark sky weight 0, with a gentle taper at the Low "
+                "and High limits. Range Mask keeps only pixels whose brightness "
+                "falls between Low and High, with a hard edge you can soften.",
+            tip="Use a luminance mask to sharpen or denoise the nebula without "
+                "touching the background, and its inverse to work on the "
+                "background alone.",
+        )))
         self._type_combo = QComboBox()
         self._type_combo.addItems(["Luminance Mask", "Range Mask"])
         self._type_combo.currentIndexChanged.connect(self._schedule_preview)
@@ -75,7 +85,13 @@ class MaskDialog(QDialog):
 
         # Low threshold
         row = QHBoxLayout()
-        row.addWidget(QLabel("Low:"))
+        row.addWidget(form_label("Low:", param_help(
+            "Pixels darker than this are left out of the mask (weight 0).",
+            higher="More of the faint background is protected; the mask "
+                   "covers only the brighter structure.",
+            lower="Faint areas join the mask and will be processed too.",
+            default="0 includes everything from black upward.",
+        )))
         self._low_slider = QSlider(Qt.Orientation.Horizontal)
         self._low_slider.setRange(0, 1000)
         self._low_slider.setValue(0)
@@ -87,7 +103,14 @@ class MaskDialog(QDialog):
 
         # High threshold
         row = QHBoxLayout()
-        row.addWidget(QLabel("High:"))
+        row.addWidget(form_label("High:", param_help(
+            "Pixels brighter than this are left out of the mask (weight 0).",
+            higher="Bright cores and stars stay inside the mask.",
+            lower="Star cores and the brightest nebula are protected from "
+                  "the tool, which stops sharpening or stretching from "
+                  "blowing them out.",
+            default="1 includes everything up to white.",
+        )))
         self._high_slider = QSlider(Qt.Orientation.Horizontal)
         self._high_slider.setRange(0, 1000)
         self._high_slider.setValue(1000)
@@ -99,7 +122,12 @@ class MaskDialog(QDialog):
 
         # Channel selector (for range mask)
         row = QHBoxLayout()
-        row.addWidget(QLabel("Channel:"))
+        row.addWidget(form_label("Channel:", param_help(
+            "Which channel's brightness the mask is built from.",
+            how="Luminance is the usual choice. Pick a single colour to mask "
+                "by that channel alone, for example Red to isolate Ha "
+                "emission in an OSC image.",
+        )))
         self._channel_combo = QComboBox()
         self._channel_combo.addItems(["Luminance", "Red", "Green", "Blue"])
         self._channel_combo.currentIndexChanged.connect(self._schedule_preview)
@@ -109,7 +137,17 @@ class MaskDialog(QDialog):
 
         # Blur radius
         row = QHBoxLayout()
-        row.addWidget(QLabel("Softness:"))
+        row.addWidget(form_label("Softness:", param_help(
+            "Blurs the edge of the mask so processed and protected areas "
+            "merge without a visible line.",
+            how="A Gaussian blur of this radius, in pixels, is applied to "
+                "the mask after it is built.",
+            higher="Smoother, wider transitions; small features are no "
+                   "longer isolated.",
+            lower="Crisper selection; at 0 the edge is hard and can show as "
+                  "a halo after strong processing.",
+            default="5 to 15 px is a good start on a full-size image.",
+        )))
         self._blur_spin = QDoubleSpinBox()
         self._blur_spin.setRange(0.0, 50.0)
         self._blur_spin.setValue(0.0)
@@ -122,6 +160,12 @@ class MaskDialog(QDialog):
         # Invert checkbox
         from PyQt6.QtWidgets import QCheckBox
         self._invert_check = QCheckBox("Invert mask")
+        self._invert_check.setToolTip("<qt>" + param_help(
+            "Swaps protected and processed areas.",
+            how="What the mask selected becomes protected and everything "
+                "else becomes editable. A luminance mask inverted is a "
+                "background mask.",
+        ) + "</qt>")
         self._invert_check.stateChanged.connect(self._schedule_preview)
         params_layout.addWidget(self._invert_check)
 

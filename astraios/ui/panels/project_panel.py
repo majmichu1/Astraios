@@ -691,8 +691,9 @@ class ProjectPanel(QWidget):
     # ── Import helpers ────────────────────────────────────────────────────────
 
     def _import_frames(self, frame_type: FrameType):
+        from astraios.core.user_paths import default_dir
         paths, _ = QFileDialog.getOpenFileNames(
-            self, f"Import {frame_type.name.title()} Frames", "", FILE_FILTERS,
+            self, f"Import {frame_type.name.title()} Frames", default_dir("import"), FILE_FILTERS,
         )
         if paths:
             self.frames_imported.emit([Path(p) for p in paths], frame_type)
@@ -709,7 +710,10 @@ class ProjectPanel(QWidget):
         menu.exec(self.cursor().pos())
 
     def _import_folder_auto(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Auto-Import", "")
+        from astraios.core.user_paths import default_dir
+        folder = QFileDialog.getExistingDirectory(
+            self, "Select Folder to Auto-Import", default_dir("import")
+        )
         if not folder:
             return
         if getattr(self, "_import_worker", None) is not None and self._import_worker.isRunning():

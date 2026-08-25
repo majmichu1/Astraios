@@ -28,6 +28,7 @@ from astraios.core.mosaic import (
     mosaic_stitch,
 )
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
 class MosaicWorker(QThread):
@@ -83,7 +84,15 @@ class MosaicDialog(QDialog):
 
         # --- Blend method ---
         method_row = QHBoxLayout()
-        method_row.addWidget(QLabel("Blend method:"))
+        method_row.addWidget(form_label("Blend method:", param_help(
+            "How overlapping panels are merged.",
+            how="Feather crossfades one panel into the next over the feather "
+                "width and is the safe default. Multiband (Laplacian) blends "
+                "coarse brightness over a wide zone and fine detail over a "
+                "narrow one, which hides brightness steps best but is slower. "
+                "Average simply means the overlap and will show seams when "
+                "panels differ.",
+        )))
         self._method_combo = QComboBox()
         self._method_combo.addItems(["Feather", "Multiband (Laplacian)", "Average"])
         method_row.addWidget(self._method_combo)
@@ -91,7 +100,14 @@ class MosaicDialog(QDialog):
 
         # --- Feather width ---
         feather_row = QHBoxLayout()
-        feather_row.addWidget(QLabel("Feather width (px):"))
+        feather_row.addWidget(form_label("Feather width (px):", param_help(
+            "How wide the crossfade between two panels is.",
+            higher="Seams disappear, but any misalignment between panels "
+                   "smears stars across the whole zone.",
+            lower="Sharper joins; a brightness difference between panels "
+                  "shows as a visible line.",
+            default="50 px suits most mosaics; use less for tight overlaps.",
+        )))
         self._feather_spin = QSpinBox()
         self._feather_spin.setRange(0, 500)
         self._feather_spin.setValue(50)
@@ -101,21 +117,47 @@ class MosaicDialog(QDialog):
         # --- Photometric normalization ---
         norm_row = QHBoxLayout()
         self._normalize_check = QCheckBox("Photometric normalization")
+        self._normalize_check.setToolTip("<qt>" + param_help(
+            "Matches each panel's sky level and brightness scale to the "
+            "reference panel before blending.",
+            how="Panels shot on different nights, or at different altitudes, "
+                "differ in background and transparency. Without this the "
+                "mosaic shows a patchwork of brighter and darker tiles.",
+            tip="Leave on unless the panels were already normalized.",
+        ) + "</qt>")
         self._normalize_check.setChecked(True)
         self._normalize_check.toggled.connect(self._on_normalize_toggled)
         norm_row.addWidget(self._normalize_check)
 
         self._norm_method_combo = QComboBox()
         self._norm_method_combo.addItems(["Robust (median)", "Linear (mean)"])
+        self._norm_method_combo.setToolTip("<qt>" + param_help(
+            "How the brightness match is estimated in the overlap.",
+            how="Robust (median) ignores stars and outliers and is right for "
+                "almost every sky. Linear (mean) is faster but a bright star "
+                "in the overlap can pull the estimate off.",
+        ) + "</qt>")
         norm_row.addWidget(self._norm_method_combo)
 
         layout.addLayout(norm_row)
 
         self._per_channel_check = QCheckBox("Normalize each channel independently")
+        self._per_channel_check.setToolTip("<qt>" + param_help(
+            "Match red, green and blue separately instead of with one "
+            "shared factor.",
+            how="Removes colour casts between panels, for example a panel "
+                "shot lower in the sky that came out redder.",
+        ) + "</qt>")
         self._per_channel_check.setChecked(True)
         layout.addWidget(self._per_channel_check)
 
         self._clip_check = QCheckBox("Clip negative values")
+        self._clip_check.setToolTip("<qt>" + param_help(
+            "After background matching, pixels that fell below zero are "
+            "set to zero.",
+            how="A negative pixel is not physical and confuses later "
+                "stretches. Leave on.",
+        ) + "</qt>")
         self._clip_check.setChecked(True)
         layout.addWidget(self._clip_check)
 

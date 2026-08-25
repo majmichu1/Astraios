@@ -493,6 +493,12 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._setup_logging()
         self._setup_statusbar()
+        # Saved preferences used to apply only after OK in the dialog; on the
+        # next start the app silently ran with the defaults again.
+        from astraios.ui.dialogs.preferences_dialog import load_prefs
+        self._preview_max_px = 1024
+        self._auto_plate_solve = False
+        self._apply_preferences(load_prefs())
 
     def _setup_menu(self):
         menu = self.menuBar()
@@ -1782,10 +1788,11 @@ class MainWindow(QMainWindow):
     def _open_image(self):
         if not self._maybe_discard_changes():
             return
+        from astraios.core.user_paths import default_dir
         path, _ = QFileDialog.getOpenFileName(
             self,
             "Open Image",
-            "",
+            default_dir("import"),
             "All Supported (*.fit *.fits *.fts *.xisf *.tif *.tiff *.png);;FITS (*.fit *.fits *.fts);;XISF (*.xisf);;All (*)",
         )
         if path:
@@ -1874,21 +1881,39 @@ class MainWindow(QMainWindow):
             self._apply_preferences(dialog.get_prefs())
 
     def _apply_preferences(self, prefs: dict):
-        """Apply preference changes to running application."""
-        # GPU device
-        if prefs["processing"]["use_gpu"]:
-            dev = get_device_manager()
-            if dev.is_gpu:
-                self._log_panel.log(f"GPU device: {dev.info.name}", "info")
-            else:
-                self._log_panel.log("GPU requested but not available, using CPU", "warning")
+        """Apply preferences to the running application.
 
-        # Pixel readout format
-        fmt = prefs["appearance"]["pixel_readout_format"]
-        self._pixel_format = fmt
+        Everything here takes effect immediately except the GPU switch, which
+        is read at startup because the compute device is chosen once.
+        """
+        import torch
 
-        # Histogram log scale
+        from astraios.ai import model_manager
+        from astraios.core import tiling
+
+        proc = prefs["processing"]
+        dev = get_device_manager()
+        if proc["use_gpu"] and not dev.is_gpu:
+            self._log_panel.log("GPU requested but not available, using CPU", "warning")
+        elif not proc["use_gpu"] and dev.is_gpu:
+            self._log_panel.log(
+                "GPU acceleration is switched off in Preferences; "
+                "it takes effect after a restart", "info",
+            )
+        tiling.configure(enabled=proc["tiled_processing"], tile=proc["tile_size"])
+        n_threads = int(proc.get("max_threads", 0) or 0)
+        if n_threads > 0:
+            torch.set_num_threads(n_threads)
+        elif getattr(self, "_threads_were_limited", False):
+            torch.set_num_threads(max(1, os.cpu_count() or 1))
+        self._threads_were_limited = n_threads > 0
+
+        model_manager.set_auto_download(prefs["ai"]["auto_download_models"])
+
+        self._preview_max_px = int(prefs["appearance"]["split_preview_max"])
+        self._pixel_format = prefs["appearance"]["pixel_readout_format"]
         self._histogram.set_log_scale(prefs["appearance"]["histogram_log_scale"])
+        self._auto_plate_solve = bool(prefs["platesolver"]["auto_solve"])
 
     def _show_mask_dialog(self):
         if self._current_image is None:
@@ -2400,6 +2425,10 @@ class MainWindow(QMainWindow):
             self._update_undo_actions()
             self._display_image(image)
             self._log_panel.log(f"Loaded: {Path(path).name} ({image.shape_str})", "info")
+            header = image.header or {}
+            if self._auto_plate_solve and "CRVAL1" not in header:
+                self._log_panel.log("Plate solving (Preferences > auto solve)", "info")
+                self._on_plate_solve_from_menu()
             # Smart-telescope owners arrive with an already-stacked file and
             # are the group most likely to be lost by a calibration-first
             # workflow. Say what the file is and point at the one button that
@@ -3906,7 +3935,8 @@ class MainWindow(QMainWindow):
         self._canvas.set_split_mode(True)
 
     def _downscale_for_preview(self, data):
-        """Downscale image data so longest side is at most 1024 px."""
+        """Downscale image data so the longest side is at most the preview size
+        chosen in Preferences (1024 px by default)."""
         import cv2
         import numpy as np
 
@@ -3915,9 +3945,10 @@ class MainWindow(QMainWindow):
         else:
             c, h, w = data.shape
         longest = max(h, w)
-        if longest <= 1024:
+        limit = int(getattr(self, "_preview_max_px", 1024))
+        if longest <= limit:
             return data.copy(), 1.0
-        scale = 1024.0 / longest
+        scale = float(limit) / longest
         new_w, new_h = int(w * scale), int(h * scale)
         if data.ndim == 2:
             return cv2.resize(data, (new_w, new_h), interpolation=cv2.INTER_AREA), scale

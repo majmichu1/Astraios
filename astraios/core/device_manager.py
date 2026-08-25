@@ -7,6 +7,7 @@ Never call torch.cuda.* directly elsewhere in the codebase.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -48,7 +49,12 @@ class DeviceManager:
         self._detect_best_device()
 
     def _detect_best_device(self) -> None:
-        if torch.cuda.is_available():
+        # Preferences > Processing > "Use GPU acceleration" is applied at
+        # startup through this variable, since the device is chosen once.
+        force_cpu = os.environ.get("ASTRAIOS_FORCE_CPU", "").lower() in ("1", "true", "yes")
+        if force_cpu:
+            log.info("GPU disabled in Preferences; using CPU")
+        if not force_cpu and torch.cuda.is_available():
             self._backend = Backend.CUDA
             self._device = torch.device("cuda", 0)
             props = torch.cuda.get_device_properties(0)
@@ -69,7 +75,11 @@ class DeviceManager:
                 compute_capability=cc,
             )
             log.info("CUDA device: %s (%d MB VRAM, CC %d.%d)", props.name, total_mb, *cc)
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        elif (
+            not force_cpu
+            and hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+        ):
             self._backend = Backend.MPS
             self._device = torch.device("mps")
             self._info = DeviceInfo(

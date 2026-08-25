@@ -27,7 +27,7 @@ from astraios.ai.smart_processor import (
 from astraios.core.equipment import EquipmentProfile
 from astraios.ui.dialogs.dialog_workers import stop_worker
 from astraios.ui.dialogs.equipment_dialog import EquipmentDialog
-from astraios.ui.widgets.ui_kit import make_dialog_scrollable
+from astraios.ui.widgets.ui_kit import form_label, make_dialog_scrollable, param_help
 
 
 class _ProcessCancelled(BaseException):
@@ -157,14 +157,24 @@ class SmartProcessDialog(QDialog):
         ))
 
         name_row = QHBoxLayout()
-        name_row.addWidget(QLabel("Target name:"))
+        name_row.addWidget(form_label("Target name:", param_help(
+            "What the image shows, so the processor can pick a plan for it.",
+            how="A galaxy, a bright nebula core and a faint dust field each "
+                "want a different stretch and background model. The name is "
+                "looked up in the built-in catalog; leave it blank to let "
+                "the image be classified from its content.",
+        )))
         self._target_name_edit = QLineEdit()
         self._target_name_edit.setPlaceholderText("e.g. M42, NGC 7000, IC 1396...")
         name_row.addWidget(self._target_name_edit)
         target_layout.addLayout(name_row)
 
         coord_row = QHBoxLayout()
-        coord_row.addWidget(QLabel("RA (deg):"))
+        coord_row.addWidget(form_label("RA (deg):", param_help(
+            "Sky coordinates of the field, used to identify the target.",
+            how="\"auto\" reads them from the FITS header or a plate solve. "
+                "Only type them if the header has none.",
+        )))
         self._ra_spin = QDoubleSpinBox()
         self._ra_spin.setRange(0.0, 360.0)
         self._ra_spin.setDecimals(4)
@@ -181,7 +191,12 @@ class SmartProcessDialog(QDialog):
         target_layout.addLayout(coord_row)
 
         type_row = QHBoxLayout()
-        type_row.addWidget(QLabel("Image type:"))
+        type_row.addWidget(form_label("Image type:", param_help(
+            "Overrides the automatic classification of the image.",
+            how="Auto-detect looks at the image statistics. Set it by hand "
+                "when the detector guesses wrong, for example a wide field "
+                "with a small bright galaxy read as a nebula.",
+        )))
         self._type_combo = QComboBox()
         self._type_combo.addItems([
             "Auto-detect",
@@ -202,10 +217,22 @@ class SmartProcessDialog(QDialog):
 
         self._stage_bg = QCheckBox("Background extraction")
         self._stage_bg.setChecked(True)
+        self._stage_bg.setToolTip("<qt>" + param_help(
+            "Removes light-pollution gradients before anything else.",
+            how="Fits a smooth model to the sky and subtracts it. Nearly "
+                "always wanted; turn it off only for an image that is already "
+                "flat.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_bg)
 
         self._stage_denoise = QCheckBox("Noise reduction")
         self._stage_denoise.setChecked(True)
+        self._stage_denoise.setToolTip("<qt>" + param_help(
+            "Smooths the grain in the background while keeping stars and "
+            "structure.",
+            how="Runs while the data is still linear, where noise is easiest "
+                "to separate from signal.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_denoise)
 
         ai_row = QHBoxLayout()
@@ -223,18 +250,40 @@ class SmartProcessDialog(QDialog):
 
         self._stage_deconv = QCheckBox("Deconvolution")
         self._stage_deconv.setChecked(True)
+        self._stage_deconv.setToolTip("<qt>" + param_help(
+            "Tightens stars and recovers fine detail blurred by seeing.",
+            how="Measures the star shape (PSF) and reverses that blur a "
+                "little. Turn it off for undersampled or very noisy data, "
+                "where it can ring around stars.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_deconv)
 
         self._stage_stretch = QCheckBox("Adaptive stretch")
         self._stage_stretch.setChecked(True)
+        self._stage_stretch.setToolTip("<qt>" + param_help(
+            "Brings the faint signal up into view.",
+            how="Chooses the stretch strength from the image's own histogram "
+                "and the detected target type instead of a fixed curve.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_stretch)
 
         self._stage_lce = QCheckBox("Local contrast")
         self._stage_lce.setChecked(True)
+        self._stage_lce.setToolTip("<qt>" + param_help(
+            "Adds punch to structure without changing overall brightness.",
+            how="Contrast is raised within small regions (CLAHE). Turn it "
+                "off if the result looks over-processed or noisy.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_lce)
 
         self._stage_hdr = QCheckBox("HDR enhancement")
         self._stage_hdr.setChecked(True)
+        self._stage_hdr.setToolTip("<qt>" + param_help(
+            "Recovers detail in a bright core (M42, M31) that the stretch "
+            "would otherwise wash out.",
+            how="Compresses the brightest range with the operator chosen "
+                "below. Has little effect on images without a saturated core.",
+        ) + "</qt>")
         stages_layout.addWidget(self._stage_hdr)
 
         self._stage_star_aware = QCheckBox("Star-aware (remove stars, enhance nebula, recombine)")
@@ -263,7 +312,13 @@ class SmartProcessDialog(QDialog):
 
         hdr_op_layout = QHBoxLayout()
         hdr_op_layout.setContentsMargins(20, 0, 0, 0)
-        hdr_op_layout.addWidget(QLabel("Operator:"))
+        hdr_op_layout.addWidget(form_label("Operator:", param_help(
+            "Which tone-mapping method the HDR stage uses.",
+            how="Core Blend stretches the core gently and blends it into the "
+                "rest; the natural-looking default. Reinhard is a smooth "
+                "photographic curve. Drago compresses extreme ranges hardest "
+                "and suits a blown-out M42 core.",
+        )))
         self._hdr_operator_combo = QComboBox()
         self._hdr_operator_combo.addItem("Core Blend", "core_blend")
         self._hdr_operator_combo.addItem("Reinhard Tonemap", "reinhard")
@@ -275,10 +330,22 @@ class SmartProcessDialog(QDialog):
 
         self._object_aware_cb = QCheckBox("Object-aware background")
         self._object_aware_cb.setChecked(True)
+        self._object_aware_cb.setToolTip("<qt>" + param_help(
+            "Keeps the background model from eating the target.",
+            how="The detected object is masked out while the sky gradient is "
+                "fitted, so a large nebula or galaxy halo is not mistaken for "
+                "light pollution and subtracted.",
+        ) + "</qt>")
         stages_layout.addWidget(self._object_aware_cb)
 
         self._adaptive_cb = QCheckBox("Adaptive quality checks")
         self._adaptive_cb.setChecked(True)
+        self._adaptive_cb.setToolTip("<qt>" + param_help(
+            "Lets the processor measure its own result and back off.",
+            how="After each stage the noise, star shapes and clipping are "
+                "re-measured; a stage that made things worse is softened or "
+                "skipped instead of passed on.",
+        ) + "</qt>")
         stages_layout.addWidget(self._adaptive_cb)
 
         layout.addWidget(stages_group)

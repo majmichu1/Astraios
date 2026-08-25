@@ -21,20 +21,20 @@ from PyQt6.QtWidgets import (
 )
 
 # Default values
+from astraios.ui.widgets.ui_kit import form_label, param_help
+
 DEFAULTS = {
     # Processing
     "processing/tiled_processing": True,
     "processing/tile_size": 1024,
-    "processing/tile_overlap": 64,
     "processing/use_gpu": True,
-    "processing/max_threads": 8,
+    "processing/max_threads": 0,  # 0 = let PyTorch use every core
     # Paths
     "paths/default_import_dir": "",
     "paths/default_export_dir": "",
     "paths/model_cache_dir": "",
     # AI models
     "ai/auto_download_models": True,
-    "ai/model_quality": "balanced",  # fast, balanced, quality
     # User-provided models / external tools (so they aren't re-downloaded)
     "models/starnet_path": "",
     "models/denoise_model": "",
@@ -44,13 +44,57 @@ DEFAULTS = {
     "appearance/histogram_log_scale": True,
     "appearance/pixel_readout_format": "float",  # float, percent
     # Plate solving
-    "platesolver/astrometry_net_path": "",
+    "platesolver/astap_path": "",
     "platesolver/auto_solve": False,
     "platesolver/astrometry_api_key": "",
     # Auto-update
     "update/check_on_startup": True,
-    "update/auto_download": False,
 }
+
+
+def load_prefs() -> dict:
+    """The saved preferences in the same shape ``PreferencesDialog.get_prefs``
+    returns, so the main window can apply them at startup without opening
+    the dialog. Until this existed the saved values were only applied after
+    the user pressed OK in the dialog, so a restart silently reverted them."""
+    s = QSettings("Astraios", "Astraios")
+
+    def get(key, default):
+        val = s.value(key, DEFAULTS.get(key, default))
+        if isinstance(default, bool):
+            return str(val).lower() in ("true", "1")
+        if isinstance(default, int):
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return default
+        return "" if val is None else str(val)
+
+    return {
+        "processing": {
+            "use_gpu": get("processing/use_gpu", True),
+            "tiled_processing": get("processing/tiled_processing", True),
+            "tile_size": get("processing/tile_size", 1024),
+            "max_threads": get("processing/max_threads", 0),
+        },
+        "paths": {
+            "default_import_dir": get("paths/default_import_dir", ""),
+            "default_export_dir": get("paths/default_export_dir", ""),
+            "model_cache_dir": get("paths/model_cache_dir", ""),
+        },
+        "ai": {"auto_download_models": get("ai/auto_download_models", True)},
+        "appearance": {
+            "split_preview_max": get("appearance/split_preview_max", 1024),
+            "histogram_log_scale": get("appearance/histogram_log_scale", True),
+            "pixel_readout_format": get("appearance/pixel_readout_format", "float"),
+        },
+        "platesolver": {
+            "auto_solve": get("platesolver/auto_solve", False),
+            "astap_path": get("platesolver/astap_path", ""),
+            "astrometry_api_key": get("platesolver/astrometry_api_key", ""),
+        },
+        "update": {"check_on_startup": get("update/check_on_startup", True)},
+    }
 
 
 class PreferencesDialog(QDialog):
@@ -74,27 +118,45 @@ class PreferencesDialog(QDialog):
         proc_layout = QFormLayout(proc_tab)
 
         self._use_gpu = QCheckBox("Use GPU acceleration (CUDA/MPS)")
+        self._use_gpu.setToolTip("<qt>" + param_help(
+            "Runs the processing on the graphics card when one is available.",
+            how="Most tools are many times faster on the GPU. Turn this off "
+                "only to compare results or to work around a driver problem. "
+                "Takes effect the next time Astraios starts.",
+        ) + "</qt>")
         proc_layout.addRow("", self._use_gpu)
 
         self._tiled = QCheckBox("Tiled processing (for large images)")
+        self._tiled.setToolTip("<qt>" + param_help(
+            "Processes very large frames (over 24 megapixels) piece by piece "
+            "to keep memory use bounded.",
+            how="Only pixel-by-pixel stages are tiled, so the result is "
+                "identical to processing the whole frame at once. Turn it off "
+                "on a machine with plenty of RAM to skip the small overhead.",
+        ) + "</qt>")
         proc_layout.addRow("", self._tiled)
 
         self._tile_size = QSpinBox()
         self._tile_size.setRange(256, 4096)
         self._tile_size.setSingleStep(256)
         self._tile_size.setSuffix(" px")
-        proc_layout.addRow("Tile size:", self._tile_size)
-
-        self._tile_overlap = QSpinBox()
-        self._tile_overlap.setRange(8, 256)
-        self._tile_overlap.setSingleStep(8)
-        self._tile_overlap.setSuffix(" px")
-        proc_layout.addRow("Tile overlap:", self._tile_overlap)
+        proc_layout.addRow(form_label("Tile size:", param_help(
+            "Edge length of one tile when tiled processing is active.",
+            how="A 2048 px colour tile needs about 50 MB of working memory.",
+            higher="Fewer, larger tiles; slightly faster, more memory.",
+            lower="More, smaller tiles; less memory per step.",
+        )), self._tile_size)
 
         self._max_threads = QSpinBox()
-        self._max_threads.setRange(1, 64)
+        self._max_threads.setRange(0, 64)
+        self._max_threads.setSpecialValueText("Auto (all cores)")
         self._max_threads.setSuffix(" threads")
-        proc_layout.addRow("Max CPU threads:", self._max_threads)
+        proc_layout.addRow(form_label("CPU threads:", param_help(
+            "How many processor cores the CPU stages may use.",
+            how="Auto lets PyTorch use every core, which is fastest. Set a "
+                "number to keep the machine responsive for other work while "
+                "a long stack runs.",
+        )), self._max_threads)
 
         proc_layout.addRow(None, QLabel())  # spacer
 
@@ -118,7 +180,10 @@ class PreferencesDialog(QDialog):
         import_layout = QHBoxLayout()
         import_layout.addWidget(self._import_dir)
         import_layout.addWidget(import_browse)
-        paths_layout.addRow("Default import dir:", import_layout)
+        paths_layout.addRow(form_label("Default import folder:", param_help(
+            "Where the Open and Import dialogs start.",
+            how="Leave blank to start in the system default folder.",
+        )), import_layout)
 
         self._export_dir = QLineEdit()
         self._export_dir.setPlaceholderText("Same as source image")
@@ -127,7 +192,11 @@ class PreferencesDialog(QDialog):
         export_layout = QHBoxLayout()
         export_layout.addWidget(self._export_dir)
         export_layout.addWidget(export_browse)
-        paths_layout.addRow("Default export dir:", export_layout)
+        paths_layout.addRow(form_label("Default export folder:", param_help(
+            "Where the Export dialog starts when nothing has been exported yet.",
+            how="After the first export, the dialog remembers the last folder "
+                "you used instead.",
+        )), export_layout)
 
         self._model_cache = QLineEdit()
         self._model_cache.setPlaceholderText("~/.local/share/Astraios/models")
@@ -136,7 +205,11 @@ class PreferencesDialog(QDialog):
         model_cache_layout = QHBoxLayout()
         model_cache_layout.addWidget(self._model_cache)
         model_cache_layout.addWidget(model_browse)
-        paths_layout.addRow("AI model cache:", model_cache_layout)
+        paths_layout.addRow(form_label("AI model cache:", param_help(
+            "Folder where downloaded AI models are kept.",
+            how="Leave blank for the default location. Applies to models "
+                "downloaded after the change.",
+        )), model_cache_layout)
 
         tabs.addTab(paths_tab, "📁 Paths")
 
@@ -144,12 +217,14 @@ class PreferencesDialog(QDialog):
         ai_tab = QWidget()
         ai_layout = QFormLayout(ai_tab)
 
-        self._auto_download = QCheckBox("Auto-download models when needed")
+        self._auto_download = QCheckBox("Download models when needed")
+        self._auto_download.setToolTip("<qt>" + param_help(
+            "Fetches an AI model the first time a tool needs it.",
+            how="With this off, a tool whose model is missing stops with a "
+                "message instead of downloading. Useful on a metered "
+                "connection.",
+        ) + "</qt>")
         ai_layout.addRow("", self._auto_download)
-
-        self._model_quality = QComboBox()
-        self._model_quality.addItems(["Fast (smaller model)", "Balanced", "Quality (larger model)"])
-        ai_layout.addRow("Model quality:", self._model_quality)
 
         ai_layout.addRow(None, QLabel())
 
@@ -177,7 +252,11 @@ class PreferencesDialog(QDialog):
         sn_layout = QHBoxLayout()
         sn_layout.addWidget(self._starnet_path)
         sn_layout.addWidget(sn_browse)
-        ai_layout.addRow("StarNet binary:", sn_layout)
+        ai_layout.addRow(form_label("StarNet binary:", param_help(
+            "Your own StarNet++ command-line executable.",
+            how="Star removal runs it as a separate program. Point this at "
+                "StarNetv2CLI (or starnet++) wherever you installed it.",
+        )), sn_layout)
 
         self._denoise_model = QLineEdit()
         self._denoise_model.setPlaceholderText("a .pt denoise model (optional)")
@@ -186,7 +265,11 @@ class PreferencesDialog(QDialog):
         dn_layout = QHBoxLayout()
         dn_layout.addWidget(self._denoise_model)
         dn_layout.addWidget(dn_browse)
-        ai_layout.addRow("AI denoise model:", dn_layout)
+        ai_layout.addRow(form_label("AI denoise model:", param_help(
+            "A .pt weights file to use instead of the built-in denoiser.",
+            how="For a model you trained yourself with the scripts in the "
+                "repository. Leave blank to use the bundled one.",
+        )), dn_layout)
 
         self._cosmic_clarity_dir = QLineEdit()
         self._cosmic_clarity_dir.setPlaceholderText("your Cosmic Clarity model folder")
@@ -195,7 +278,12 @@ class PreferencesDialog(QDialog):
         cc_layout = QHBoxLayout()
         cc_layout.addWidget(self._cosmic_clarity_dir)
         cc_layout.addWidget(cc_browse)
-        ai_layout.addRow("Cosmic Clarity folder:", cc_layout)
+        ai_layout.addRow(form_label("Cosmic Clarity folder:", param_help(
+            "The folder holding your Cosmic Clarity model files.",
+            how="Enables the Cosmic Clarity backend in AI Denoise and AI "
+                "Sharpen. The models are not bundled; download them from "
+                "the Seti Astro site.",
+        )), cc_layout)
 
         tabs.addTab(ai_tab, "🤖 AI Models")
 
@@ -207,14 +295,30 @@ class PreferencesDialog(QDialog):
         self._preview_max.setRange(512, 2048)
         self._preview_max.setSingleStep(256)
         self._preview_max.setSuffix(" px")
-        app_layout.addRow("Split preview max size:", self._preview_max)
+        app_layout.addRow(form_label("Live preview size:", param_help(
+            "Longest side of the reduced copy used for live before/after "
+            "previews, in pixels.",
+            higher="Sharper preview, slower slider response.",
+            lower="Snappier sliders; fine detail is judged on Apply.",
+            default="1024 px keeps most tools interactive.",
+        )), self._preview_max)
 
         self._hist_log = QCheckBox("Use log scale for histogram")
+        self._hist_log.setToolTip("<qt>" + param_help(
+            "Draws the histogram with a logarithmic height.",
+            how="Astro images have almost every pixel near black; a linear "
+                "histogram is one spike. Log scale shows the faint tail and "
+                "the star highlights as well.",
+        ) + "</qt>")
         app_layout.addRow("", self._hist_log)
 
         self._pixel_format = QComboBox()
         self._pixel_format.addItems(["Float (0.0–1.0)", "Percent (0–100%)", "16-bit (0–65535)"])
-        app_layout.addRow("Pixel readout format:", self._pixel_format)
+        app_layout.addRow(form_label("Pixel readout format:", param_help(
+            "How the value under the cursor is shown in the canvas toolbar.",
+            how="Float is the 0 to 1 scale the tools use; percent and 16-bit "
+                "match what other programs display.",
+        )), self._pixel_format)
 
         tabs.addTab(app_tab, "🎨 Appearance")
 
@@ -222,31 +326,48 @@ class PreferencesDialog(QDialog):
         ps_tab = QWidget()
         ps_layout = QFormLayout(ps_tab)
 
-        self._auto_solve = QCheckBox("Auto plate solve on image load")
+        self._auto_solve = QCheckBox("Plate solve automatically when an image opens")
+        self._auto_solve.setToolTip("<qt>" + param_help(
+            "Runs the plate solver on every image that opens without sky "
+            "coordinates in its header.",
+            how="Gives you the WCS overlay, object labels and colour "
+                "calibration by catalog without a click. Costs a few seconds "
+                "per image, and needs ASTAP or an internet connection.",
+        ) + "</qt>")
         ps_layout.addRow("", self._auto_solve)
 
-        self._astrometry_path = QLineEdit()
-        self._astrometry_path.setPlaceholderText("/usr/bin/solve-field")
+        self._astap_path = QLineEdit()
+        self._astap_path.setPlaceholderText("astap_cli, if it is not on your PATH")
         as_browse = QPushButton("Browse...")
-        as_browse.clicked.connect(lambda: self._browse_file(self._astrometry_path))
+        as_browse.clicked.connect(lambda: self._browse_file(self._astap_path))
         as_layout = QHBoxLayout()
-        as_layout.addWidget(self._astrometry_path)
+        as_layout.addWidget(self._astap_path)
         as_layout.addWidget(as_browse)
-        ps_layout.addRow("Astrometry.net binary:", as_layout)
+        ps_layout.addRow(form_label("ASTAP executable:", param_help(
+            "The ASTAP command-line solver, for offline plate solving.",
+            how="Astraios looks for astap_cli on the PATH first. On Windows "
+                "and macOS it usually installs elsewhere, so point this at it "
+                "(astap_cli.exe inside the ASTAP folder).",
+        )), as_layout)
 
         self._astrometry_api_key = QLineEdit()
         self._astrometry_api_key.setPlaceholderText("Get free key at nova.astrometry.net")
         self._astrometry_api_key.setEchoMode(QLineEdit.EchoMode.Password)
-        ps_layout.addRow("Astrometry.net API key:", self._astrometry_api_key)
+        ps_layout.addRow(form_label("Astrometry.net API key:", param_help(
+            "Key for the online solver at nova.astrometry.net, used when "
+            "no local solver succeeds.",
+            how="Free; sign in on the site and copy the key from your "
+                "profile. Solving online takes 30 seconds to a few minutes.",
+        )), self._astrometry_api_key)
 
         ps_layout.addRow(None, QLabel())
 
         ps_info = QLabel(
-            "<span style='color: #8b949e;'>Plate solving requires either:<br>"
-            "• Local: <b>astrometry.net</b> installed on your system, or<br>"
-            "• Remote: Free API key from "
+            "<span style='color: #8b949e;'>Solving tries the offline Gaia catalog, "
+            "then ASTAP, then nova.astrometry.net. Anything that works is enough; "
+            "a free key from "
             "<a href='https://nova.astrometry.net' style='color: #58a6ff;'>nova.astrometry.net</a>"
-            "</span>"
+            " is the easiest start.</span>"
         )
         ps_info.setWordWrap(True)
         ps_info.setOpenExternalLinks(True)
@@ -259,16 +380,20 @@ class PreferencesDialog(QDialog):
         upd_layout = QFormLayout(upd_tab)
 
         self._check_update = QCheckBox("Check for updates on startup")
+        self._check_update.setToolTip("<qt>" + param_help(
+            "Looks up the latest release on GitHub a few seconds after "
+            "startup and tells you if it is newer.",
+            how="One small web request; nothing is downloaded or installed "
+                "by itself.",
+        ) + "</qt>")
         upd_layout.addRow("", self._check_update)
-
-        self._auto_download_upd = QCheckBox("Auto-download updates")
-        upd_layout.addRow("", self._auto_download_upd)
 
         upd_layout.addRow(None, QLabel())
 
         upd_info = QLabel(
-            "<span style='color: #8b949e;'>Updates are downloaded in the background. "
-            "Installation requires restarting the application.</span>"
+            "<span style='color: #8b949e;'>Astraios only tells you about a new "
+            "version. Installing it is the same as the first install: run the "
+            "installer for your system again.</span>"
         )
         upd_info.setWordWrap(True)
         upd_layout.addRow("", upd_info)
@@ -305,17 +430,13 @@ class PreferencesDialog(QDialog):
         self._use_gpu.setChecked(self._get("processing/use_gpu", True))
         self._tiled.setChecked(self._get("processing/tiled_processing", True))
         self._tile_size.setValue(self._get("processing/tile_size", 1024))
-        self._tile_overlap.setValue(self._get("processing/tile_overlap", 64))
-        self._max_threads.setValue(self._get("processing/max_threads", 8))
+        self._max_threads.setValue(self._get("processing/max_threads", 0))
 
         self._import_dir.setText(self._get("paths/default_import_dir", ""))
         self._export_dir.setText(self._get("paths/default_export_dir", ""))
         self._model_cache.setText(self._get("paths/model_cache_dir", ""))
 
         self._auto_download.setChecked(self._get("ai/auto_download_models", True))
-        quality = self._get("ai/model_quality", "balanced")
-        quality_idx = {"fast": 0, "balanced": 1, "quality": 2}.get(quality, 1)
-        self._model_quality.setCurrentIndex(quality_idx)
 
         self._starnet_path.setText(self._get("models/starnet_path", ""))
         self._denoise_model.setText(self._get("models/denoise_model", ""))
@@ -328,11 +449,10 @@ class PreferencesDialog(QDialog):
         self._pixel_format.setCurrentIndex(pixel_idx)
 
         self._auto_solve.setChecked(self._get("platesolver/auto_solve", False))
-        self._astrometry_path.setText(self._get("platesolver/astrometry_net_path", ""))
+        self._astap_path.setText(self._get("platesolver/astap_path", ""))
         self._astrometry_api_key.setText(self._get("platesolver/astrometry_api_key", ""))
 
         self._check_update.setChecked(self._get("update/check_on_startup", True))
-        self._auto_download_upd.setChecked(self._get("update/auto_download", False))
 
     def _get(self, key: str, default):
         """Get a setting value from QSettings."""
@@ -373,7 +493,6 @@ class PreferencesDialog(QDialog):
         self._settings.setValue("processing/use_gpu", self._use_gpu.isChecked())
         self._settings.setValue("processing/tiled_processing", self._tiled.isChecked())
         self._settings.setValue("processing/tile_size", self._tile_size.value())
-        self._settings.setValue("processing/tile_overlap", self._tile_overlap.value())
         self._settings.setValue("processing/max_threads", self._max_threads.value())
 
         self._settings.setValue("paths/default_import_dir", self._import_dir.text())
@@ -381,10 +500,6 @@ class PreferencesDialog(QDialog):
         self._settings.setValue("paths/model_cache_dir", self._model_cache.text())
 
         self._settings.setValue("ai/auto_download_models", self._auto_download.isChecked())
-        quality_map = {0: "fast", 1: "balanced", 2: "quality"}
-        self._settings.setValue(
-            "ai/model_quality", quality_map.get(self._model_quality.currentIndex(), "balanced")
-        )
 
         self._settings.setValue("models/starnet_path", self._starnet_path.text().strip())
         self._settings.setValue("models/denoise_model", self._denoise_model.text().strip())
@@ -401,11 +516,10 @@ class PreferencesDialog(QDialog):
         )
 
         self._settings.setValue("platesolver/auto_solve", self._auto_solve.isChecked())
-        self._settings.setValue("platesolver/astrometry_net_path", self._astrometry_path.text())
+        self._settings.setValue("platesolver/astap_path", self._astap_path.text().strip())
         self._settings.setValue("platesolver/astrometry_api_key", self._astrometry_api_key.text().strip())
 
         self._settings.setValue("update/check_on_startup", self._check_update.isChecked())
-        self._settings.setValue("update/auto_download", self._auto_download_upd.isChecked())
 
         self._settings.sync()
 
@@ -416,7 +530,6 @@ class PreferencesDialog(QDialog):
                 "use_gpu": self._use_gpu.isChecked(),
                 "tiled_processing": self._tiled.isChecked(),
                 "tile_size": self._tile_size.value(),
-                "tile_overlap": self._tile_overlap.value(),
                 "max_threads": self._max_threads.value(),
             },
             "paths": {
@@ -426,9 +539,6 @@ class PreferencesDialog(QDialog):
             },
             "ai": {
                 "auto_download_models": self._auto_download.isChecked(),
-                "model_quality": {0: "fast", 1: "balanced", 2: "quality"}.get(
-                    self._model_quality.currentIndex(), "balanced"
-                ),
             },
             "appearance": {
                 "split_preview_max": self._preview_max.value(),
@@ -439,11 +549,10 @@ class PreferencesDialog(QDialog):
             },
             "platesolver": {
                 "auto_solve": self._auto_solve.isChecked(),
-                "astrometry_net_path": self._astrometry_path.text(),
+                "astap_path": self._astap_path.text().strip(),
                 "astrometry_api_key": self._astrometry_api_key.text(),
             },
             "update": {
                 "check_on_startup": self._check_update.isChecked(),
-                "auto_download": self._auto_download_upd.isChecked(),
             },
         }
