@@ -435,6 +435,12 @@ def _gaussian_blur_gpu(channel: torch.Tensor, sigma: float) -> torch.Tensor:
     device = channel.device
     k1d = _make_gaussian_kernel_1d(sigma, device)
     pad = k1d.shape[0] // 2
+    h, w = channel.shape[-2], channel.shape[-1]
+    if pad >= h or pad >= w:
+        # torch's reflect pad must be smaller than the image; cv2 keeps
+        # reflecting. A frame that small costs nothing on the CPU.
+        out = _gaussian_blur_mask_np(channel.detach().cpu().numpy(), sigma)
+        return torch.from_numpy(out).to(device)
     t = channel.unsqueeze(0).unsqueeze(0)
     t_padded = torch.nn.functional.pad(t, (pad, pad, pad, pad), mode="reflect")
     kh = k1d.reshape(1, 1, 1, -1)
