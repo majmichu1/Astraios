@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.25] - 2026-08-25
+
 ### Added
+
+#### Getting started
+- **Guided Processing** (`astraios/core/guided.py`, `astraios/ui/dialogs/guided_dialog.py`): A step-by-step wizard (Ctrl+G, or the button at the top of the Tools panel) that walks the correct order one stage at a time: trim, gradient, colour, sharpen, denoise, stretch, saturation. Each step explains what it does in plain language, suggests settings measured from your own image, previews before committing, and can be skipped or stepped back. The order is the professional one, so the common mistakes (colour balancing after a stretch, saturating linear data) are not offered.
+- **Smart telescope recognition** (`astraios/core/smart_telescope.py`): Seestar S50/S30, Dwarf II/3, Vespera, Stellina and Unistellar frames are identified from their headers, and already-stacked files are pointed straight at the guided workflow. Identity is matched across nine header keys, because vendors disagree about where they write it.
+- **Teaching tooltips on every control**: All 220 controls in the Tools panel now carry a plain-language explanation of what the setting does and what raising or lowering it changes.
+
+#### Platforms
+- **macOS support** (`packaging/macos/install-astraios-macos.sh`): An installer that creates a real `Astraios.app` for Launchpad and Spotlight. Apple Silicon runs on the GPU through PyTorch's Metal (MPS) backend; Intel Macs run on CPU. Both architectures are validated on real Apple hardware in CI, including a check that every GPU tool produces the same pixels on Metal as on the CPU.
+
+#### Core processing
+- **Mosaic gradient matching** (`astraios/core/mosaic.py`): `match_gradient` was a documented setting that nothing read, so panels differing by a sloped sky kept that slope into the output. Photometric normalization cannot cover for it, deriving one scale factor per panel and so correcting only uniform brightness. Each panel is now matched to the composite of those already placed by fitting a plane over the overlap. On a two-panel test with a 0.08 tilt injected, 99% of it is removed.
+- **Reinhard local and chromatic adaptation** (`astraios/core/hdr_operators.py`): `light_adapt` and `color_adapt` were declared and ignored. `light_adapt` is the fix for a blown core: a core clipped across its whole area at 0 comes back entirely below clipping by 0.5, with the background essentially unmoved.
+- **Gaussian drizzle kernel** (`astraios/core/drizzle.py`): `pixel_weight="gaussian"` now applies a real falloff from the drop centre instead of silently using the square kernel.
+- **Multi-session integration methods** (`astraios/core/multi_session.py`): MEDIAN and AVERAGE were both ignored; every stack came out a weighted average. MEDIAN survives one bad session in a way no average does.
+- **Lens field of view** (`astraios/core/lens_distortion.py`): `fov` is honoured, so knowing your field is enough without knowing your sensor size.
+- **Median denoise kernel** (`astraios/core/denoise.py`): `median_kernel` can now set the window explicitly instead of only deriving it from strength.
+
+#### AI
+- **AI Super-Resolution is genuinely neural** (`astraios/ai/models/rrdbnet.py`): It imported RRDBNet from `basicsr`, which is not a declared dependency and does not import against modern torchvision, so every user silently received bicubic interpolation from a menu entry advertising a neural upscale. The architecture is now vendored (BSD-3). Verified against the real released checkpoint: 702 of 702 tensors load with no missing or unexpected keys.
+
+### Fixed
+
+- **Colour calibration left a magenta cast** (`astraios/core/color_calibration.py`): White balance is multiplicative and background neutralization is additive, so the two do not commute. They ran in the wrong order. Measured background green excess after correction moved from -22.8% to -1.2% on the worst case.
+- **Morphology gave different results on GPU and CPU** (`astraios/core/morphology.py`): The GPU path used a square window for every structuring element while the CPU path used the shape you asked for. On Apple Silicon this meant visibly wrong pixels from the default settings.
+- **Eleven tools could not be cancelled** (`astraios/ui/main_window.py`, `astraios/ai/inference/cosmic_clarity.py`): The progress callback is also the cancellation checkpoint, so tools that never called it ignored Cancel entirely until they finished. Among them were the slowest ones in the application: denoise, star reduction, wavelet sharpen, local contrast.
+- **First upscale gave no sign of the 67 MB weight download** it now performs.
+- **Guided workflow aliased the caller's image** rather than copying it.
 
 #### Core processing
 - **HDR operators** (`astraios/core/hdr_operators.py`): Three selectable HDR tonemap operators — Reinhard, Drago, and Core-blend — for handling extreme dynamic range objects like M42. QComboBox selector in Smart Processor dialog.
