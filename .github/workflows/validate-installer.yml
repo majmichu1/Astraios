@@ -177,3 +177,18 @@ jobs:
           plutil -lint "$APP/Contents/Info.plist"
           echo "Astraios.app is present and its Info.plist is valid"
 
+      # Selecting Metal is not the same as working on Metal. MPS has real
+      # holes -- no float64, some ops unimplemented, some silently taking a
+      # CPU fallback -- so a tool can pick the GPU, run, and hand back wrong
+      # pixels while every import check above still passes. Run the real tools
+      # on both backends and compare.
+      #
+      # This is also the only place the project can get a trustworthy number
+      # about Apple hardware, since nobody here owns a Mac. The timings are
+      # printed in the job log and are what any "is MPS worth it for this
+      # tool" decision should be based on.
+      - name: Verify the tools agree between Metal and CPU, and time them
+        run: |
+          PY="$HOME/Library/Application Support/Astraios/venv/bin/python"
+          "$PY" scripts/mps_check.py --bench 3
+
