@@ -5482,28 +5482,41 @@ class MainWindow(QMainWindow):
             return
         if not self._wcs_overlay_stars:
             self._log_panel.log(
-                "SPCC requires plate solve data — run Solve & Calibrate (PCC) first", "warning"
+                "SPCC needs catalog stars: plate solve first (Solve WCS in the "
+                "Project panel, or run PCC above), then run SPCC", "warning",
             )
             return
         if self._current_image.data.ndim != 3 or self._current_image.data.shape[0] != 3:
             self._log_panel.log("SPCC requires a 3-channel RGB image", "warning")
             return
 
-        from astraios.core.spcc import spcc_calibrate
+        # The SFCC engine: filter x sensor QE x extra filter per channel,
+        # catalog spectra from the Gaia BP-RP colour, aperture photometry on
+        # the matched stars, per-channel least-squares fit.
+        from astraios.core.sfcc import sfcc_calibrate
         params = self._tools_panel.get_spcc_params()
         catalog = self._wcs_overlay_stars
         catalog_with_color = [(x, y, bp_rp) for x, y, _mag, bp_rp in catalog]
 
         self._log_panel.log(
-            f"Running SPCC ({params.filter_name}, {len(catalog_with_color)} catalog stars)…", "info"
+            f"Running SPCC ({params.filter_r.split(' ')[0]}/{params.sensor.split(' (')[0]}, "
+            f"{len(catalog_with_color)} catalog stars)…", "info",
         )
 
         def _spcc_work(data, progress=None):
-            return spcc_calibrate(data, catalog_with_color, params=params,
+            return sfcc_calibrate(data, catalog_with_color, params=params,
                                   progress=progress or (lambda f, m: None))
 
-        self._start_worker(_spcc_work, self._current_image.data,
-                           on_done=lambda r: self._update_current_image(r, "SPCC complete"))
+        def _spcc_done(payload):
+            result, info = payload
+            r, g, b = info.scales
+            self._update_current_image(
+                result,
+                f"SPCC complete: {info.n_used} of {info.n_matched} matched stars used, "
+                f"gains R={r:.3f} G={g:.3f} B={b:.3f}, rms {info.rms_residual:.3f}",
+            )
+
+        self._start_worker(_spcc_work, self._current_image.data, on_done=_spcc_done)
 
     @pyqtSlot()
     def _on_auto_denoise(self):

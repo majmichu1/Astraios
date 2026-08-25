@@ -2299,20 +2299,56 @@ class ToolsPanel(QWidget):
                       "physically accurate calibration available. Also "
                       "requires the image to be plate-solved first.",
         )
-        spcc.add_info("Sensor QE + filter transmission curves for precise white balance.")
-        # Only filter sets with real response curves in spcc.py are offered;
-        # the previous "Narrowband" and "Custom" entries silently ran the
-        # OSC broadband calibration.
-        self._spcc_filter_combo  = spcc.add_combo(
-            "Filter set", ["OSC (no filter)", "Broadband (L/R/G/B)"],
-            help_text="Which filters captured the data. OSC (no filter) is "
-                      "for one-shot-color cameras; Broadband (L/R/G/B) is for "
-                      "mono cameras with standard luminance/RGB filters.",
-        )
         spcc.add_info(
-            "The sensor response is part of the filter set above; for a "
-            "per-camera QE curve and narrowband filters use the SFCC dialog "
-            "(Tools menu)."
+            "Fits the colour correction from the catalog stars' spectra "
+            "passed through your filters and sensor. Needs a plate solve "
+            "first (Solve WCS in the Project panel, or PCC above)."
+        )
+        # These feed the SFCC engine (astraios.core.sfcc): the system response
+        # is filter x sensor QE x light-pollution filter per channel, so the
+        # sensor choice changes the fit. The earlier "Camera" combo here was
+        # read by nothing.
+        self._spcc_filter_combo = spcc.add_combo(
+            "Filter set", ["OSC (Bayer RGB)", "Broadband (LRGB interference filters)"],
+            help_text=param_help(
+                "Which filters captured the data.",
+                how="OSC uses the Bayer matrix response of a one-shot-colour "
+                    "camera; Broadband is a mono camera shooting through "
+                    "R, G and B interference filters.",
+            ),
+        )
+        from astraios.core.sfcc import SENSOR_QE_CURVES
+        self._spcc_sensor_combo = spcc.add_combo(
+            "Sensor", list(SENSOR_QE_CURVES), "Generic CMOS back-illuminated (Sony IMX-class)",
+            help_text=param_help(
+                "The sensor's quantum-efficiency curve, multiplied into "
+                "every channel's response.",
+                how="Back-illuminated CMOS (ASI, QHY, Player One with Sony "
+                    "IMX sensors) is the usual choice; KAF-class for older "
+                    "Kodak CCDs; Ideal for a camera whose curve you do not "
+                    "know. These are representative shapes, not vendor "
+                    "data; load your camera's digitized curve as a CSV in "
+                    "the SFCC dialog (Tools menu) for the exact response.",
+            ),
+        )
+        self._spcc_lp_combo = spcc.add_combo(
+            "Extra filter", ["(None)", "UV/IR Cut (generic, 400-700nm)"],
+            help_text=param_help(
+                "A cut or light-pollution filter in the optical path, "
+                "stacked into every channel.",
+                how="An OSC camera nearly always has a UV/IR cut; choose it "
+                    "unless the camera is astro-modified without one.",
+            ),
+        )
+        self._spcc_sigma = spcc.add_spin(
+            "Detection sigma", 3.0, 30.0, 8.0, 0.5, 1,
+            help_text=param_help(
+                "How bright a star must be, in noise sigmas, to be measured.",
+                higher="Fewer, cleaner stars; too few and the fit is refused.",
+                lower="More stars, some of them noise; the fit rejects "
+                      "outliers but gets slower.",
+                default="8 works for most fields.",
+            ),
         )
         spcc.add_run("▶ Run SPCC", self.run_spcc.emit)
         lay.addWidget(spcc)
@@ -4842,14 +4878,20 @@ class ToolsPanel(QWidget):
         return (enabled, params)
 
     def get_spcc_params(self):
-        """Return SPCCParams from the SPCC UI section."""
-        from astraios.core.spcc import SPCCParams
-        filter_map = {
-            "OSC (no filter)": "OSC (no filter)",
-            "Broadband (L/R/G/B)": "Mono + Baader LRGB",
-        }
-        filter_name = filter_map.get(self._spcc_filter_combo.currentText(), "OSC (no filter)")
-        return SPCCParams(filter_name=filter_name)
+        from astraios.core.sfcc import SFCCParams
+
+        osc = self._spcc_filter_combo.currentText().startswith("OSC")
+        prefix = "Bayer-" if osc else "Broadband-"
+        suffix = " (generic OSC)" if osc else " (generic LRGB interference)"
+        lp = self._spcc_lp_combo.currentText()
+        return SFCCParams(
+            filter_r=f"{prefix}R{suffix}",
+            filter_g=f"{prefix}G{suffix}",
+            filter_b=f"{prefix}B{suffix}",
+            sensor=self._spcc_sensor_combo.currentText(),
+            lp_filter_1=None if lp == "(None)" else lp,
+            detection_sigma=float(self._spcc_sigma.value()),
+        )
 
     def _toggle_cc_manual_rgb(self):
         visible = self._cc_method_combo.currentText() == "Manual RGB"

@@ -99,3 +99,17 @@ def test_wiener_deconvolution_sharpens_a_blurred_star():
     out = wiener_deconvolve(star, DeconvolutionParams(psf_fwhm=3.0, method="wiener", regularization=0.01))
     assert np.isfinite(out).all() and out.shape == star.shape
     assert out[32, 32] > star[32, 32]
+
+
+def test_spcc_panel_builds_a_real_sfcc_configuration(panel):
+    from astraios.core.sfcc import FILTER_CURVES, SENSOR_QE_CURVES, SFCCParams
+
+    panel._spcc_filter_combo.setCurrentText("OSC (Bayer RGB)")
+    panel._spcc_sensor_combo.setCurrentText("Generic CCD (Kodak KAF-class)")
+    panel._spcc_lp_combo.setCurrentText("UV/IR Cut (generic, 400-700nm)")
+    p = panel.get_spcc_params()
+    assert isinstance(p, SFCCParams)
+    assert p.filter_r in FILTER_CURVES and p.filter_g in FILTER_CURVES and p.filter_b in FILTER_CURVES
+    assert p.sensor in SENSOR_QE_CURVES and p.lp_filter_1 in FILTER_CURVES
+    panel._spcc_filter_combo.setCurrentText("Broadband (LRGB interference filters)")
+    assert panel.get_spcc_params().filter_b == "Broadband-B (generic LRGB interference)"
