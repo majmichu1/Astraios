@@ -15,6 +15,10 @@ on:
       - 'packaging/linux/**'
       - 'packaging/macos/**'
       - '.github/workflows/validate-installer.yml'
+      # The Metal-vs-CPU check is only ever exercised by this workflow, since
+      # no other machine here has Apple hardware. Without it in this list a
+      # change to the check itself would ship unvalidated.
+      - 'scripts/mps_check.py'
       - 'pyproject.toml'
       - 'astraios/__init__.py'
       - 'astraios/__main__.py'
