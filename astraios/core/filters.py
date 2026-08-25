@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import scipy.ndimage
 import torch
+import torch.nn.functional as F
 
 from astraios.core.device_manager import get_device_manager
 from astraios.core.masks import Mask, apply_mask
@@ -380,7 +381,49 @@ def _median_2d(plane: np.ndarray, ksize: int) -> np.ndarray:
         pad = ksize // 2
         padded = np.pad(plane, pad, mode="symmetric")
         return cv2.medianBlur(padded, ksize)[pad:-pad, pad:-pad]
+    dm = get_device_manager()
+    if dm.is_gpu:
+        try:
+            return _median_2d_gpu(plane, ksize, dm)
+        except RuntimeError as exc:  # out of memory: scipy still works
+            log.warning("GPU median filter failed (%s); using scipy", exc)
+            dm.empty_cache()
     return scipy.ndimage.median_filter(plane, size=ksize).astype(np.float32)
+
+
+_MEDIAN_BAND_BYTES = 256 * 1024 * 1024
+
+
+@torch.no_grad()
+def _median_2d_gpu(plane: np.ndarray, ksize: int, dm) -> np.ndarray:
+    """Median filter on the GPU for the kernel sizes cv2 refuses (7 and up).
+
+    scipy.ndimage.median_filter is single-threaded selection over every
+    window; at ksize 9 it is the slowest thing in the filters module. On the
+    GPU every window is gathered at once (unfold) and its median taken along
+    the window axis. A median is a selection, not arithmetic: the same values
+    give the same answer whoever picks them, and with the same symmetric
+    padding as scipy the result is bit-identical. The gather is k*k times the
+    image, so it runs in row bands sized to a fixed byte budget, each band
+    carrying a halo of ksize//2 rows so every output row sees its full window.
+    """
+    pad = ksize // 2
+    padded = np.pad(plane.astype(np.float32, copy=False), pad, mode="symmetric")
+    h, w = plane.shape
+    w_pad = w + 2 * pad
+    # Bytes per output row of the unfolded gather: w * k*k * 4.
+    rows_budget = max(1, _MEDIAN_BAND_BYTES // max(1, w * ksize * ksize * 4))
+    band = max(1, min(h, rows_budget))
+    out = np.empty((h, w), dtype=np.float32)
+    for y0 in range(0, h, band):
+        y1 = min(h, y0 + band)
+        chunk = torch.from_numpy(padded[y0 : y1 + 2 * pad]).to(dm.device)
+        chunk = chunk.reshape(1, 1, y1 - y0 + 2 * pad, w_pad)
+        windows = F.unfold(chunk, kernel_size=ksize)  # (1, k*k, (y1-y0)*w)
+        med = windows.median(dim=1).values  # k*k is odd: the exact middle value
+        out[y0:y1] = med.reshape(y1 - y0, w).cpu().numpy()
+        del chunk, windows, med
+    return out
 
 
 def median_filter(

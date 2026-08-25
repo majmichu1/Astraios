@@ -154,10 +154,12 @@ def lrgb_combine(
 
     # Optional chroma noise reduction (simple Gaussian blur on a/b)
     if params.chrominance_noise > 0:
-        from scipy.ndimage import gaussian_filter
+        # filters.gaussian_blur matches scipy's kernel and border and runs on
+        # the GPU when the frame is large enough to pay back the transfer.
+        from astraios.core.filters import gaussian_blur
         sigma = params.chrominance_noise * 3.0
-        lab[..., 1] = gaussian_filter(lab[..., 1], sigma=sigma)
-        lab[..., 2] = gaussian_filter(lab[..., 2], sigma=sigma)
+        lab[..., 1] = gaussian_blur(np.ascontiguousarray(lab[..., 1], dtype=np.float32), sigma)
+        lab[..., 2] = gaussian_blur(np.ascontiguousarray(lab[..., 2], dtype=np.float32), sigma)
 
     progress(0.8, "Converting back to RGB…")
     result_hwc = _from_lab(lab)

@@ -240,7 +240,9 @@ def _gaussian_blur_gpu(img: np.ndarray, sigma: float, dm) -> np.ndarray:
 
 def _gaussian(img: np.ndarray, sigma: float, dm) -> np.ndarray:
     """Dispatch to GPU or CPU Gaussian blur based on device availability and size."""
-    if dm.is_gpu and img.size >= GPU_PIXEL_THRESHOLD:
+    # Pixel count, not array size: img is (H, W, C), and counting channels
+    # sent colour images to the GPU at a third of the documented threshold.
+    if dm.is_gpu and img.shape[0] * img.shape[1] >= GPU_PIXEL_THRESHOLD:
         try:
             return _gaussian_blur_gpu(img, sigma, dm)
         except Exception:

@@ -418,7 +418,11 @@ def _apply_luma_adjustments_np(
 
 def _make_gaussian_kernel_1d(sigma: float, device: torch.device) -> torch.Tensor:
     sigma = max(sigma, 0.5)
-    ksize = int(np.ceil(sigma * 3)) * 2 + 1
+    # cv2.GaussianBlur with ksize (0, 0) picks round(sigma * 8 + 1) | 1 for a
+    # float image; the GPU mirror used ceil(3 sigma) * 2 + 1, a narrower
+    # kernel, so the same Edge blur feathered the mask differently on the GPU
+    # than on the CPU (and on the CPU-only CI).
+    ksize = int(round(sigma * 8 + 1)) | 1
     ksize = max(ksize, 3)
     x = torch.arange(ksize, dtype=torch.float32, device=device) - ksize // 2
     kernel = torch.exp(-0.5 * (x / sigma) ** 2)
