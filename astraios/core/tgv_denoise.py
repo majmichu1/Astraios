@@ -83,7 +83,12 @@ def _grad(u: torch.Tensor) -> torch.Tensor:
 def _bw_h(a: torch.Tensor) -> torch.Tensor:
     """Backward difference along H — the adjoint building block of forward-diff
     grad (so ``<forward_H(u), a> = <u, -_bw_h(a)>``)."""
-    o = torch.zeros_like(a)
+    # empty_like, not zeros_like: rows 1: are written by the difference and
+    # rows 0 and -1 are written explicitly below, so every element is assigned
+    # and the zero fill is a wasted memset. TGV runs 450 iterations per
+    # channel and calls this twice per iteration, so that is thousands of
+    # pointless full-tensor fills.
+    o = torch.empty_like(a)
     o[..., 1:, :] = a[..., 1:, :] - a[..., :-1, :]
     o[..., 0, :] = a[..., 0, :]
     o[..., -1, :] = -a[..., -2, :]
@@ -92,7 +97,8 @@ def _bw_h(a: torch.Tensor) -> torch.Tensor:
 
 def _bw_w(a: torch.Tensor) -> torch.Tensor:
     """Backward difference along W (adjoint building block, see _bw_h)."""
-    o = torch.zeros_like(a)
+    # See _bw_h: every column is written, so the zero fill is wasted.
+    o = torch.empty_like(a)
     o[..., :, 1:] = a[..., :, 1:] - a[..., :, :-1]
     o[..., :, 0] = a[..., :, 0]
     o[..., :, -1] = -a[..., :, -2]
