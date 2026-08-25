@@ -4192,7 +4192,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return correct_chromatic_aberration(data, _p)
+            from astraios.core.chromatic_aberration import _noop_progress
+            return correct_chromatic_aberration(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
@@ -4885,7 +4886,8 @@ class MainWindow(QMainWindow):
         self._log_panel.log("Running cosmetic correction...", "info")
 
         def _work(data, progress=None):
-            return cosmetic_correction(data, params)
+            from astraios.core.cosmetic import _noop_progress
+            return cosmetic_correction(data, params, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
@@ -4910,7 +4912,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return banding_reduction(data, _p)
+            from astraios.core.banding import _noop_progress
+            return banding_reduction(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
@@ -5133,7 +5136,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return color_calibrate(data, _p)
+            from astraios.core.color_calibration import _noop_progress
+            return color_calibrate(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             factors = result.correction_factors
@@ -5416,7 +5420,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return denoise(data, _p)
+            from astraios.core.denoise import _noop_progress
+            return denoise(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
@@ -5446,7 +5451,11 @@ class MainWindow(QMainWindow):
         )
 
         def _work(data, progress=None):
-            return denoise_background_luma(data, LumaDenoiseParams(strength=strength))
+            from astraios.core.luma_denoise import _noop_progress
+            return denoise_background_luma(
+                data, LumaDenoiseParams(strength=strength),
+                progress=progress or _noop_progress,
+            )
 
         def _done(result):
             self._update_current_image(result, "Background grain reduced")
@@ -5557,7 +5566,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return reduce_stars(data, params=_p)
+            from astraios.core.star_reduction import _noop_progress
+            return reduce_stars(data, params=_p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(result, "Star reduction complete")
@@ -6234,7 +6244,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return wavelet_sharpen(data, _p)
+            from astraios.core.wavelets import _noop_progress
+            return wavelet_sharpen(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
@@ -6263,7 +6274,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return wavelet_sharpen(data, _p)
+            from astraios.core.wavelets import _noop_progress
+            return wavelet_sharpen(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(result, "MLT complete")
@@ -6397,7 +6409,8 @@ class MainWindow(QMainWindow):
         _p = params
 
         def _work(data, progress=None):
-            return local_contrast_enhance(data, _p)
+            from astraios.core.local_contrast import _noop_progress
+            return local_contrast_enhance(data, _p, progress=progress or _noop_progress)
 
         def _done(result):
             self._update_current_image(
