@@ -107,6 +107,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Run the Linux installer end-to-end
+        # Authenticated so the release lookup gets 1000 API calls an hour
+        # instead of 60. Runner IPs are shared, and a whole hour of
+        # throttling is not something a retry inside one run can wait out.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash packaging/linux/install-astraios.sh
 
       - name: Confirm the install works + GUI imports (offscreen)
@@ -148,6 +153,11 @@ jobs:
           test "$(uname -m)" = "${{ matrix.arch }}"
 
       - name: Run the macOS installer end-to-end
+        # Authenticated so the release lookup gets 1000 API calls an hour
+        # instead of 60. Runner IPs are shared, and a whole hour of
+        # throttling is not something a retry inside one run can wait out.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: bash packaging/macos/install-astraios-macos.sh
 
       - name: Confirm the install works and the GUI imports (offscreen)

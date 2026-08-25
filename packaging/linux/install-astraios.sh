@@ -85,9 +85,27 @@ warn "→ Fetching the latest Astraios..."
 # this user. Without a retry the install ended on a bare
 # "curl: (56) ... error: 403", which says nothing anyone can act on. curl's
 # own --retry deliberately ignores 403, so the loop has to be explicit.
+# If a token happens to be in the environment, use it. Unauthenticated calls
+# get 60 an hour per IP; an authenticated one gets 1000. Ordinary users have
+# no token and do not need one for a single install, but CI hammers this
+# endpoint from shared runner IPs and gets throttled for an hour at a time,
+# which no amount of retrying inside one run can wait out.
+_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+# A function rather than an array of curl args, to match the macOS installer:
+# bash 3.2 treats an empty array expanded under `set -u` as an unbound
+# variable. Keeping both scripts on the same construct means a fix to one
+# does not quietly diverge from the other.
+_gh_api() {
+    if [ -n "$_token" ]; then
+        curl -fsSL -H "Authorization: Bearer $_token" "$1"
+    else
+        curl -fsSL "$1"
+    fi
+}
+
 WHEEL_URL=""
 for attempt in 1 2 3 4; do
-    WHEEL_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+    WHEEL_URL=$(_gh_api "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
         | grep -o '"browser_download_url": *"[^"]*\.whl"' | head -1 | cut -d'"' -f4) || true
     [ -n "$WHEEL_URL" ] && break
     if [ "$attempt" -lt 4 ]; then
