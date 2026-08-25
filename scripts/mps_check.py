@@ -77,7 +77,7 @@ def _scene(color: bool = True, size: int = 256) -> np.ndarray:
     return frame
 
 
-def _tools():
+def _tools(size: int = 256):
     """(name, callable, image) for each GPU-capable tool worth checking."""
     from astraios.core.curves import CurvePoints, CurvesParams, curves_transform
     from astraios.core.histogram_transform import (
@@ -89,8 +89,8 @@ def _tools():
     from astraios.core.wavelets import WaveletParams, wavelet_sharpen
     from astraios.core.wavescale_hdr import WaveScaleHDRParams, apply_wavescale_hdr
 
-    color = _scene(color=True)
-    mono = _scene(color=False)
+    color = _scene(color=True, size=size)
+    mono = _scene(color=False, size=size)
 
     curve = CurvesParams(master=CurvePoints(points=[(0.0, 0.0), (0.4, 0.55), (1.0, 1.0)]))
 
@@ -125,7 +125,13 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--bench", type=int, default=1,
                     help="timed repeats per tool (best of N)")
+    ap.add_argument("--sizes", default="256",
+                    help="comma-separated square image sizes to sweep, e.g. 256,1024,2048. "
+                         "A speedup measured at one size does not transfer: transfer cost "
+                         "grows with pixels while kernel-launch overhead does not, so a "
+                         "tool that loses on a preview can still win on a real frame.")
     args = ap.parse_args()
+    sizes = [int(s) for s in args.sizes.split(",") if s.strip()]
 
     dm = get_device_manager()
     mps = getattr(torch.backends, "mps", None)
@@ -141,36 +147,51 @@ def main() -> int:
         return 0
 
     gpu_name = dm.backend.name
-    print(f"{'tool':<22} {gpu_name:>9} {'cpu':>9} {'speedup':>8}  {'max diff':>10}  result")
-    print("-" * 76)
-
     failures: list[str] = []
-    for name, fn, data in _tools():
-        try:
-            gpu_result, gpu_t = _time(fn, data, args.bench)
-            with forced_cpu():
-                cpu_result, cpu_t = _time(fn, data, args.bench)
-        except Exception as exc:                       # noqa: BLE001
-            print(f"{name:<22} {'-':>9} {'-':>9} {'-':>8}  {'-':>10}  ERROR: {exc}")
-            failures.append(f"{name}: {exc}")
-            continue
+    speedups: dict[str, dict[int, float]] = {}
 
-        if gpu_result.shape != cpu_result.shape:
-            print(f"{name:<22} shape mismatch {gpu_result.shape} vs {cpu_result.shape}")
-            failures.append(f"{name}: shape mismatch")
-            continue
+    for size in sizes:
+        print(f"=== {size}x{size} ===")
+        print(f"{'tool':<22} {gpu_name:>9} {'cpu':>9} {'speedup':>8}  {'max diff':>10}  result")
+        print("-" * 76)
+        for name, fn, data in _tools(size):
+            try:
+                gpu_result, gpu_t = _time(fn, data, args.bench)
+                with forced_cpu():
+                    cpu_result, cpu_t = _time(fn, data, args.bench)
+            except Exception as exc:                   # noqa: BLE001
+                print(f"{name:<22} {'-':>9} {'-':>9} {'-':>8}  {'-':>10}  ERROR: {exc}")
+                failures.append(f"{name} @{size}: {exc}")
+                continue
 
-        diff = float(np.max(np.abs(gpu_result.astype(np.float64)
-                                   - cpu_result.astype(np.float64))))
-        ok = np.isfinite(gpu_result).all() and diff <= TOLERANCE
-        speed = cpu_t / gpu_t if gpu_t > 0 else float("nan")
-        verdict = "ok" if ok else "DIVERGED"
-        print(f"{name:<22} {gpu_t * 1000:8.1f}ms {cpu_t * 1000:8.1f}ms "
-              f"{speed:7.2f}x  {diff:10.2e}  {verdict}")
-        if not ok:
-            failures.append(f"{name}: max diff {diff:.2e} > {TOLERANCE:.0e}")
+            if gpu_result.shape != cpu_result.shape:
+                print(f"{name:<22} shape mismatch {gpu_result.shape} vs {cpu_result.shape}")
+                failures.append(f"{name} @{size}: shape mismatch")
+                continue
 
-    print()
+            diff = float(np.max(np.abs(gpu_result.astype(np.float64)
+                                       - cpu_result.astype(np.float64))))
+            ok = np.isfinite(gpu_result).all() and diff <= TOLERANCE
+            speed = cpu_t / gpu_t if gpu_t > 0 else float("nan")
+            speedups.setdefault(name, {})[size] = speed
+            verdict = "ok" if ok else "DIVERGED"
+            print(f"{name:<22} {gpu_t * 1000:8.1f}ms {cpu_t * 1000:8.1f}ms "
+                  f"{speed:7.2f}x  {diff:10.2e}  {verdict}")
+            if not ok:
+                failures.append(f"{name} @{size}: max diff {diff:.2e} > {TOLERANCE:.0e}")
+        print()
+
+    if len(sizes) > 1:
+        # The whole point of sweeping: find where each tool crosses 1.00x, so
+        # routing decisions rest on a threshold rather than on one image size.
+        print("speedup vs image size (>1 means the GPU wins)")
+        header = "".join(f"{s:>10}" for s in sizes)
+        print(f"{'tool':<22}{header}")
+        print("-" * (22 + 10 * len(sizes)))
+        for name, by_size in speedups.items():
+            row = "".join(f"{by_size.get(s, float('nan')):9.2f}x" for s in sizes)
+            print(f"{name:<22}{row}")
+        print()
     if failures:
         print(f"FAILED: {len(failures)} tool(s) do not agree with the CPU")
         for f in failures:

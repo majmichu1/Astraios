@@ -208,5 +208,11 @@ jobs:
         run: |
           PY="$HOME/Library/Application Support/Astraios/venv/bin/python"
           "$PY" -c "import astraios, pathlib; print('checking:', pathlib.Path(astraios.__file__).parent)"
-          "$PY" scripts/mps_check.py --bench 3
+          # Sweep sizes rather than trusting one. Transfer cost grows with
+          # pixel count while kernel-launch overhead does not, so a tool that
+          # loses on a 256px preview can still win on a real frame, and a
+          # routing decision made from a single size would be wrong for half
+          # the images users actually process. 2048 is the ceiling here to
+          # keep the runner comfortably inside its memory.
+          "$PY" scripts/mps_check.py --bench 3 --sizes 256,1024,2048
 
