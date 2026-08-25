@@ -117,20 +117,27 @@ def _normalize_metric(
     np.ndarray
         Normalised values in [0, 1].
     """
-    v_min = values.min()
-    v_max = values.max()
+    # A frame that failed to measure carries the 999 sentinel (fwhm) or a
+    # non-finite value. Leaving it in the range squashed every real frame's
+    # score toward one end, so one unreadable file made FWHM useless as a
+    # discriminator for the rest. Failed frames score 0 outright.
+    valid = np.isfinite(values) & (values < 999.0)
+    if not valid.any():
+        return np.zeros_like(values, dtype=np.float64)
+    v_min = values[valid].min()
+    v_max = values[valid].max()
     spread = v_max - v_min
 
     if spread < 1e-12:
-        # All values identical — return uniform 1.0
-        return np.ones_like(values, dtype=np.float64)
+        # All valid values identical: uniform 1.0, failures 0.
+        return np.where(valid, 1.0, 0.0).astype(np.float64)
 
-    normalised = (values - v_min) / spread
+    normalised = np.clip((values - v_min) / spread, 0.0, 1.0)
 
     if invert:
         normalised = 1.0 - normalised
 
-    return normalised
+    return np.where(valid, normalised, 0.0)
 
 
 def _measure_frame(file_path: str) -> dict:

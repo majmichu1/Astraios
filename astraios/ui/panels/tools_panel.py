@@ -4513,9 +4513,13 @@ class ToolsPanel(QWidget):
         iters = int(self._deconv_iter.value())
         reg = float(self._deconv_reg.value())
         if method == "Blind (Spatial)":
+            # The deringing controls sit above the method combo and apply to
+            # every method; this branch used to drop them.
             return SpatialDeconvParams(
                 iterations=iters,
                 regularization=reg,
+                deringing=self._deconv_deringing.isChecked(),
+                deringing_amount=self._deconv_dering_amt.value(),
             )
         return DeconvolutionParams(
             psf_fwhm=float(self._deconv_psf_spin.value()),

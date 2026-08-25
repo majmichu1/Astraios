@@ -160,6 +160,33 @@ def _normalize_background(stack: np.ndarray, ref_median: float, ref_mad: float) 
     return np.clip(result, 0.0, 1.0).astype(np.float32)
 
 
+def _reject_sessions(stack: np.ndarray, method: RejectionMethod, kappa: float):
+    """Dispatch the final rejection on its method.
+
+    ``final_rejection`` used to be read only as NONE / not NONE, so every
+    other choice silently ran sigma clipping.
+    """
+    from astraios.core.stacking import (
+        _reject_esd,
+        _reject_linear_fit,
+        _reject_min_max,
+        _reject_percentile_clip,
+        _reject_winsorized_sigma,
+    )
+
+    if method == RejectionMethod.WINSORIZED_SIGMA:
+        return _reject_winsorized_sigma(stack, kappa, kappa, 5, 1.5)
+    if method == RejectionMethod.LINEAR_FIT:
+        return _reject_linear_fit(stack, kappa, kappa, 5)
+    if method == RejectionMethod.PERCENTILE_CLIP:
+        return _reject_percentile_clip(stack, 10.0, 10.0)
+    if method == RejectionMethod.ESD:
+        return _reject_esd(stack)
+    if method == RejectionMethod.MIN_MAX:
+        return _reject_min_max(stack, 1)
+    return _reject_sigma_clip(stack, kappa, kappa, 5)
+
+
 def _pad_to_shape(data: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
     """Centre-pad image to target dimensions with zeros."""
     if data.ndim == 2:
@@ -375,7 +402,7 @@ def stack_multi_session(
     # asked for. All three now do what they say.
     use_rejection = params.final_rejection != RejectionMethod.NONE and len(padded) >= 3
     masked_data = (
-        _reject_sigma_clip(stack_array, params.final_kappa, params.final_kappa, 5)
+        _reject_sessions(stack_array, params.final_rejection, params.final_kappa)
         if use_rejection
         else None
     )
