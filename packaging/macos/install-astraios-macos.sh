@@ -79,12 +79,31 @@ say "* PyTorch installed"
 
 # ---- 4. Install Astraios from the latest GitHub release wheel ----------
 warn "-> Fetching the latest Astraios..."
-WHEEL_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-    | grep -o '"browser_download_url": *"[^"]*\.whl"' | head -1 | cut -d'"' -f4)
-[ -n "$WHEEL_URL" ] || die "Could not find an Astraios wheel in the latest release."
+# Ask the GitHub API which wheel the latest release carries, with retries.
+# That endpoint allows 60 unauthenticated requests an hour per IP address, so
+# a shared office connection, a VPN or a CI runner can exhaust it through no
+# fault of this user. Without a retry the install ended on a bare
+# "curl: (56) ... error: 403", which says nothing anyone can act on. curl's
+# own --retry deliberately ignores 403, so the loop has to be explicit.
+WHEEL_URL=""
+for attempt in 1 2 3 4; do
+    WHEEL_URL=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+        | grep -o '"browser_download_url": *"[^"]*\.whl"' | head -1 | cut -d'"' -f4) || true
+    [ -n "$WHEEL_URL" ] && break
+    if [ "$attempt" -lt 4 ]; then
+        warn "   GitHub did not answer (attempt $attempt of 4); retrying in $((attempt * 5))s..."
+        sleep "$((attempt * 5))"
+    fi
+done
+[ -n "$WHEEL_URL" ] || die "Could not reach the GitHub release API after 4 attempts.
+   This is nearly always a temporary rate limit on your IP address rather than
+   anything wrong with your machine. Wait a few minutes and run this again.
+   Releases: https://github.com/$REPO/releases/latest"
+
 # Keep the wheel's real PEP 427 filename; uv rejects a versionless name.
 WHEEL_FILE="$APP_DIR/$(basename "$WHEEL_URL")"
-curl -fsSL "$WHEEL_URL" -o "$WHEEL_FILE" || die "Failed to download Astraios."
+curl -fsSL --retry 3 --retry-delay 2 --retry-connrefused "$WHEEL_URL" -o "$WHEEL_FILE" \
+    || die "Failed to download Astraios (network interrupted?). Please run this again."
 "$UV" pip install --python "$VENV/bin/python" "$WHEEL_FILE" >>"$LOG" 2>&1 \
     || die "Astraios install failed (see $LOG)."
 rm -f "$WHEEL_FILE"
