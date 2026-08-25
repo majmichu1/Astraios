@@ -81,6 +81,14 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+# Dump every thread's stack if one test runs this long. A test that blocks
+# forever otherwise looks identical to a slow suite from the outside: the CI
+# job just stops at some percentage and eventually hits the job timeout, with
+# nothing in the log naming the test or saying where it stopped. This is
+# pytest's built-in faulthandler, so it costs no dependency and does nothing
+# at all until something actually hangs. No real test here comes close to
+# 120s; the whole suite runs in about four minutes.
+faulthandler_timeout = 120
 
 [tool.mypy]
 python_version = "3.11"

@@ -32,13 +32,17 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-22.04
-    # Was 30, which the suite outgrew: runs were dying at ~92% complete, so
-    # the gate reported "cancelled" (GitHub's wording for a timeout) on every
-    # commit and the regression net silently stopped covering anything. The
-    # runner is a small CPU-only box, so the suite legitimately takes far
-    # longer there than on a dev machine. This is a hang backstop, not a
-    # performance target -- see --durations below for the real numbers.
-    timeout-minutes: 60
+    # The suite is not slow, it hangs. Timestamps in the run on ff61485 show
+    # it going 75% -> 92% in 93 seconds and then sitting still for 55 minutes
+    # until the job timeout. Raising this to 60 was treating the wrong cause:
+    # a blocked test never finishes, so a bigger budget only buys a longer
+    # wait. 92% is where tests/test_ui starts, and the suite passes locally in
+    # about four minutes, so this is a CI-only block in a Qt test.
+    #
+    # 30 is roughly six times the real runtime: enough headroom for a slow
+    # runner, short enough that a hang is reported quickly. See
+    # faulthandler_timeout in pyproject.toml, which names the culprit.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -94,7 +98,10 @@ jobs:
       # has a different core count and competing load, so local timings say
       # nothing about how long this box takes. If the suite creeps back toward
       # the cap, read that list rather than guessing at a speed-up.
+      # -v so the last line of a stalled log names the test that blocked.
+      # Under -q a hang shows only a row of dots and a percentage, which is
+      # what made this take so long to pin down.
       - name: Test suite
         env:
           QT_QPA_PLATFORM: offscreen
-        run: poetry run pytest -q --durations=25
+        run: poetry run pytest -v --durations=25
