@@ -193,35 +193,30 @@ def _rl_channel(
     ch_offset = ch_idx / n_channels
     ch_scale = 1.0 / n_channels
 
-    try:
-        t_img = torch.from_numpy(channel.astype(np.float32)).to(dm.device)
-        t_psf = torch.from_numpy(psf.astype(np.float32)).to(dm.device)
-    except RuntimeError:
-        log.warning("GPU OOM for deconvolution, falling back to CPU")
-        t_img = torch.from_numpy(channel.astype(np.float32))
-        t_psf = torch.from_numpy(psf.astype(np.float32))
-
-    # Flipped PSF for correlation step
-    t_psf_flip = torch.flip(t_psf, [0, 1])
-
-    # RL iterations — no_grad prevents 2-4 GB autograd graph accumulation on 4K images
-    estimate = t_img.detach().clone()
-    # The PSF is constant across iterations, so transform it once instead of
-    # rebuilding + FFTing the padded kernel on every convolution (halves the
-    # per-iteration FFT work).
-    h, w = t_img.shape
-    psf_fft = _padded_kernel_fft(t_psf, h, w)
-    psf_flip_fft = _padded_kernel_fft(t_psf_flip, h, w)
     # iterations <= 0 made the loop a silent no-op that returned the
     # unchanged image as if it had been deconvolved.
     iterations = max(1, int(params.iterations))
-    with torch.no_grad():
+
+    @torch.no_grad()
+    def _run(device: torch.device) -> tuple[torch.Tensor, torch.Tensor]:
+        t_img = torch.from_numpy(channel.astype(np.float32)).to(device)
+        t_psf = torch.from_numpy(psf.astype(np.float32)).to(device)
+        # Flipped PSF for correlation step
+        t_psf_flip = torch.flip(t_psf, [0, 1])
+        # RL iterations; no_grad prevents 2-4 GB autograd graph accumulation
+        estimate = t_img.detach().clone()
+        # The PSF is constant across iterations, so transform it once instead of
+        # rebuilding + FFTing the padded kernel on every convolution (halves the
+        # per-iteration FFT work).
+        h, w = t_img.shape
+        psf_fft = _padded_kernel_fft(t_psf, h, w)
+        psf_flip_fft = _padded_kernel_fft(t_psf_flip, h, w)
         for i in range(iterations):
             frac = ch_offset + ch_scale * (i / iterations)
             progress(frac, f"Deconvolution ch{ch_idx + 1} iter {i + 1}/{iterations}")
 
             # Convolution of estimate with PSF. The intermediates are fresh
-            # tensors owned by this loop, so the clamp/div/mul run in place —
+            # tensors owned by this loop, so the clamp/div/mul run in place:
             # bit-identical math, ~3 fewer full-frame buffers live per iteration.
             blurred = _fft_convolve_with_kernel_fft(estimate, psf_fft, h, w)
             blurred.clamp_(min=1e-10)
@@ -240,6 +235,19 @@ def _rl_channel(
             # Update
             estimate.mul_(correction)
             estimate.clamp_(0, 1)
+        return t_img, estimate
+
+    # The OOM guard used to wrap only the two small uploads; the FFT buffers
+    # of the iteration loop, where a 7.7 GB card actually runs out, raised
+    # straight through. Now the whole channel retries on the CPU.
+    try:
+        t_img, estimate = _run(dm.device)
+    except RuntimeError as exc:
+        if dm.device.type == "cpu" or "out of memory" not in str(exc).lower():
+            raise
+        log.warning("GPU out of memory during deconvolution, falling back to CPU")
+        dm.empty_cache()
+        t_img, estimate = _run(torch.device("cpu"))
 
     # Deringing: blend result back toward the original near edges and where
     # ringing oscillations are detected.  The `deringing_amount` slider always

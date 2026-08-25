@@ -95,7 +95,10 @@ def _darkness_mask(l_norm: np.ndarray, n_scales: int, gamma: float) -> np.ndarra
         2D mask, float32 in [0, 1].
     """
     scales = wavelet_decompose(l_norm, n_scales=n_scales)
-    sel = scales[1:4]
+    # Detail scales only. scales[n_scales] is the smooth residual, which the
+    # fixed [1:4] slice pulled in whenever n_scales was 2 or 3, diluting the
+    # darkness mask with a plane that is never negative.
+    sel = scales[1:min(4, n_scales)]
     if not sel:
         return np.zeros_like(l_norm, dtype=np.float32)
 

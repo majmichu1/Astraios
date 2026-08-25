@@ -126,7 +126,9 @@ def lrgb_combine(
     # Resize luminance to match RGB if needed
     if lum.shape != rgb_hwc.shape[:2]:
         from PIL import Image
-        lum_pil = Image.fromarray((lum * 65535).astype(np.uint16))
+        # Clip first: a luminance above 1 (routine after a stretch or
+        # deconvolution overshoot) wrapped around in the uint16 cast.
+        lum_pil = Image.fromarray((np.clip(lum, 0.0, 1.0) * 65535).astype(np.uint16))
         lum_pil = lum_pil.resize((rgb_hwc.shape[1], rgb_hwc.shape[0]), Image.LANCZOS)
         lum = np.array(lum_pil, dtype=np.float32) / 65535.0
         log.info("Luminance resized to match RGB: %s", lum.shape)

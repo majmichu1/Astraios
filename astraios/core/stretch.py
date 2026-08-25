@@ -249,15 +249,16 @@ def arcsinh_stretch(
         else:
             t = dm.from_numpy(data)  # (C, H, W)
             if params.linked:
-                # Use luminance to derive a single stretch; apply to all channels
-                lum = t.mean(dim=0, keepdim=True)
+                # Use luminance to derive a single stretch; apply to all channels.
+                # The luminance is taken after the black point is removed, the
+                # same data the scale is applied to; measuring it before meant
+                # the channel ratios were wrong for any non-zero black point.
                 norm = float(torch.asinh(torch.tensor(beta)))
                 if norm < 1e-12:
                     return data.copy()
-                scale_map = (torch.asinh(beta * lum.clamp(0.0)) / norm) / (
-                    lum.clamp(1e-12)
-                )
                 shifted = (t - params.black_point).clamp(0.0, None)
+                lum = shifted.mean(dim=0, keepdim=True)
+                scale_map = (torch.asinh(beta * lum) / norm) / lum.clamp(1e-12)
                 out = (shifted * scale_map).clamp(0.0, 1.0)
             else:
                 # Write each stretched channel into a preallocated buffer rather
@@ -301,6 +302,18 @@ def generalized_hyperbolic_stretch(
         return _ghs_channel_gpu(data, params)
 
     result = np.empty_like(data)
+    if params.linked and data.shape[0] >= 3:
+        # One normalisation for all channels. ``linked`` used to be declared
+        # and ignored: every channel was rescaled to its own min/max, which
+        # shifted the colour balance of every GHS stretch of a colour image.
+        dm = get_device_manager()
+        raws = [_ghs_raw(dm.from_numpy(data[ch]), params) for ch in range(data.shape[0])]
+        s_min = min(float(r.amin()) for _, r in raws)
+        s_max = max(float(r.amax()) for _, r in raws)
+        for ch, (t, raw) in enumerate(raws):
+            result[ch] = _ghs_finish(t, raw, s_min, s_max, params)
+        return result
+
     for ch in range(data.shape[0]):
         result[ch] = _ghs_channel_gpu(data[ch], params)
 
@@ -312,7 +325,13 @@ def _ghs_channel_gpu(channel: np.ndarray, params: GHSParams) -> np.ndarray:
     """Apply GHS to a single channel using GPU acceleration."""
     dm = get_device_manager()
     t = dm.from_numpy(channel)
+    t, stretched = _ghs_raw(t, params)
+    return _ghs_finish(t, stretched, float(stretched.amin()), float(stretched.amax()), params)
 
+
+@torch.no_grad()
+def _ghs_raw(t: torch.Tensor, params: GHSParams) -> tuple[torch.Tensor, torch.Tensor]:
+    """The hyperbolic curve before normalisation; returns (input, stretched)."""
     D = float(params.D)
     b = float(params.b)
     SP = float(params.SP)
@@ -329,9 +348,14 @@ def _ghs_channel_gpu(channel: np.ndarray, params: GHSParams) -> np.ndarray:
             2.0 * b_tensor * torch.cosh(centered * b_tensor / 2.0) ** 2 + 1e-10
         )
 
-    # Normalize to [0, 1]
-    s_min = stretched.amin()
-    s_max = stretched.amax()
+    return t, stretched
+
+
+@torch.no_grad()
+def _ghs_finish(
+    t: torch.Tensor, stretched: torch.Tensor, s_min: float, s_max: float, params: GHSParams
+) -> np.ndarray:
+    """Normalise with the given bounds, apply the protections, return numpy."""
     if s_max > s_min:
         stretched = (stretched - s_min) / (s_max - s_min)
 

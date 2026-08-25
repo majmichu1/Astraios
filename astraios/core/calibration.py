@@ -350,6 +350,8 @@ def _calibrate_light_gpu(
     """GPU-accelerated calibration of a single light frame."""
     t_data = dm.from_numpy(light.data)
 
+    _warn_shape_mismatch(light, master_bias, master_dark, master_flat)
+
     if master_bias is not None and master_bias.data.shape == light.data.shape:
         t_bias = dm.from_numpy(master_bias.data)
         t_data = t_data - t_bias
@@ -373,6 +375,24 @@ def _calibrate_light_gpu(
     )
 
 
+def _warn_shape_mismatch(light: ImageData, bias, dark, flat) -> None:
+    """Say so when a master cannot be applied.
+
+    Each step is skipped when the master's shape differs from the light's (a
+    mono flat against a debayered light, a master made at another binning).
+    That skip used to be silent, so the frame came back labelled calibrated
+    with one or more steps missing and nothing in the log to show it.
+    """
+    for name, master in (("bias", bias), ("dark", dark), ("flat", flat)):
+        if master is not None and master.data.shape != light.data.shape:
+            log.warning(
+                "Master %s %s does not match light %s (%s); %s step skipped for %s",
+                name, master.data.shape, light.data.shape,
+                getattr(light.file_path, "name", light.file_path), name,
+                getattr(light.file_path, "name", light.file_path),
+            )
+
+
 def _calibrate_light_cpu(
     light: ImageData,
     master_bias: ImageData | None,
@@ -380,6 +400,7 @@ def _calibrate_light_cpu(
     master_flat: ImageData | None,
 ) -> ImageData:
     """CPU calibration of a single light frame (fallback)."""
+    _warn_shape_mismatch(light, master_bias, master_dark, master_flat)
     data = light.data.copy()
 
     if master_bias is not None and master_bias.data.shape == data.shape:

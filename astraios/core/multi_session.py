@@ -315,6 +315,15 @@ def stack_multi_session(
         except Exception as exc:
             log.warning("Sub-stack alignment failed: %s", exc)
 
+    # Where each session actually has data. Padding (phase 2) and alignment
+    # fill (phase 3) are exact zeros; the normalisation below would turn
+    # those into a non-zero constant, so the masks are taken here. A genuine
+    # 0.0 pixel is excluded too, which only means the other sessions speak
+    # for it, and a black pixel has nothing to add to an average anyway.
+    valid_masks = [
+        np.any(d != 0, axis=0) if d.ndim == 3 else (d != 0) for d in padded
+    ]
+
     # ── Phase 4: Background normalization ────────────────────────────────────
     if params.normalize_background and len(padded) > 1:
         progress(0.70, "Normalising background across sessions…")
@@ -370,6 +379,17 @@ def stack_multi_session(
         if use_rejection
         else None
     )
+
+    # Sessions of different sizes: a smaller sub-stack's zero padding used to
+    # be averaged in as if it were sky, which darkened the border of the
+    # mosaic toward black (with two sessions, to exactly half). Padded and
+    # fill pixels are masked out so only sessions with data there count.
+    valid = np.array(valid_masks)  # (N, H, W)
+    if stack_array.ndim == 4:
+        valid = valid[:, np.newaxis, :, :].repeat(stack_array.shape[1], axis=1)
+    if not valid.all():
+        base_mask = np.ma.getmaskarray(masked_data) if masked_data is not None else False
+        masked_data = np.ma.masked_array(stack_array, mask=np.logical_or(base_mask, ~valid))
 
     if params.final_integration == IntegrationMethod.MEDIAN:
         # Robust to one bad session in a way no average is, at the cost of

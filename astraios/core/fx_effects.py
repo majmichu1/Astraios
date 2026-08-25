@@ -335,11 +335,14 @@ def _fx_film_grain(img: np.ndarray, p: FXParams, dm) -> np.ndarray:
             noise = noise / (noise.std() + 1e-6)
         noise3 = noise[..., None] if img.ndim == 3 else noise
     else:
-        noise = rng.normal(0.0, 1.0, (h, w, 3)).astype(np.float32)
+        # As many noise planes as the image has channels: three was hard-coded,
+        # which broadcast a mono cube up to colour and failed on RGBA.
+        n_c = img.shape[-1]
+        noise = rng.normal(0.0, 1.0, (h, w, n_c)).astype(np.float32)
         if p.grain_size > 0.01:
             sigma = max(0.3, p.grain_size)
             k = _kernel_size(sigma)
-            for c in range(3):
+            for c in range(n_c):
                 noise[..., c] = cv2.GaussianBlur(noise[..., c], (k, k), sigma)
             noise = noise / (noise.std() + 1e-6)
         noise3 = noise

@@ -227,19 +227,21 @@ def _drizzle_frame_gpu(
     oy_floor = (oy - half_drop).floor().long()
     oy_ceil  = (oy + half_drop).ceil().long()
 
-    # Each input pixel spreads into the up-to-4 integer corners of its footprint
-    # [ox_floor, ox_ceil] x [oy_floor, oy_ceil]. Scatter one corner at a time
-    # instead of materialising a (C, 4N) "repeat each pixel 4x" tensor (4x the
-    # image in VRAM, plus a filtered copy): scatter_add is additive, so the
-    # accumulated totals — and the weight counts, including the harmless 4x
-    # over-count when the footprint collapses to one bin — are identical, while
-    # peak memory stays ~O(N) per corner.
-    corner_offsets = (
-        (oy_floor, ox_floor),
-        (oy_floor, ox_ceil),
-        (oy_ceil, ox_floor),
-        (oy_ceil, ox_ceil),
-    )
+    # The footprint is the half-open box [floor, ceil) on each axis, exactly
+    # as in _drizzle_frame_numpy, scattered one (dy, dx) offset at a time so
+    # peak memory stays O(N). The previous version scattered only the four
+    # corner bins, with ceil treated as inclusive: with the default
+    # drop_shrink the footprint is 2 or 3 bins wide, so interior bins were
+    # never written and one bin past the true edge was, and every GPU
+    # drizzle came out different from the CPU one. No test covered it; the
+    # one GPU test used the gaussian kernel, which is routed to the CPU.
+    y0 = oy_floor.clamp(min=0)
+    x0 = ox_floor.clamp(min=0)
+    fh = oy_ceil.clamp(max=out_h) - y0
+    fw = ox_ceil.clamp(max=out_w) - x0
+    covers = (fh > 0) & (fw > 0)
+    if not bool(covers.any()):
+        return
 
     if is_color:
         img_t = dm.from_numpy(image.astype(np.float32))  # (C, H, W)
@@ -249,15 +251,22 @@ def _drizzle_frame_gpu(
         img_flat = dm.from_numpy(image.astype(np.float32)).flatten()  # (N,)
         n_ch = 1
 
-    for cy, cx in corner_offsets:
-        v = (cx >= 0) & (cx < out_w) & (cy >= 0) & (cy < out_h)
-        idx = (cy * out_w + cx)[v]
-        if is_color:
-            for c in range(n_ch):
-                output_t[c].flatten().scatter_add_(0, idx, img_flat[c][v])
-        else:
-            output_t.flatten().scatter_add_(0, idx, img_flat[v])
-        weight_t.flatten().scatter_add_(0, idx, torch.ones(idx.shape[0], device=device))
+    out_flat = output_t.reshape(n_ch, -1) if is_color else output_t.reshape(-1)
+    w_flat = weight_t.reshape(-1)
+    max_fh = int(fh[covers].max().item())
+    max_fw = int(fw[covers].max().item())
+    for dy in range(max_fh):
+        for dx in range(max_fw):
+            sel = covers & (dy < fh) & (dx < fw)
+            idx = ((y0 + dy) * out_w + (x0 + dx))[sel]
+            if idx.numel() == 0:
+                continue
+            if is_color:
+                for c in range(n_ch):
+                    out_flat[c].scatter_add_(0, idx, img_flat[c][sel])
+            else:
+                out_flat.scatter_add_(0, idx, img_flat[sel])
+            w_flat.scatter_add_(0, idx, torch.ones(idx.shape[0], device=device))
 
 
 # ---------------------------------------------------------------------------

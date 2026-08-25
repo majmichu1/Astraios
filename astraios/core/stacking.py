@@ -124,7 +124,7 @@ class RejectionMethod(Enum):
     NONE = auto()
     SIGMA_CLIP = auto()           # astropy SigmaClip — standard, proven
     WINSORIZED_SIGMA = auto()     # winsorize extremes, then sigma clip (Siril)
-    LINEAR_FIT = auto()           # normalization + sigma clip (PixInsight)
+    LINEAR_FIT = auto()           # linear fit clipping (PixInsight): fit a line to the sorted stack, clip residuals
     PERCENTILE_CLIP = auto()      # reject top/bottom N% per pixel (PixInsight)
     ESD = auto()                  # Generalized ESD test (PixInsight)
     MIN_MAX = auto()              # reject N lowest + N highest per pixel (Siril)
@@ -404,6 +404,50 @@ def _reject_sigma_clip(
     """Astropy sigma clipping — the proven, standard approach."""
     sigclip = SigmaClip(sigma_lower=kappa_low, sigma_upper=kappa_high, maxiters=max_iterations)
     return sigclip(stack, axis=0)
+
+
+def _reject_linear_fit(
+    stack: np.ndarray, kappa_low: float, kappa_high: float, max_iterations: int
+) -> np.ma.MaskedArray:
+    """Linear fit clipping (PixInsight's Linear Fit Clipping).
+
+    For every pixel the N frame values are sorted, a straight line is fitted
+    to them against their rank, and values farther than kappa sigma from the
+    line are rejected; the fit and sigma are recomputed from the survivors and
+    the pass repeats. Against plain sigma clipping this tolerates a stack whose
+    sky level drifts across the session (dawn, moonrise, haze), where the
+    spread of a pixel is a trend rather than noise.
+
+    Until this existed the LINEAR_FIT option ran ordinary sigma clipping.
+    """
+    n = stack.shape[0]
+    if n < 3:
+        return np.ma.masked_array(stack, mask=np.zeros(stack.shape, dtype=bool))
+    order = np.argsort(stack, axis=0)
+    sorted_vals = np.take_along_axis(stack, order, axis=0).astype(np.float32)
+    x = np.arange(n, dtype=np.float32).reshape((-1,) + (1,) * (stack.ndim - 1))
+    keep = np.ones(stack.shape, dtype=bool)
+    for _ in range(max(1, int(max_iterations))):
+        cnt = keep.sum(axis=0).astype(np.float32)
+        sx = (x * keep).sum(axis=0)
+        sy = (sorted_vals * keep).sum(axis=0)
+        sxx = (x * x * keep).sum(axis=0)
+        sxy = (x * sorted_vals * keep).sum(axis=0)
+        denom = cnt * sxx - sx * sx
+        slope = np.where(denom > 0, (cnt * sxy - sx * sy) / np.where(denom > 0, denom, 1.0), 0.0)
+        safe_cnt = np.maximum(cnt, 1.0)
+        intercept = (sy - slope * sx) / safe_cnt
+        resid = sorted_vals - (slope * x + intercept)
+        std = np.sqrt((resid * resid * keep).sum(axis=0) / safe_cnt)
+        std = np.maximum(std, 1e-8)
+        new_keep = keep & (resid >= -kappa_low * std) & (resid <= kappa_high * std)
+        if new_keep.sum() == keep.sum():
+            break
+        keep = new_keep
+    mask_sorted = ~keep
+    mask = np.empty_like(mask_sorted)
+    np.put_along_axis(mask, order, mask_sorted, axis=0)
+    return np.ma.masked_array(stack, mask=mask)
 
 
 def _reject_winsorized_sigma(
@@ -1432,21 +1476,27 @@ def _gpu_sigma_clip(
 ) -> tuple[torch.Tensor, int]:
     """Iterative sigma clipping on GPU. stack shape: (N, ...).
 
-    Returns (boolean mask of KEPT pixels, n_rejected). The center is the
-    median of kept values — astropy's SigmaClip on the CPU path defaults
-    to median-centering, and mean-centering inflates the std around
-    outliers so the two paths would reject different pixels.
+    Returns (boolean mask of KEPT pixels, n_rejected).
+
+    The statistics are astropy's, exactly: deviations are measured from the
+    median of the kept values, but the sigma is the standard deviation about
+    their *mean* (``SigmaClip(cenfunc="median", stdfunc="std")``). The GPU
+    path used to take the spread about the median instead, which is larger
+    whenever an outlier is present, so on the same column astropy rejected a
+    satellite at 3.02 sigma and the GPU kept it at 2.83; stacks differed by
+    hardware. The median itself is a quantile, not torch.nanmedian, which
+    returns the lower middle value on an even count where numpy averages.
     """
     mask = torch.ones_like(stack, dtype=torch.bool)  # True = keep
 
     for _ in range(max_iter):
         vals = stack.masked_fill(~mask, float("nan"))
-        center = torch.nanmedian(vals, dim=0).values.unsqueeze(0)
-        # Variance of kept pixels around the median center
-        diff = stack - center
+        center = torch.nanquantile(vals, 0.5, dim=0).unsqueeze(0)
         count = mask.sum(dim=0, keepdim=True).float().clamp(min=1)
-        var = (diff ** 2 * mask).sum(dim=0, keepdim=True) / count
+        mean = (stack * mask).sum(dim=0, keepdim=True) / count
+        var = ((stack - mean) ** 2 * mask).sum(dim=0, keepdim=True) / count
         std = var.sqrt().clamp(min=1e-8)
+        diff = stack - center
 
         new_mask = mask & (diff >= -kappa_low * std) & (diff <= kappa_high * std)
         if new_mask.sum() == mask.sum():
@@ -1455,6 +1505,47 @@ def _gpu_sigma_clip(
 
     n_rejected = int((~mask).sum().item())
     return mask, n_rejected
+
+
+@torch.no_grad()
+def _gpu_linear_fit_clip(
+    stack: torch.Tensor,
+    kappa_low: float,
+    kappa_high: float,
+    max_iter: int = 5,
+) -> tuple[torch.Tensor, int]:
+    """GPU twin of _reject_linear_fit; same maths, same rejections.
+
+    Returns (boolean mask of KEPT pixels, n_rejected).
+    """
+    n = stack.shape[0]
+    if n < 3:
+        return torch.ones_like(stack, dtype=torch.bool), 0
+    sorted_vals, order = torch.sort(stack, dim=0)
+    x = torch.arange(n, device=stack.device, dtype=torch.float32).reshape(
+        (-1,) + (1,) * (stack.dim() - 1)
+    )
+    keep = torch.ones_like(stack, dtype=torch.bool)
+    for _ in range(max(1, int(max_iter))):
+        kf = keep.float()
+        cnt = kf.sum(dim=0)
+        sx = (x * kf).sum(dim=0)
+        sy = (sorted_vals * kf).sum(dim=0)
+        sxx = (x * x * kf).sum(dim=0)
+        sxy = (x * sorted_vals * kf).sum(dim=0)
+        denom = cnt * sxx - sx * sx
+        slope = torch.where(denom > 0, (cnt * sxy - sx * sy) / denom.clamp(min=1e-20), 0.0)
+        safe_cnt = cnt.clamp(min=1.0)
+        intercept = (sy - slope * sx) / safe_cnt
+        resid = sorted_vals - (slope * x + intercept)
+        std = ((resid * resid * kf).sum(dim=0) / safe_cnt).sqrt().clamp(min=1e-8)
+        new_keep = keep & (resid >= -kappa_low * std) & (resid <= kappa_high * std)
+        if new_keep.sum() == keep.sum():
+            break
+        keep = new_keep
+    mask = torch.empty_like(keep)
+    mask.scatter_(0, order, keep)
+    return mask, int((~mask).sum().item())
 
 
 @torch.no_grad()
@@ -1862,8 +1953,10 @@ def stack_from_paths(
             t = torch.from_numpy(tile_stack).to(dm.device)
             del tile_stack
 
-            if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
+            if params.rejection == RejectionMethod.SIGMA_CLIP:
                 mask_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
+            elif params.rejection == RejectionMethod.LINEAR_FIT:
+                mask_t, n_rej = _gpu_linear_fit_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 mask_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
             elif params.rejection == RejectionMethod.MIN_MAX:
@@ -1893,7 +1986,7 @@ def stack_from_paths(
             elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
                 masked = _reject_winsorized_sigma(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations, params.winsorize_cutoff)
             elif params.rejection == RejectionMethod.LINEAR_FIT:
-                masked = _reject_sigma_clip(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations)
+                masked = _reject_linear_fit(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 masked = _reject_percentile_clip(tile_stack, params.percentile_low, params.percentile_high)
             elif params.rejection == RejectionMethod.ESD:
@@ -2026,8 +2119,12 @@ def stack_images(
         # On OOM, fall back to the CPU rejection path instead of crashing.
         try:
             stack_t = dm.from_numpy(data_stack)
-            if params.rejection in (RejectionMethod.SIGMA_CLIP, RejectionMethod.LINEAR_FIT):
+            if params.rejection == RejectionMethod.SIGMA_CLIP:
                 mask_t, total_rejected = _gpu_sigma_clip(
+                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+                )
+            elif params.rejection == RejectionMethod.LINEAR_FIT:
+                mask_t, total_rejected = _gpu_linear_fit_clip(
                     stack_t, params.kappa_low, params.kappa_high, params.max_iterations
                 )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
@@ -2065,7 +2162,7 @@ def stack_images(
                 params.max_iterations, params.winsorize_cutoff,
             )
         elif params.rejection == RejectionMethod.LINEAR_FIT:
-            masked_data = _reject_sigma_clip(
+            masked_data = _reject_linear_fit(
                 data_stack, params.kappa_low, params.kappa_high, params.max_iterations
             )
         elif params.rejection == RejectionMethod.PERCENTILE_CLIP:

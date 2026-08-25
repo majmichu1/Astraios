@@ -285,7 +285,13 @@ def spcc_calibrate(
         margin = max(1, max(H, W) // 10)
         bg_vals = []
         for c in range(3):
-            corner = result[c, :margin, :margin].ravel()
+            # All four corners, not the top-left one alone: a bright star or
+            # amp glow in a single corner skewed the whole frame's neutralization.
+            plane = result[c]
+            corner = np.concatenate([
+                plane[:margin, :margin].ravel(), plane[:margin, -margin:].ravel(),
+                plane[-margin:, :margin].ravel(), plane[-margin:, -margin:].ravel(),
+            ])
             bg_vals.append(float(np.percentile(corner, 10)))
         bg_min = min(bg_vals)
         for c in range(3):

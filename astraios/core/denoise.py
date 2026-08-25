@@ -300,7 +300,9 @@ def _denoise_wavelet_gpu_cpu(channel: np.ndarray, params: DenoiseParams) -> np.n
     """CPU fallback using pywt (same algorithm as before)."""
     import pywt
 
-    coeffs = pywt.wavedec2(channel, params.wavelet, level=params.wavelet_levels)
+    # Same cap as the GPU path, so the two agree for wavelet_levels > 6.
+    levels = min(params.wavelet_levels, 6)
+    coeffs = pywt.wavedec2(channel, params.wavelet, level=levels)
     detail_finest = coeffs[-1]
     hh = detail_finest[2]
     sigma_noise = float(np.median(np.abs(hh)) / 0.6745)
@@ -308,7 +310,7 @@ def _denoise_wavelet_gpu_cpu(channel: np.ndarray, params: DenoiseParams) -> np.n
 
     denoised_coeffs = [coeffs[0]]
     for level_idx, detail in enumerate(coeffs[1:], 1):
-        level_factor = 1.0 - (level_idx - 1) / max(params.wavelet_levels, 1)
+        level_factor = 1.0 - (level_idx - 1) / max(levels, 1)
         effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
         thresholded = []
         for d in detail:

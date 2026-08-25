@@ -207,11 +207,13 @@ def resize(image: np.ndarray, params: ResizeParams | None = None) -> np.ndarray:
             InterpolationMethod.BICUBIC: "bicubic",
             InterpolationMethod.LANCZOS: "bicubic",
         }
-        align_map = {True: True, False: False, "bicubic": True, "nearest": False}
         torch_mode = mode_map.get(params.interpolation, "bicubic")
+        # PyTorch refuses align_corners for "nearest" (True or False alike),
+        # so nearest-neighbour resize of a colour image raised on every GPU
+        # machine while CI, which is CPU-only and takes cv2, never saw it.
+        align = None if torch_mode == "nearest" else True
         t = dm.from_numpy(image.astype(np.float32)).unsqueeze(0)
-        result = F.interpolate(t, size=(new_h, new_w), mode=torch_mode,
-                               align_corners=align_map.get(torch_mode, True))
+        result = F.interpolate(t, size=(new_h, new_w), mode=torch_mode, align_corners=align)
         return dm.to_cpu(result.squeeze(0)).numpy().astype(np.float32)
 
     interp = _INTERP_MAP.get(params.interpolation, cv2.INTER_LANCZOS4)

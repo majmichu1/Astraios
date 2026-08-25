@@ -65,20 +65,39 @@ def _morphology_gpu(data: np.ndarray, op: MorphOp, kernel_size: int, iterations:
     else:
         t = t.unsqueeze(0)  # (1, C, H, W)
 
-    for _ in range(iterations):
-        if op == MorphOp.ERODE:
-            t = -F.max_pool2d(-t, k, stride=1, padding=pad)
-        elif op == MorphOp.DILATE:
-            t = F.max_pool2d(t, k, stride=1, padding=pad)
-        elif op == MorphOp.OPEN:
-            t = -F.max_pool2d(-t, k, stride=1, padding=pad)
-            t = F.max_pool2d(t, k, stride=1, padding=pad)
-        elif op == MorphOp.CLOSE:
-            t = F.max_pool2d(t, k, stride=1, padding=pad)
-            t = -F.max_pool2d(-t, k, stride=1, padding=pad)
-        elif op == MorphOp.GRADIENT:
-            t = (F.max_pool2d(t, k, stride=1, padding=pad)
-                 - (-F.max_pool2d(-t, k, stride=1, padding=pad)))
+    def erode(x):
+        return -F.max_pool2d(-x, k, stride=1, padding=pad)
+
+    def dilate(x):
+        return F.max_pool2d(x, k, stride=1, padding=pad)
+
+    # Same semantics as cv2.morphologyEx with iterations=N: N erosions then N
+    # dilations for OPEN (the reverse for CLOSE), and dilate(N) - erode(N) for
+    # GRADIENT. Looping the compound operation instead was a no-op past the
+    # first pass for OPEN/CLOSE, so the GPU result stopped matching the CPU
+    # one at iterations > 1.
+    if op == MorphOp.ERODE:
+        for _ in range(iterations):
+            t = erode(t)
+    elif op == MorphOp.DILATE:
+        for _ in range(iterations):
+            t = dilate(t)
+    elif op == MorphOp.OPEN:
+        for _ in range(iterations):
+            t = erode(t)
+        for _ in range(iterations):
+            t = dilate(t)
+    elif op == MorphOp.CLOSE:
+        for _ in range(iterations):
+            t = dilate(t)
+        for _ in range(iterations):
+            t = erode(t)
+    elif op == MorphOp.GRADIENT:
+        d, e = t, t
+        for _ in range(iterations):
+            d = dilate(d)
+            e = erode(e)
+        t = d - e
 
     result = dm.to_cpu(t).squeeze().numpy()
     return np.clip(result, 0, 1).astype(np.float32)

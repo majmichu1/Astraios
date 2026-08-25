@@ -141,6 +141,10 @@ def _ensure_rgb_chw(data: np.ndarray) -> np.ndarray:
     a = np.clip(data.astype(np.float32, copy=False), 0.0, 1.0)
     if a.ndim == 2:
         return np.stack([a, a, a], axis=0)
+    if a.shape[0] == 1:
+        # A mono FITS cube (NAXIS3=1) is a supported shape; a[:3] left it
+        # single-channel and the HSV split then indexed channel 1.
+        return np.repeat(a, 3, axis=0)
     return np.ascontiguousarray(a[:3])
 
 

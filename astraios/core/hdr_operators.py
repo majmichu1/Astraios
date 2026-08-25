@@ -110,7 +110,9 @@ def tonemap_reinhard(
         global_ = color_adapt * max(float(scaled.mean()), 1e-10) + (1.0 - color_adapt) * lum_mean
         adapt = (light_adapt * local + (1.0 - light_adapt) * global_) / max(global_, 1e-10)
 
-        tone = scaled * (1.0 + scaled / (l_white * l_white)) / (scaled + adapt)
+        # A black pixel with light_adapt=1 has adapt=0 too; without the floor
+        # that was 0/0 and every such pixel came out NaN.
+        tone = scaled * (1.0 + scaled / (l_white * l_white)) / np.maximum(scaled + adapt, 1e-10)
         tone = np.clip(tone, 0.0, 1.0)
         if is_color:
             result[ch] = tone.astype(np.float32)
@@ -159,6 +161,14 @@ def tonemap_drago(
             result[ch] = tone.astype(np.float32)
         else:
             result = tone.astype(np.float32)
+
+    # ``saturation`` was a declared setting that nothing read. 1.0 leaves the
+    # result exactly as before; below it pulls each pixel toward its own grey,
+    # above it pushes colour out, which tone mapping otherwise flattens.
+    if is_color and params.saturation != 1.0:
+        grey = result.mean(axis=0, keepdims=True)
+        result = np.clip(grey + (result - grey) * float(params.saturation), 0.0, 1.0)
+        result = result.astype(np.float32)
 
     return result
 

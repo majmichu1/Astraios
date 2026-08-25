@@ -606,7 +606,9 @@ def render_spikes(
 
     if is_color:
         work = np.transpose(img, (1, 2, 0))
-        img_rgb = work if work.shape[-1] >= 3 else np.repeat(work[..., :1], 3, axis=-1)
+        # Exactly three channels: an RGBA input passed all four through and
+        # the overlay blit failed on the broadcast.
+        img_rgb = work[..., :3] if work.shape[-1] >= 3 else np.repeat(work[..., :1], 3, axis=-1)
     else:
         img_rgb = np.stack([img, img, img], axis=-1)
 

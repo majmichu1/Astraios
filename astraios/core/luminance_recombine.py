@@ -666,6 +666,11 @@ def recombine_luminance(
 
     if w is not None and w.size == 3:
         recombine_w = w
+    elif resolved_method == "equal":
+        # Without this branch "equal" measured the colour image with Rec.709
+        # weights while the target luminance was built with equal ones, so
+        # recombining an unchanged luminance still shifted the colours.
+        recombine_w = np.full(3, 1.0 / 3.0, dtype=np.float32)
     elif resolved_method == "rec601":
         recombine_w = _LUMA_REC601
     elif resolved_method == "rec2020":
