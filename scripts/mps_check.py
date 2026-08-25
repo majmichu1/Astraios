@@ -179,6 +179,13 @@ def main() -> int:
                   f"{speed:7.2f}x  {diff:10.2e}  {verdict}")
             if not ok:
                 failures.append(f"{name} @{size}: max diff {diff:.2e} > {TOLERANCE:.0e}")
+
+            # Release between tools. A sweep holds a GPU and a CPU copy of
+            # every result, and the larger sizes are what killed an earlier
+            # run outright (SIGKILL, exit 137), so peak memory here is a real
+            # constraint rather than housekeeping.
+            del gpu_result, cpu_result
+            dm.empty_cache()
         print()
 
     if len(sizes) > 1:

@@ -212,7 +212,13 @@ jobs:
           # pixel count while kernel-launch overhead does not, so a tool that
           # loses on a 256px preview can still win on a real frame, and a
           # routing decision made from a single size would be wrong for half
-          # the images users actually process. 2048 is the ceiling here to
-          # keep the runner comfortably inside its memory.
-          "$PY" scripts/mps_check.py --bench 3 --sizes 256,1024,2048
+          # the images users actually process.
+          #
+          # Ceiling is 1024, not 2048. 2048 was tried and the runner killed
+          # the process with SIGKILL (exit 137): six tools each holding a GPU
+          # and a CPU copy, and wavescale_hdr decomposing into six full-size
+          # wavelet scales on top, does not fit in the memory an Apple Silicon
+          # runner has. 256 -> 1024 is still a 16x range in pixel count, which
+          # is enough to show which way each curve is heading.
+          "$PY" scripts/mps_check.py --bench 3 --sizes 256,512,1024
 
