@@ -25,14 +25,6 @@ def test_morphology_params_are_enums(panel):
     assert p.operation.name and p.element.name
 
 
-def test_median_filter_params(panel):
-    from astraios.core.filters import MedianFilterParams
-
-    p = panel.get_median_filter_params()
-    assert isinstance(p, MedianFilterParams)
-    assert p.kernel_size % 2 == 1 and p.kernel_size >= 3
-
-
 def test_mlt_params_have_noise_thresholds(panel):
     from astraios.core.wavelets import WaveletParams
 

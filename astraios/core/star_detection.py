@@ -141,6 +141,7 @@ def find_transform(
     target_stars: StarField | np.ndarray,
     max_match: int = 50,
     max_dist_fraction: float = 0.1,
+    ransac_threshold: float = 3.0,
 ) -> np.ndarray | None:
     """Find affine transform from target to reference coordinate system.
 
@@ -203,7 +204,7 @@ def find_transform(
     tgt_matched = np.array(matched_tgt, dtype=np.float32)
 
     transform, inliers = cv2.estimateAffinePartial2D(
-        tgt_matched, ref_matched, method=cv2.RANSAC, ransacReprojThreshold=3.0
+        tgt_matched, ref_matched, method=cv2.RANSAC, ransacReprojThreshold=ransac_threshold
     )
     return transform
 
@@ -213,6 +214,7 @@ def find_transform_triangle(
     target_stars: StarField | np.ndarray,
     n_stars: int = 60,
     n_triangles: int = 300,
+    ransac_threshold: float = 3.0,
     feature_tol: float = 0.025,
     min_vote_matches: int = 4,
 ) -> np.ndarray | None:
@@ -342,7 +344,7 @@ def find_transform_triangle(
     tgt_arr = np.array(matched_tgt, dtype=np.float32)
 
     transform, inliers = cv2.estimateAffinePartial2D(
-        tgt_arr, ref_arr, method=cv2.RANSAC, ransacReprojThreshold=3.0
+        tgt_arr, ref_arr, method=cv2.RANSAC, ransacReprojThreshold=ransac_threshold
     )
     if transform is None:
         log.debug("Triangle matching: RANSAC failed, falling back to NN matching")

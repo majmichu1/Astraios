@@ -289,7 +289,6 @@ class ToolsPanel(QWidget):
     save_macro               = pyqtSignal()
     load_macro               = pyqtSignal()
     run_unsharp_mask         = pyqtSignal()
-    run_median_filter        = pyqtSignal()
     run_abe                  = pyqtSignal()
     run_vignette_correction  = pyqtSignal()
     run_chromatic_aberration = pyqtSignal()
@@ -643,10 +642,64 @@ class ToolsPanel(QWidget):
         bm = RunBtn("Master…", flat=True)
         bf.setFixedHeight(26)
         bm.setFixedHeight(26)
+        bf.setToolTip(
+            f"Pick a folder of raw {frame_type} frames; a master {frame_type} "
+            "is built from them when calibration runs."
+        )
+        bm.setToolTip(f"Pick a master {frame_type} file you already have.")
+        # These two buttons were drawn for a long time and connected to
+        # nothing; get_calibration_sources() returned empty lists regardless.
+        if not hasattr(self, "_cal_sources"):
+            self._cal_sources = {
+                ft: {"paths": [], "master": None} for ft in ("bias", "dark", "flat")
+            }
+        bf.clicked.connect(lambda _c=False, ft=frame_type: self._pick_cal_folder(ft))
+        bm.clicked.connect(lambda _c=False, ft=frame_type: self._pick_cal_master(ft))
         rl.addWidget(bf)
         rl.addWidget(bm)
         sec.add_layout(rl)
         return rl, (bf, bm)
+
+    def _pick_cal_folder(self, frame_type: str) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QFileDialog
+
+        from astraios.core.user_paths import default_dir
+
+        folder = QFileDialog.getExistingDirectory(
+            self, f"Folder of {frame_type} frames", default_dir("import")
+        )
+        if not folder:
+            return
+        exts = ("*.fit", "*.fits", "*.fts", "*.xisf", "*.FIT", "*.FITS", "*.FTS", "*.XISF")
+        paths = sorted({p for ext in exts for p in Path(folder).glob(ext)})
+        if not paths:
+            self._set_cal_label(frame_type, f"no frames found in {Path(folder).name}")
+            return
+        self._cal_sources[frame_type] = {"paths": paths, "master": None}
+        self._set_cal_label(frame_type, f"{len(paths)} frames from {Path(folder).name}")
+
+    def _pick_cal_master(self, frame_type: str) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QFileDialog
+
+        from astraios.core.user_paths import default_dir
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Master {frame_type}", default_dir("import"),
+            "FITS / XISF (*.fit *.fits *.fts *.xisf);;All files (*)",
+        )
+        if not path:
+            return
+        self._cal_sources[frame_type] = {"paths": [], "master": Path(path)}
+        self._set_cal_label(frame_type, Path(path).name)
+
+    def _set_cal_label(self, frame_type: str, text: str) -> None:
+        label = getattr(self, f"_cal_{frame_type}_label", None)
+        if label is not None:
+            label.setText(f"{frame_type.capitalize()}: {text}")
 
     # ── TAB 2: Stacking ───────────────────────────────────
     def _build_stacking_tab(self):
@@ -720,6 +773,25 @@ class ToolsPanel(QWidget):
                 higher="More tolerant of noisy star detections.",
                 lower="Stricter — demands a tighter fit.",
             ),
+        )
+        self._comet_radius_spin = styled_spin(3, 300, 15, 1, 0, " px")
+        self._comet_radius_row = QWidget()
+        self._comet_radius_row.setLayout(field_row(
+            "Nucleus radius", self._comet_radius_spin, 110,
+            help_text=param_help(
+                "How far around the brightest spot to search for the comet's "
+                "nucleus in each frame.",
+                higher="Copes with a fast comet or a rough first guess, but a "
+                       "bright star inside the radius can be mistaken for it.",
+                lower="Locks onto the nucleus precisely when it moves little "
+                      "between frames.",
+                default="15 px suits most frames.",
+            ),
+        ))
+        self._comet_radius_row.setVisible(False)
+        reg.add_widget(self._comet_radius_row)
+        self._reg_mode_combo.currentTextChanged.connect(
+            lambda t: self._comet_radius_row.setVisible(t == "Comet")
         )
         self._ref_frame_combo = reg.add_combo(
             "Reference frame",
@@ -2120,13 +2192,14 @@ class ToolsPanel(QWidget):
         cc.add_info("White balance using background reference or star colours.")
         self._cc_method_combo = cc.add_combo(
             "Method",
-            ["Background reference", "Photometric (SPCC)", "Manual RGB"],
+            ["Background reference", "Solar white (G2V)", "Manual RGB"],
             help_text="Background reference measures the sky background and "
-                      "forces it neutral — fast, no plate solve needed. "
-                      "Photometric (SPCC) plate-solves the field and uses real "
-                      "catalog star colors for accurate, repeatable results "
-                      "(see the SPCC section below). Manual RGB lets you type "
-                      "your own per-channel multipliers.",
+                      "forces it neutral: fast, no plate solve needed. Solar "
+                      "white (G2V) scales the channels so a Sun-like star "
+                      "comes out white, a fixed correction that needs no "
+                      "catalog. For a calibration fitted to real catalog star "
+                      "colours use the PCC / SPCC sections below. Manual RGB "
+                      "lets you type your own per-channel multipliers.",
         )
         cc.add_info("Manual RGB multipliers (only for Manual RGB method).")
         rgb_row = QHBoxLayout()
@@ -2207,15 +2280,13 @@ class ToolsPanel(QWidget):
                       "for one-shot-color cameras; Broadband (L/R/G/B) is for "
                       "mono cameras with standard luminance/RGB filters.",
         )
-        self._spcc_camera_combo  = spcc.add_combo(
-            "Camera", ["ZWO ASI2600MM Pro", "QHY268M", "ZWO ASI533MC Pro"],
-            help_text="The camera model used, so its measured sensor "
-                      "quantum-efficiency curve feeds the color fit. Pick the "
-                      "closest match if your exact camera isn't listed.",
+        spcc.add_info(
+            "The sensor response is part of the filter set above; for a "
+            "per-camera QE curve and narrowband filters use the SFCC dialog "
+            "(Tools menu)."
         )
         spcc.add_run("▶ Run SPCC", self.run_spcc.emit)
         lay.addWidget(spcc)
-        self._populate_spcc_cameras()
 
         # Narrowband
         nb = CollapsibleSection(
@@ -2241,6 +2312,38 @@ class ToolsPanel(QWidget):
                       "back apart.",
         )
         lc.add_info("Combine luminance and colour channels.")
+        self._lrgb_lum_weight = lc.add_slider(
+            "Luminance weight", 1.0, 0.0, 1.0, 0.05, 2,
+            help_text=param_help(
+                "How much of the new luminance frame replaces the colour "
+                "image's own brightness.",
+                higher="The sharp L frame carries all the detail; colour data "
+                       "only supplies hue.",
+                lower="Blends toward the colour image's own brightness, "
+                      "keeping some of its character.",
+                default="1.0 is the classic LRGB combine.",
+            ),
+        )
+        self._lrgb_sat_boost = lc.add_slider(
+            "Saturation boost", 1.2, 0.5, 3.0, 0.05, 2,
+            help_text=param_help(
+                "Colour saturation applied after the luminance is replaced.",
+                how="A sharper, brighter L frame makes colour look thinner; "
+                    "a boost above 1 compensates.",
+                higher="Richer colour; too far and stars turn coloured discs.",
+                lower="Muted, natural colour.",
+            ),
+        )
+        self._lrgb_chroma_nr = lc.add_slider(
+            "Chroma denoise", 0.0, 0.0, 1.0, 0.05, 2,
+            help_text=param_help(
+                "Smooths noise in the colour channels only, before combining.",
+                how="Colour data is usually binned or shorter and noisier "
+                    "than the L frame; smoothing its chroma costs no detail.",
+                higher="Cleaner colour, softer colour edges.",
+                lower="No colour smoothing.",
+            ),
+        )
         btns = lc.add_btn_row([("LRGB Combine…", True), ("Channel Combine…", True)])
         btns[0].clicked.connect(self.run_lrgb_combine.emit)
         btns[1].clicked.connect(self.open_channel_combine_dialog.emit)
@@ -2439,30 +2542,47 @@ class ToolsPanel(QWidget):
                 lower="A stronger, smoother result that can look plasticky.",
             ),
         )
-        self._denoise_chrom      = dnz.add_slider(
-            "Chrominance",0.5, 0.0, 1.0, 0.05, 2,
+        # Was a 0-1 slider that the code collapsed to "above 0.5 or not";
+        # the control now says what the setting is.
+        self._denoise_chrom      = dnz.add_check(
+            "Colour noise only (keep brightness detail)", False,
             help_text=param_help(
-                "Balance between removing color noise and luminance noise.",
-                higher="Above halfway, only color (chroma) noise is removed and "
-                       "brightness detail is left untouched — safest for detail.",
-                lower="Below halfway, brightness and color noise are reduced "
-                      "together, which can soften fine structure.",
+                "Denoise only the colour, leaving brightness untouched.",
+                how="Colour noise (blotchy patches of red and green in the "
+                    "background) is separated from brightness noise and only "
+                    "the colour part is smoothed, so stars and fine structure "
+                    "keep their edges.",
+                tip="The safest first pass on an OSC image; run a second, "
+                    "lighter full denoise afterwards if grain remains.",
             ),
         )
         _auto_btn = dnz.add_btn_row([("🎯 Auto (measure noise)", False)])[0]
         _auto_btn.clicked.connect(self.request_auto_denoise.emit)
         self._denoise_noise_label = dnz.add_status_label("Noise: not measured")
         self._denoise_preview_check = dnz.add_preview_check()
-        for _sl in (self._denoise_amount, self._denoise_lum, self._denoise_chrom):
+        for _sl in (self._denoise_amount, self._denoise_lum):
             _sl.value_changed.connect(
                 lambda _, s=self._denoise_preview_check: self._fire_preview("denoise", s)
             )
+        self._denoise_chrom.toggled.connect(
+            lambda _, s=self._denoise_preview_check: self._fire_preview("denoise", s)
+        )
         self._denoise_preview_check.toggled.connect(
             lambda on: self.preview_requested.emit("denoise") if on
             else self.preview_cancelled.emit()
         )
         dnz.add_run("▶ Apply Denoise", self.run_denoise.emit)
         lay.addWidget(dnz)
+
+        # TGV and the median filter take only Amount; greying the other two
+        # says so instead of leaving sliders that do nothing.
+        def _denoise_method_changed(text: str) -> None:
+            simple = text in ("TGV Denoise", "Median Filter")
+            self._denoise_lum.setEnabled(not simple)
+            self._denoise_chrom.setEnabled(not simple)
+
+        self._denoise_method_combo.currentTextChanged.connect(_denoise_method_changed)
+        _denoise_method_changed(self._denoise_method_combo.currentText())
 
         # Background Grain — post-stretch luminance grain in the dark sky only
         bgg = CollapsibleSection(
@@ -2510,7 +2630,7 @@ class ToolsPanel(QWidget):
             ),
         )
         self._star_reduction_kernel = sr.add_combo(
-            "Kernel", ["Elliptical", "Circular", "Square", "Diamond"],
+            "Kernel", ["Circular", "Square", "Diamond"],
             help_text="Shape of the erosion kernel used to shrink stars. "
                       "Elliptical/Circular give the most natural round stars; "
                       "Square and Diamond are more aggressive and can leave "
@@ -3931,17 +4051,6 @@ class ToolsPanel(QWidget):
 
     # ── Internal helpers ──────────────────────────────────
 
-    def _populate_spcc_cameras(self) -> None:
-        """Load all cameras from the equipment database into the SPCC camera combo."""
-        try:
-            from astraios.core.equipment import load_camera_database
-            cameras = load_camera_database()
-            self._spcc_camera_combo.clear()
-            for cam in cameras:
-                self._spcc_camera_combo.addItem(cam.name)
-        except Exception:
-            pass  # keep the hardcoded defaults if database fails to load
-
     def _fire_preview(self, tool_name: str, check: QCheckBox) -> None:
         if check.isChecked():
             self.preview_requested.emit(tool_name)
@@ -3999,12 +4108,15 @@ class ToolsPanel(QWidget):
         }
 
     def get_calibration_sources(self) -> dict:
-        # The Folder…/Master… pickers are not wired to persistent state yet;
-        # return empty sources so MainWindow falls back to project frames.
-        return {
-            "bias_paths": [], "dark_paths": [], "flat_paths": [],
-            "bias_master": None, "dark_master": None, "flat_master": None,
-        }
+        """What the Folder…/Master… pickers chose; empty entries fall back to
+        the project's imported frames in the main window."""
+        src = getattr(self, "_cal_sources", {})
+        out = {}
+        for ft in ("bias", "dark", "flat"):
+            entry = src.get(ft, {"paths": [], "master": None})
+            out[f"{ft}_paths"] = list(entry["paths"])
+            out[f"{ft}_master"] = entry["master"]
+        return out
 
     def get_debayer_params(self) -> dict:
         pattern = self._debayer_pattern_combo.currentText()
@@ -4023,10 +4135,11 @@ class ToolsPanel(QWidget):
 
     def get_lrgb_params(self):
         from astraios.core.lrgb import LRGBParams
-        return LRGBParams()
-
-    def get_continuum_scale(self) -> float:
-        return 1.0
+        return LRGBParams(
+            luminance_weight=float(self._lrgb_lum_weight.value()),
+            saturation_boost=float(self._lrgb_sat_boost.value()),
+            chrominance_noise=float(self._lrgb_chroma_nr.value()),
+        )
 
     # ── Public setters (called from main_window) ──────────
 
@@ -4128,6 +4241,10 @@ class ToolsPanel(QWidget):
             normalization=self._parse_norm(self._norm_combo.currentText()),
             kappa_low=kappa,
             kappa_high=kappa,
+            star_sigma_threshold=float(self._star_sens_spin.value()),
+            star_max_match_dist=float(self._max_shift_spin.value()),
+            ransac_threshold=float(self._ransac_thresh_spin.value()),
+            comet_nucleus_radius=int(self._comet_radius_spin.value()),
         )
 
     def get_multiframe_deconv_params(self):
@@ -4193,6 +4310,7 @@ class ToolsPanel(QWidget):
             "star_sensitivity": float(self._star_sens_spin.value()),
             "max_shift": int(self._max_shift_spin.value()),
             "ransac_threshold": float(self._ransac_thresh_spin.value()),
+            "comet_nucleus_radius": int(self._comet_radius_spin.value()),
         }
 
     def get_stretch_params(self) -> StretchParams:
@@ -4235,6 +4353,7 @@ class ToolsPanel(QWidget):
             grid_size=int(self._bg_grid_spin.value()),
             polynomial_order=int(self._bg_order_spin.value()),
             per_pixel_sigma=self._bg_tolerance.value(),
+            box_size=int(self._bg_box_size_spin.value()),
             manual_points=manual_points or [],
         )
 
@@ -4268,9 +4387,10 @@ class ToolsPanel(QWidget):
 
     def get_ai_denoise_params(self) -> AIDenoiseParams:
         tile_map = {"128": 128, "256": 256, "512": 512, "Full": 0}
+        tiled = self._ai_tiled_check.isChecked()
         return AIDenoiseParams(
             strength=self._ai_denoise_strength.value(),
-            tile_size=tile_map.get(self._ai_tile_combo.currentText(), 256),
+            tile_size=tile_map.get(self._ai_tile_combo.currentText(), 256) if tiled else 0,
             protect_stars=0.8 if self._ai_star_protect.isChecked() else 0.0,
         )
 
@@ -4319,6 +4439,7 @@ class ToolsPanel(QWidget):
             regularization=reg,
             deringing=self._deconv_deringing.isChecked(),
             deringing_amount=self._deconv_dering_amt.value(),
+            method="wiener" if method == "Wiener" else "rl",
         )
 
     def set_psf_fwhm(self, fwhm: float) -> None:
@@ -4350,7 +4471,7 @@ class ToolsPanel(QWidget):
             method=method,
             strength=self._denoise_amount.value(),
             detail_preservation=self._denoise_lum.value(),
-            chrominance_only=(self._denoise_chrom.value() > 0.5),
+            chrominance_only=self._denoise_chrom.isChecked(),
         )
 
     def set_denoise_amount(self, value: float) -> None:
@@ -4463,7 +4584,6 @@ class ToolsPanel(QWidget):
     def get_star_reduction_params(self) -> StarReductionParams:
         from astraios.core.morphology import StructuringElement
         kernel_map = {
-            "Elliptical": StructuringElement.CIRCLE,
             "Circular": StructuringElement.CIRCLE,
             "Square": StructuringElement.SQUARE,
             "Diamond": StructuringElement.DIAMOND,
@@ -4494,10 +4614,12 @@ class ToolsPanel(QWidget):
             "Average Neutral": SCNRMethod.AVERAGE_NEUTRAL,
             "Maximum Neutral": SCNRMethod.MAXIMUM_NEUTRAL,
         }
+        channel_map = {"Red": 0, "Green": 1, "Blue": 2}
         return SCNRParams(
             method=method_map.get(
                 self._scnr_method_combo.currentText(), SCNRMethod.AVERAGE_NEUTRAL
             ),
+            channel=channel_map.get(self._scnr_target_combo.currentText(), 1),
             amount=self._scnr_amount.value(),
         )
 
@@ -4641,13 +4763,6 @@ class ToolsPanel(QWidget):
             iterations=int(self._morph_iters.value()),
         )
 
-    def get_median_filter_params(self):
-        from astraios.core.filters import MedianFilterParams
-
-        # Median strength rides on the denoise "Amount" slider (no dedicated UI).
-        kernel = 3 + 2 * int(round(self._denoise_amount.value() * 3))  # 3,5,7,9
-        return MedianFilterParams(kernel_size=kernel)
-
     def get_mlt_params(self) -> WaveletParams:
         # MLT (multiscale linear transform) reuses the wavelet controls.
         return self.get_wavelet_params()
@@ -4666,7 +4781,7 @@ class ToolsPanel(QWidget):
     def get_color_calibration_params(self) -> ColorCalibrationParams:
         method_map = {
             "Background reference": "average",
-            "Photometric (SPCC)": "G2V",
+            "Solar white (G2V)": "G2V",
             "Manual RGB": "custom",
         }
         white_ref = method_map.get(self._cc_method_combo.currentText(), "average")

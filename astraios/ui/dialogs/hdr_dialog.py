@@ -15,11 +15,13 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QPushButton,
     QVBoxLayout,
+    QWidget,
 )
 
 from astraios.core.hdr import HDRMethod, HDRParams, hdr_compose
 from astraios.core.image_io import load_image
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
 class _HDRWorker(QThread):
@@ -98,7 +100,37 @@ class HDRDialog(QDialog):
         self._contrast_spin.setValue(1.0)
         self._contrast_spin.setSingleStep(0.1)
         cw_row.addWidget(self._contrast_spin)
-        layout.addLayout(cw_row)
+        self._contrast_row = QWidget()
+        self._contrast_row.setLayout(cw_row)
+        layout.addWidget(self._contrast_row)
+
+        # Weighted Average never read the contrast weight; its one setting is
+        # the width of the well-exposedness weighting, which had no control.
+        sg_row = QHBoxLayout()
+        sg_row.addWidget(form_label("Exposure weighting width:", param_help(
+            "How far from mid-grey a pixel may be and still count as well "
+            "exposed.",
+            higher="More of each frame contributes, including near-clipped "
+                   "areas; smoother but less dynamic range recovered.",
+            lower="Only mid-tones count; strongest highlight and shadow "
+                  "recovery, but frames must overlap well.",
+            default="0.2 is the usual choice.",
+        )))
+        self._sigma_spin = QDoubleSpinBox()
+        self._sigma_spin.setRange(0.02, 1.0)
+        self._sigma_spin.setValue(0.2)
+        self._sigma_spin.setSingleStep(0.02)
+        sg_row.addWidget(self._sigma_spin)
+        self._sigma_row = QWidget()
+        self._sigma_row.setLayout(sg_row)
+        layout.addWidget(self._sigma_row)
+
+        def _method_changed(idx: int) -> None:
+            self._contrast_row.setVisible(idx == 0)
+            self._sigma_row.setVisible(idx == 1)
+
+        self._method_combo.currentIndexChanged.connect(_method_changed)
+        _method_changed(self._method_combo.currentIndex())
 
         # Run / Cancel buttons
         btn_row = QHBoxLayout()
@@ -141,6 +173,7 @@ class HDRDialog(QDialog):
         params = HDRParams(
             method=method_map.get(self._method_combo.currentIndex(), HDRMethod.MERTENS),
             contrast_weight=self._contrast_spin.value(),
+            sigma=self._sigma_spin.value(),
         )
 
         self._status.setText("Loading images...")

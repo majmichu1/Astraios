@@ -168,6 +168,11 @@ class StackingParams:
     upsample_factor: int = 10       # sub-pixel refinement for FFT alignment
     use_gpu: bool = True            # prefer GPU; falls back to CPU automatically
     comet_nucleus_radius: int = 15  # search radius for nucleus peak (COMET mode)
+    # Star registration. These three were sliders in the UI for a long time
+    # before anything read them.
+    star_sigma_threshold: float = 5.0   # detection threshold in noise sigmas
+    star_max_match_dist: float = 100.0  # px, farthest a star may move between frames
+    ransac_threshold: float = 3.0       # px, reprojection tolerance when fitting the transform
     reference_frame_index: int = -1 # -1 = auto (highest variance), ≥0 = explicit index
     frame_weights: list[float] | None = None  # per-frame weights for WEIGHTED_AVERAGE
 
@@ -993,7 +998,7 @@ def align_frames(
         log.info("Reference: %d stars detected (GPU)", len(ref_stars))
         ref_sf = None
     else:
-        ref_sf = _cpu_detect_stars(ref_img.data)
+        ref_sf = _cpu_detect_stars(ref_img.data, sigma_threshold=params.star_sigma_threshold)
         ref_stars = None
         log.info("Reference: %d stars detected (CPU)", len(ref_sf))
 
@@ -1002,7 +1007,7 @@ def align_frames(
 
     # Pre-detect ref stars on CPU for triangle mode (always CPU, no GPU path needed)
     if use_triangle:
-        ref_sf = _cpu_detect_stars(ref_img.data)
+        ref_sf = _cpu_detect_stars(ref_img.data, sigma_threshold=params.star_sigma_threshold)
         gpu_available = False  # triangle mode always uses CPU path
 
     for i in range(n):
@@ -1019,14 +1024,14 @@ def align_frames(
         if gpu_available:
             t_img = dm.from_numpy(frame.data)
             tgt_stars = detect_stars_gpu(_highpass_for_detection(t_img))
-            matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=100.0)
+            matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
             transform = estimate_transform_gpu(matches)
 
             if transform is None:
                 log.warning("Frame %d: GPU transform failed, using CPU fallback", i + 1)
-                ref_sf2 = _cpu_detect_stars(ref_img.data)
-                tgt_sf2 = _cpu_detect_stars(frame.data)
-                transform = _cpu_find_transform(ref_sf2, tgt_sf2)
+                ref_sf2 = _cpu_detect_stars(ref_img.data, sigma_threshold=params.star_sigma_threshold)
+                tgt_sf2 = _cpu_detect_stars(frame.data, sigma_threshold=params.star_sigma_threshold)
+                transform = _cpu_find_transform(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
                 if transform is None:
                     aligned[i] = frame
                     continue
@@ -1061,11 +1066,11 @@ def align_frames(
 
         else:
             # CPU path: triangle-matching or standard nearest-neighbor
-            tgt_sf = _cpu_detect_stars(frame.data)
+            tgt_sf = _cpu_detect_stars(frame.data, sigma_threshold=params.star_sigma_threshold)
             if use_triangle:
                 transform = _cpu_find_transform_triangle(ref_sf, tgt_sf)
             else:
-                transform = _cpu_find_transform(ref_sf, tgt_sf)
+                transform = _cpu_find_transform(ref_sf, tgt_sf, ransac_threshold=params.ransac_threshold)
             if transform is None:
                 log.warning("Frame %d: no transform found, skipping", i + 1)
                 aligned[i] = frame
@@ -1073,8 +1078,8 @@ def align_frames(
 
             if two_pass:
                 warped_coarse = _cpu_align_image(frame.data, transform, ref_img.data.shape)
-                tgt_sf2 = _cpu_detect_stars(warped_coarse)
-                refine = _cpu_find_transform(ref_sf, tgt_sf2)
+                tgt_sf2 = _cpu_detect_stars(warped_coarse, sigma_threshold=params.star_sigma_threshold)
+                refine = _cpu_find_transform(ref_sf, tgt_sf2, ransac_threshold=params.ransac_threshold)
                 if refine is not None:
                     transform = compose_affine_transforms(transform, refine)
 
@@ -1263,13 +1268,13 @@ def align_from_paths(
         ]
     else:
         ref_stars = None
-        ref_sf = _cpu_detect_stars(_ref_for_detection)
+        ref_sf = _cpu_detect_stars(_ref_for_detection, sigma_threshold=params.star_sigma_threshold)
 
     two_pass = params.registration_mode == RegistrationMode.STAR_2_PASS
     use_triangle = params.registration_mode == RegistrationMode.TRIANGLE
     if use_triangle:
         # Triangle mode: always CPU, no GPU path
-        ref_sf = _cpu_detect_stars(_ref_for_detection)
+        ref_sf = _cpu_detect_stars(_ref_for_detection, sigma_threshold=params.star_sigma_threshold)
         gpu_available = False
 
     # ── Write reference frame aligned (it's already aligned to itself) ────────
@@ -1379,20 +1384,20 @@ def align_from_paths(
                         res = res[0]
                 else:
                     log.warning("Frame %d: GPU transform failed, trying CPU", i + 1)
-                    ref_sf2 = _cpu_detect_stars(_ref_for_detection)
-                    tgt_sf2 = _cpu_detect_stars(frame_lum)
-                    cpu_t = _cpu_find_transform(ref_sf2, tgt_sf2)
+                    ref_sf2 = _cpu_detect_stars(_ref_for_detection, sigma_threshold=params.star_sigma_threshold)
+                    tgt_sf2 = _cpu_detect_stars(frame_lum, sigma_threshold=params.star_sigma_threshold)
+                    cpu_t = _cpu_find_transform(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
                     if cpu_t is None:
                         log.warning("Frame %d: CPU fallback also failed, copying as-is", i + 1)
                         res = frame.data
                     else:
                         res = _cpu_align_image(frame.data, cpu_t, ref_shape).astype(np.float32)
             else:
-                tgt_sf = _cpu_detect_stars(frame_lum)
+                tgt_sf = _cpu_detect_stars(frame_lum, sigma_threshold=params.star_sigma_threshold)
                 if use_triangle:
-                    transform = _cpu_find_transform_triangle(ref_sf, tgt_sf)
+                    transform = _cpu_find_transform_triangle(ref_sf, tgt_sf, ransac_threshold=params.ransac_threshold)
                 else:
-                    transform = _cpu_find_transform(ref_sf, tgt_sf)
+                    transform = _cpu_find_transform(ref_sf, tgt_sf, ransac_threshold=params.ransac_threshold)
                 if transform is None:
                     log.warning("Frame %d: no transform found, copying as-is", i + 1)
                     res = frame.data
@@ -1403,8 +1408,8 @@ def align_from_paths(
                             warped_c.mean(axis=0).astype(np.float32)
                             if warped_c.ndim == 3 else warped_c
                         )
-                        tgt_sf2 = _cpu_detect_stars(warped_lum)
-                        refine = _cpu_find_transform(ref_sf, tgt_sf2)
+                        tgt_sf2 = _cpu_detect_stars(warped_lum, sigma_threshold=params.star_sigma_threshold)
+                        refine = _cpu_find_transform(ref_sf, tgt_sf2, ransac_threshold=params.ransac_threshold)
                         if refine is not None:
                             transform = compose_affine_transforms(transform, refine)
                     res = _cpu_align_image(frame.data, transform, ref_shape).astype(np.float32)

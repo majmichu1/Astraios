@@ -499,6 +499,7 @@ class MainWindow(QMainWindow):
         self._preview_max_px = 1024
         self._auto_plate_solve = False
         self._apply_preferences(load_prefs())
+        self._color_management = self._load_color_management()
 
     def _setup_menu(self):
         menu = self.menuBar()
@@ -1520,7 +1521,6 @@ class MainWindow(QMainWindow):
 
         # New tool signals
         tp.run_unsharp_mask.connect(self._on_run_unsharp_mask)
-        tp.run_median_filter.connect(self._on_run_median_filter)
         tp.run_abe.connect(self._on_run_abe)
         tp.run_vignette_correction.connect(self._on_run_vignette)
         tp.run_background_neutralization.connect(self._on_run_bg_neutralization)
@@ -1707,6 +1707,8 @@ class MainWindow(QMainWindow):
     # ---------- File operations ----------
 
     def _new_project(self):
+        if not self._maybe_discard_changes():
+            return
         name, ok = QInputDialog.getText(self, "New Project", "Project name:")
         if not ok or not name.strip():
             return
@@ -1799,7 +1801,7 @@ class MainWindow(QMainWindow):
             self._load_frame(path)
 
     def _save_image(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.ui.dialogs.export_dialog import ExportDialog
 
@@ -1859,6 +1861,7 @@ class MainWindow(QMainWindow):
 
         dialog = ColorSettingsDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._color_management = self._read_color_management(dialog)
             self._log_panel.log(
                 f"Color profile: {dialog.get_working_profile().name}, "
                 f"intent: {dialog._intent_combo.currentText()}",
@@ -1870,6 +1873,52 @@ class MainWindow(QMainWindow):
                     "info",
                 )
             self._log_panel.log("Color management settings updated", "success")
+            # The settings used to be logged and then ignored; the canvas
+            # now redraws through them.
+            if self._current_image is not None:
+                self._display_image(self._current_image)
+
+    @staticmethod
+    def _read_color_management(dialog) -> dict:
+        return {
+            "working": dialog.get_working_profile(),
+            "intent": dialog.get_rendering_intent(),
+            "gamma": dialog.get_display_gamma(),
+            "soft_proof": dialog.is_soft_proof_enabled(),
+            "proof": dialog.get_soft_proof_profile() if dialog.is_soft_proof_enabled() else None,
+        }
+
+    def _load_color_management(self) -> dict | None:
+        """The saved colour management settings, or None when at defaults."""
+        try:
+            from astraios.ui.dialogs.color_settings_dialog import ColorSettingsDialog
+
+            dialog = ColorSettingsDialog(self)
+            cm = self._read_color_management(dialog)
+            dialog.deleteLater()
+        except Exception:
+            log.debug("Colour management settings unavailable", exc_info=True)
+            return None
+        if not cm["soft_proof"] and abs(cm["gamma"] - 2.2) < 1e-6:
+            return None
+        return cm
+
+    def _apply_display_color_management(self, rgb):
+        """Soft-proof and display-gamma transform for the canvas copy only."""
+        cm = getattr(self, "_color_management", None)
+        if not cm or rgb.ndim != 3 or rgb.shape[2] != 3:
+            return rgb
+        import numpy as _np
+
+        out = rgb.astype(_np.float32) / 255.0
+        if cm["soft_proof"] and cm["proof"] is not None:
+            from astraios.core.color_management import soft_proof
+
+            out = soft_proof(out, cm["proof"], cm["working"], cm["intent"])
+        gamma = float(cm["gamma"])
+        if abs(gamma - 2.2) > 1e-6:
+            out = _np.power(_np.clip(out, 0.0, 1.0), 2.2 / max(gamma, 0.1))
+        return _np.clip(out * 255.0, 0, 255).astype(_np.uint8)
 
     def _show_preferences(self):
         from astraios.ui.dialogs.preferences_dialog import PreferencesDialog
@@ -2507,6 +2556,7 @@ class MainWindow(QMainWindow):
             # No external reference — use the image itself for preview stretching
             self._preview_stretch_ref_cache = None
 
+        rgb = self._apply_display_color_management(rgb)
         self._canvas.set_image(rgb, image.data, display_scale=_scale)  # full-res data + scale for coord mapping
         fname = image.file_path.name if image.file_path else "Untitled"
         self._canvas.set_image_info(fname, image.shape_str)
@@ -2719,6 +2769,28 @@ class MainWindow(QMainWindow):
             self._preview_timer.start()
         else:
             self._on_preview_cancelled()
+
+    def _require_image(self) -> bool:
+        """True if an image is open; otherwise say so and return False.
+
+        Sixty tool handlers used to return silently here, so a click with
+        nothing loaded did nothing at all, with no hint about why. The
+        message is rate-limited: live previews call this on every slider
+        move, and one line every few seconds is a hint, ten a second is a
+        flood.
+        """
+        if self._current_image is not None:
+            return True
+        import time
+
+        now = time.monotonic()
+        if now - getattr(self, "_last_no_image_hint", 0.0) > 3.0:
+            self._last_no_image_hint = now
+            self._log_panel.log(
+                "Open an image first (Open Image, or drop a FITS/XISF file on the canvas)",
+                "warning",
+            )
+        return False
 
     def _update_image_status(self):
         """Refresh the status bar image info labels."""
@@ -3300,6 +3372,9 @@ class MainWindow(QMainWindow):
                 registration_mode=params_dict["mode"],
                 reference_frame_index=params_dict["reference_frame_index"],
                 comet_nucleus_radius=params_dict.get("comet_nucleus_radius", 15),
+                star_sigma_threshold=params_dict.get("star_sensitivity", 5.0),
+                star_max_match_dist=float(params_dict.get("max_shift", 100)),
+                ransac_threshold=params_dict.get("ransac_threshold", 3.0),
             )
             self._log_panel.log(
                 f"Starting alignment ({params_dict['mode'].name}) — "
@@ -3328,6 +3403,9 @@ class MainWindow(QMainWindow):
                 registration_mode=params_dict["mode"],
                 reference_frame_index=params_dict["reference_frame_index"],
                 comet_nucleus_radius=params_dict.get("comet_nucleus_radius", 15),
+                star_sigma_threshold=params_dict.get("star_sensitivity", 5.0),
+                star_max_match_dist=float(params_dict.get("max_shift", 100)),
+                ransac_threshold=params_dict.get("ransac_threshold", 3.0),
             )
 
             if not self._project:
@@ -3504,7 +3582,16 @@ class MainWindow(QMainWindow):
                 if e.path.exists()
             ]
 
-        if aligned_paths:
+        drizzle_enabled, _ = self._tools_panel.get_drizzle_params()
+        if aligned_paths and drizzle_enabled:
+            # Drizzle needs the original lights and their transforms, not the
+            # resampled aligned frames, so it takes the branch below. This used
+            # to stack the aligned frames at native scale and say nothing.
+            self._log_panel.log(
+                "Drizzle re-registers the original lights; the aligned frames on "
+                "disk are not used", "info",
+            )
+        if aligned_paths and not drizzle_enabled:
             params = self._tools_panel.get_stacking_params()
             n = len(aligned_paths)
             self._log_panel.log(f"Stacking {n} aligned frames…", "info")
@@ -3822,6 +3909,9 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_ms_clear(self):
         self._ms_sessions.clear()
+        # The list widget kept showing the sessions that were just removed.
+        self._tools_panel.clear_multi_sessions()
+        self._log_panel.log("Multi-session list cleared", "info")
 
     @pyqtSlot()
     def _on_run_multi_session(self):
@@ -3881,7 +3971,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_stretch(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_stretch_params()
         _p = params
@@ -3903,7 +3993,7 @@ class MainWindow(QMainWindow):
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
     def _on_stretch_preview(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         if not self._tools_panel.split_preview_enabled:
             self._on_preview_cancelled()
@@ -3912,7 +4002,7 @@ class MainWindow(QMainWindow):
         self._stretch_preview_timer.start()
 
     def _do_stretch_preview(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         import numpy as np
         small, _scale = self._downscale_for_preview(self._current_image.data)
@@ -4076,7 +4166,7 @@ class MainWindow(QMainWindow):
         self._log_panel.log(f"Crop region set: x={x}, y={y}, w={w}, h={h}", "info")
 
     def _on_run_crop(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_crop_params()
         result = crop(self._current_image.data, params)
@@ -4095,7 +4185,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_rotate(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_rotate_params()
         result = rotate(self._current_image.data, params)
@@ -4112,7 +4202,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_flip(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_flip_params()
         result = flip(self._current_image.data, params)
@@ -4126,7 +4216,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_resize(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_resize_params()
         result = resize(self._current_image.data, params)
@@ -4140,7 +4230,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_bin(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_bin_params()
         result = bin_image(self._current_image.data, params)
@@ -4154,7 +4244,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_invert(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         result = invert(self._current_image.data)
         self._update_current_image(result, "Image inverted", tool="invert")
@@ -4166,7 +4256,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_unsharp_mask(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_unsharp_mask_params()
         self._log_panel.log(
@@ -4193,26 +4283,8 @@ class MainWindow(QMainWindow):
         self._start_worker(_work, self._current_image.data, on_done=_done)
 
     @pyqtSlot()
-    def _on_run_median_filter(self):
-        if self._current_image is None:
-            return
-        params = self._tools_panel.get_median_filter_params()
-        self._log_panel.log(f"Applying Median Filter (k={params.kernel_size})...", "info")
-        _p = params
-
-        def _work(data, progress=None):
-            return median_filter(data, _p)
-
-        def _done(result):
-            self._update_current_image(result, "Median filter applied")
-            if self._project:
-                self._project.add_history("Median Filter", {"kernel_size": _p.kernel_size})
-
-        self._start_worker(_work, self._current_image.data, on_done=_done)
-
-    @pyqtSlot()
     def _on_run_abe(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_abe_params()
         # Record the params that actually ran: re-reading the panel in the
@@ -4239,7 +4311,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_vignette(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_vignette_params()
         self._log_panel.log("Applying vignette correction...", "info")
@@ -4262,7 +4334,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_ca(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         if self._current_image.data.ndim != 3 or self._current_image.data.shape[0] < 3:
             self._log_panel.log("Chromatic aberration requires a color image", "error")
@@ -4311,7 +4383,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_measure_psf(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.psf import measure_psf
 
@@ -4349,53 +4421,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_continuum_subtraction(self):
-        if self._current_image is None:
-            return
-        from pathlib import Path as _Path
+        """The Colour tab's button and the Tools menu open the same dialog.
 
-        from PyQt6.QtWidgets import QFileDialog
-
-        from astraios.core.image_io import load_image
-        from astraios.core.narrowband import continuum_subtraction
-
-        bb_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select Broadband (Continuum) Image",
-            "",
-            "Images (*.fits *.fit *.fts *.xisf *.tif *.tiff *.png *.jpg)",
-        )
-        if not bb_path:
-            return
-
-        scale = self._tools_panel.get_continuum_scale()
-        self._log_panel.log(
-            f"Continuum subtraction: scale={scale:.3f}, broadband={_Path(bb_path).name}", "info"
-        )
-
-        def _cont_work(nb_data, bb_path_str, scale, progress=None):
-            import numpy as _np
-            bb_img = load_image(bb_path_str)
-            bb_ch = _np.mean(bb_img.data, axis=0) if bb_img.data.ndim == 3 else bb_img.data
-            nb_ch = _np.mean(nb_data, axis=0) if nb_data.ndim == 3 else nb_data
-            result_ch = continuum_subtraction(nb_ch, bb_ch, scale)
-            # Preserve original dimensionality: broadcast mono result to 3D if needed
-            if nb_data.ndim == 3:
-                return _np.stack([result_ch, result_ch, result_ch], axis=0)
-            return result_ch
-
-        def _on_cont_done(result_ch):
-            self._update_current_image(result_ch, "Continuum subtraction applied")
-
-        self._start_worker(
-            _cont_work,
-            self._current_image.data,
-            bb_path,
-            scale,
-            on_done=_on_cont_done,
-        )
-
-    # ── Dynamic background sample placement ──────────────────────────────────
-
+        The button used to run its own path with the scale fixed at 1.0
+        while logging "scale=1.000" as though it were a setting; the dialog
+        estimates the scale from the stars or lets you set it.
+        """
+        self._show_continuum_subtract_dialog()
     @pyqtSlot(bool)
     def _on_toggle_sample_mode(self, enabled: bool):
         # Mutually exclusive with Blemish Blaster's "heal on click" mode —
@@ -4452,7 +4484,7 @@ class MainWindow(QMainWindow):
         step: coordinates are specific to this image, so it must never be
         replayed as a macro/graph step.
         """
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.blemish import heal_spot
 
@@ -4470,7 +4502,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot(int, int, int)
     def _on_add_bg_grid(self, rows: int, cols: int, box_size: int):
         """Auto-place background sample points in an evenly-spaced grid."""
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
         h = data.shape[-2]
@@ -4510,7 +4542,7 @@ class MainWindow(QMainWindow):
         """Project catalog stars to image pixel coordinates and store for overlay."""
         if not wcs or not catalog_stars:
             return
-        if self._current_image is None:
+        if not self._require_image():
             return
 
         import numpy as _np
@@ -4737,7 +4769,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_open_star_mask(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.ui.dialogs.star_mask_dialog import StarMaskDialog
 
@@ -4853,7 +4885,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _show_channel_match_dialog(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
         if data.ndim != 3 or data.shape[0] < 3:
@@ -4888,7 +4920,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_background(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         # Convert image-space sample coords to integer (row, col) tuples
         manual_pts = [(int(round(y)), int(round(x))) for x, y in self._bg_samples]
@@ -4925,7 +4957,7 @@ class MainWindow(QMainWindow):
         self._macro_recorder.record_step("background_extraction")
 
     def _on_run_bg_neutralization(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_background_neutralization_params()
         self._log_panel.log(
@@ -4960,7 +4992,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_cosmetic(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_cosmetic_params()
         self._log_panel.log("Running cosmetic correction...", "info")
@@ -4985,7 +5017,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_banding(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_banding_params()
         self._log_panel.log("Running banding reduction...", "info")
@@ -5009,7 +5041,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_histogram_transform(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_histogram_transform_params()
         self._log_panel.log("Applying histogram transform...", "info")
@@ -5038,7 +5070,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_curves(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = CurvesParams()
         params.master = self._tools_panel.curve_editor.curve
@@ -5060,7 +5092,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_scnr(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_scnr_params()
         self._log_panel.log("Applying SCNR...", "info")
@@ -5082,7 +5114,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_color_adjust(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_color_adjust_params()
         self._log_panel.log("Applying color adjustment...", "info")
@@ -5106,7 +5138,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_deconvolution(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_deconvolution_params()
         self._last_deconv_params = params
@@ -5155,7 +5187,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_run_ghs(self):
         import numpy as np
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_ghs_params()
         data = self._current_image.data
@@ -5185,7 +5217,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_arcsinh_stretch(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_arcsinh_params()
         self._log_panel.log(f"Applying Arcsinh Stretch (β={params.stretch_factor})...", "info")
@@ -5209,7 +5241,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_color_calibration(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_color_calibration_params()
         self._log_panel.log("Running color calibration...", "info")
@@ -5232,7 +5264,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_pcc(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
 
         if self._current_image.data.ndim != 3 or self._current_image.data.shape[0] < 3:
@@ -5422,6 +5454,15 @@ class MainWindow(QMainWindow):
         def _on_pcc_done(payload):
             result, solved_wcs, stars = payload
             factors = result.correction_factors
+            if not solved_wcs and not stars:
+                # The worker fell back to a statistical balance; saying "PCC
+                # complete" here claimed a catalog fit that never happened.
+                self._update_current_image(
+                    result.data,
+                    "Colour balanced statistically (no plate solution or catalog; "
+                    f"PCC needs one) R={factors[0]:.3f}, G={factors[1]:.3f}, B={factors[2]:.3f}",
+                )
+                return
             self._update_current_image(
                 result.data,
                 f"PCC complete (R={factors[0]:.3f}, G={factors[1]:.3f}, B={factors[2]:.3f})",
@@ -5437,7 +5478,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_spcc(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         if not self._wcs_overlay_stars:
             self._log_panel.log(
@@ -5481,7 +5522,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_run_denoise(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
 
         if self._tools_panel.is_tgv_denoise_selected():
@@ -5546,7 +5587,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_frequency_separation(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.frequency_separation import frequency_separation
 
@@ -5578,7 +5619,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_statistical_stretch(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.stretch import statistical_stretch
 
@@ -5611,7 +5652,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_star_stretch(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.star_stretch import star_stretch
 
@@ -5639,7 +5680,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_star_reduction(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_star_reduction_params()
         self._log_panel.log("Running star reduction...", "info")
@@ -6158,7 +6199,7 @@ class MainWindow(QMainWindow):
         captures the params that actually ran, records a replayable history
         step, and honors the active mask.
         """
-        if self._current_image is None:
+        if not self._require_image():
             return
         if color_only and self._current_image.data.ndim != 3:
             self._log_panel.log(f"{display} requires a color image", "warning")
@@ -6187,7 +6228,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_fx(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_fx_params()
         self._log_panel.log(f"Applying FX ({params.effect.name.replace('_', ' ').title()})...",
@@ -6211,7 +6252,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_diffraction_spikes(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_diffraction_spike_params()
         self._log_panel.log("Rendering diffraction spikes...", "info")
@@ -6237,7 +6278,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_sat_chroma(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         if self._current_image.data.ndim != 3:
             self._log_panel.log("Saturation by hue requires a color image", "warning")
@@ -6264,7 +6305,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_halo_reduction(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_halo_reduction_params()
         self._log_panel.log("Reducing star halos (Halo-B-Gon)...", "info")
@@ -6290,7 +6331,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_split_channels(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
         if data.ndim != 3:
@@ -6306,7 +6347,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_extract_luminance(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         lum = extract_luminance(self._current_image.data)
         self._update_current_image(lum, "Luminance extracted")
@@ -6317,7 +6358,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_wavelet_sharpen(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_wavelet_params()
         self._log_panel.log(f"Running wavelet sharpening ({params.n_scales} scales)...", "info")
@@ -6344,7 +6385,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_mlt(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_mlt_params()
         n_thresh = sum(1 for t in params.noise_thresholds if t > 0)
@@ -6366,7 +6407,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_lrgb_combine(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from PyQt6.QtWidgets import QFileDialog
 
@@ -6439,7 +6480,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_debayer(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         from astraios.core.debayer import debayer as _debayer
         from astraios.core.debayer import detect_bayer_pattern
@@ -6482,7 +6523,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_local_contrast(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_local_contrast_params()
         self._log_panel.log("Running local contrast enhancement...", "info")
@@ -6510,7 +6551,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_run_morphology(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         params = self._tools_panel.get_morphology_params()
         self._log_panel.log(f"Running morphology ({params.operation.name})...", "info")
@@ -6773,7 +6814,7 @@ class MainWindow(QMainWindow):
         return image
 
     def _on_analysis_fwhm(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
 
@@ -6791,7 +6832,7 @@ class MainWindow(QMainWindow):
         self._start_worker(_work, data, on_done=_done)
 
     def _on_analysis_tilt(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
 
@@ -6811,7 +6852,7 @@ class MainWindow(QMainWindow):
         self._start_worker(_work, data, on_done=_done)
 
     def _on_analysis_photometry(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         data = self._current_image.data
 
@@ -6829,7 +6870,7 @@ class MainWindow(QMainWindow):
         self._start_worker(_work, data, on_done=_done)
 
     def _on_run_ai_super_resolution(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         scale_text = self._tools_panel._sr_scale.currentText()
         scale = int(scale_text.replace("×", ""))
@@ -6851,7 +6892,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_run_starnet(self):
-        if self._current_image is None:
+        if not self._require_image():
             return
         backend = self._tools_panel._star_removal_path.currentText()
         threshold = self._tools_panel._star_threshold.value()

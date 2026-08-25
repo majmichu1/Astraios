@@ -34,6 +34,7 @@ class SCNRParams:
     method: SCNRMethod = SCNRMethod.AVERAGE_NEUTRAL
     amount: float = 1.0  # 0-1
     preserve_luminance: bool = True
+    channel: int = 1  # 0 = red, 1 = green (classic SCNR), 2 = blue
 
 
 def scnr(
@@ -64,28 +65,32 @@ def _scnr_gpu(
 ) -> np.ndarray:
     """GPU-accelerated SCNR."""
     t = dm.from_numpy(image)
-    r, g, b = t[0], t[1], t[2]
+    # The channel to neutralise against the other two. The UI offered Red and
+    # Blue for years while the code always removed green.
+    c = int(params.channel) if params.channel in (0, 1, 2) else 1
+    o1, o2 = [t[i] for i in (0, 1, 2) if i != c]
+    target = t[c]
 
     if params.method == SCNRMethod.AVERAGE_NEUTRAL:
-        neutral = (r + b) / 2.0
+        neutral = (o1 + o2) / 2.0
     else:
-        neutral = torch.maximum(r, b)
+        neutral = torch.maximum(o1, o2)
 
-    excess = g > neutral
-    corrected_g = g.clone()
-    corrected_g[excess] = g[excess] * (1 - params.amount) + neutral[excess] * params.amount
+    excess = target > neutral
+    corrected = target.clone()
+    corrected[excess] = target[excess] * (1 - params.amount) + neutral[excess] * params.amount
+    chans = [t[0], t[1], t[2]]
+    chans[c] = corrected
 
     if params.preserve_luminance:
-        lum_before = 0.2126 * r + 0.7152 * g + 0.0722 * b
-        lum_after = 0.2126 * r + 0.7152 * corrected_g + 0.0722 * b
+        lum_before = 0.2126 * t[0] + 0.7152 * t[1] + 0.0722 * t[2]
+        lum_after = 0.2126 * chans[0] + 0.7152 * chans[1] + 0.0722 * chans[2]
         ratio = torch.where(lum_after > 1e-10, lum_before / lum_after, torch.tensor(1.0, device=t.device))
-        t = torch.stack([r * ratio, corrected_g * ratio, b * ratio], dim=0)
-        if image.shape[0] > 3:
-            t = torch.cat([t, dm.from_numpy(image[3:])], dim=0)
+        t = torch.stack([ch * ratio for ch in chans], dim=0)
     else:
-        t = torch.stack([r, corrected_g, b], dim=0)
-        if image.shape[0] > 3:
-            t = torch.cat([t, dm.from_numpy(image[3:])], dim=0)
+        t = torch.stack(chans, dim=0)
+    if image.shape[0] > 3:
+        t = torch.cat([t, dm.from_numpy(image[3:])], dim=0)
 
     result = torch.clamp(t, 0.0, 1.0).cpu().numpy().astype(np.float32)
     return apply_mask(image, result, mask)
@@ -100,18 +105,20 @@ def _scnr_cpu(
     # `image` is never mutated below (result is the working copy), so read the
     # pre-SCNR channels straight from it instead of a second full copy.
     result = image.copy()
-    r, g, b = result[0], result[1], result[2]
+    c = int(params.channel) if params.channel in (0, 1, 2) else 1
+    o1, o2 = [result[i] for i in (0, 1, 2) if i != c]
+    target = result[c]
 
     if params.method == SCNRMethod.AVERAGE_NEUTRAL:
-        neutral = (r + b) / 2.0
+        neutral = (o1 + o2) / 2.0
     else:
-        neutral = np.maximum(r, b)
+        neutral = np.maximum(o1, o2)
 
-    excess = g > neutral
+    excess = target > neutral
     if excess.any():
-        corrected_g = g.copy()
-        corrected_g[excess] = g[excess] * (1 - params.amount) + neutral[excess] * params.amount
-        result[1] = corrected_g
+        corrected = target.copy()
+        corrected[excess] = target[excess] * (1 - params.amount) + neutral[excess] * params.amount
+        result[c] = corrected
 
     if params.preserve_luminance:
         lum_before = 0.2126 * image[0] + 0.7152 * image[1] + 0.0722 * image[2]

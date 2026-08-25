@@ -37,9 +37,10 @@ class DeconvolutionParams:
 
     psf_fwhm: float = 3.0  # PSF FWHM in pixels
     iterations: int = 50  # number of RL iterations
-    regularization: float = 0.001  # TV regularization strength (0 = off)
+    regularization: float = 0.001  # TV regularization strength (0 = off); Wiener: noise-to-signal
     deringing: bool = True  # apply deringing protection
     deringing_amount: float = 0.5  # deringing strength (0-1)
+    method: str = "rl"  # "rl" (Richardson-Lucy, iterative) or "wiener" (single pass)
 
 
 def _create_gaussian_psf(fwhm: float, size: int | None = None) -> np.ndarray:
@@ -161,6 +162,8 @@ def richardson_lucy(
     """
     if params is None:
         params = DeconvolutionParams()
+    if params.method == "wiener":
+        return wiener_deconvolve(image, params, mask, progress)
 
     dm = get_device_manager()
     # no copy: op never mutates the input; apply_mask reads image directly
@@ -177,6 +180,56 @@ def richardson_lucy(
             )
 
     result = np.clip(result, 0, 1)
+    return apply_mask(image, result, mask)
+
+
+@torch.no_grad()
+def _wiener_channel(channel: np.ndarray, psf: np.ndarray, nsr: float, dm) -> np.ndarray:
+    """One channel of Wiener deconvolution in the frequency domain."""
+    t = torch.from_numpy(channel.astype(np.float32)).to(dm.device)
+    h, w = t.shape
+    kh, kw = psf.shape
+    padded = torch.zeros((h, w), device=dm.device, dtype=torch.float32)
+    padded[:kh, :kw] = torch.from_numpy(psf.astype(np.float32)).to(dm.device)
+    # Centre the kernel on the origin so the result is not shifted.
+    padded = torch.roll(padded, shifts=(-(kh // 2), -(kw // 2)), dims=(0, 1))
+    y_f = torch.fft.rfft2(t)
+    h_f = torch.fft.rfft2(padded)
+    x_f = y_f * torch.conj(h_f) / (h_f.abs() ** 2 + nsr)
+    x = torch.fft.irfft2(x_f, s=(h, w)).clamp_(0.0, 1.0)
+    return x.cpu().numpy().astype(np.float32)
+
+
+def wiener_deconvolve(
+    image: np.ndarray,
+    params: DeconvolutionParams | None = None,
+    mask: Mask | None = None,
+    progress: ProgressCallback = _noop_progress,
+) -> np.ndarray:
+    """Wiener deconvolution: one frequency-domain pass, no iterations.
+
+    The Method combo offered "Wiener" for a long time while every choice ran
+    Richardson-Lucy. This is the real thing: the blur is divided out where
+    the PSF carries signal and damped where it does not, with
+    ``regularization`` acting as the noise-to-signal ratio. Faster than RL
+    and free of its iteration count; softer on fine detail and quicker to
+    ring on very noisy data, which is what RL's deringing exists for.
+    """
+    if params is None:
+        params = DeconvolutionParams()
+    dm = get_device_manager()
+    psf = _create_gaussian_psf(params.psf_fwhm)
+    nsr = max(float(params.regularization), 1e-5)
+    progress(0.0, "Wiener deconvolution…")
+    if image.ndim == 2:
+        result = _wiener_channel(image, psf, nsr, dm)
+    else:
+        result = np.empty_like(image)
+        n_ch = image.shape[0]
+        for ch in range(n_ch):
+            progress(ch / n_ch, f"Wiener deconvolution ch{ch + 1}/{n_ch}")
+            result[ch] = _wiener_channel(image[ch], psf, nsr, dm)
+    progress(1.0, "Wiener deconvolution complete")
     return apply_mask(image, result, mask)
 
 
