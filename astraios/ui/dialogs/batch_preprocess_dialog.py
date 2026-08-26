@@ -310,7 +310,7 @@ class BatchPreprocessDialog(QDialog):
         self._rejection_combo = QComboBox()
         for method in RejectionMethod:
             self._rejection_combo.addItem(method.name.replace("_", " ").title(), method)
-        idx = self._rejection_combo.findData(RejectionMethod.SIGMA_CLIP)
+        idx = self._rejection_combo.findData(RejectionMethod.WINSORIZED_SIGMA)
         if idx >= 0:
             self._rejection_combo.setCurrentIndex(idx)
         self._rejection_combo.setStyleSheet(_combo_ss())

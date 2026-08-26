@@ -838,6 +838,7 @@ class ToolsPanel(QWidget):
             "Rejection",
             ["Sigma Clipping", "Winsorized Sigma", "Linear Fit",
              "Percentile Clip", "ESD (Generalized)", "Min/Max", "None"],
+            current="Winsorized Sigma",
             help_text="How outlier pixels (satellite trails, cosmic rays) are "
                       "thrown out before combining. Sigma Clipping rejects "
                       "pixels far from the per-pixel average, measured in units "

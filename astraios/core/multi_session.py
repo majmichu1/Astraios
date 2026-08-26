@@ -71,7 +71,7 @@ class MultiSessionParams:
     'equal' — no weighting; simple sigma-clip integration.
     """
 
-    final_rejection: RejectionMethod = RejectionMethod.SIGMA_CLIP
+    final_rejection: RejectionMethod = RejectionMethod.WINSORIZED_SIGMA
     # WEIGHTED_AVERAGE, not AVERAGE. While nothing read this field the code
     # always weighted by session, so declaring AVERAGE described neither the
     # behaviour nor the intent. Naming the real default keeps every existing

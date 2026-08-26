@@ -176,3 +176,45 @@ for norm in (NormalizationMethod.NONE, NormalizationMethod.ADDITIVE, Normalizati
 print("\n  Reading: bg err ~0 means normalisation brought every frame to the reference sky; "
       "flux err ~0 means gains were matched; trail/CR leak ~0 means rejection removed them "
       "(NONE should leak ~trail/N); noise ~0.0014 = sqrt(N) gain; GPU-CPU is max abs difference.")
+
+
+# ── 4. Hard cases ─────────────────────────────────────────────────────────
+section("4. Hard cases: vignetting, clouds, a frame that cannot register, hot pixels, trailed reference")
+yy, xx = np.mgrid[0:H, 0:W]
+vign = 1.0 - 0.45 * (((xx - W / 2) / (W / 2)) ** 2 + ((yy - H / 2) / (H / 2)) ** 2)
+hot_y, hot_x = np.random.default_rng(5).integers(0, H, 300), np.random.default_rng(6).integers(0, W, 300)
+
+def hard_frame(dx, dy, deg, seed, cloud=1.0, trail=False, vignette=True, hot=True):
+    A, t = affine(dx, dy, deg)
+    pts = (A @ np.stack([cat_x, cat_y])).T + t
+    keep = (pts[:, 0] > 3) & (pts[:, 0] < W - 3) & (pts[:, 1] > 3) & (pts[:, 1] < H - 3)
+    img, _ = render(pts[keep, 0], pts[keep, 1], cat_f[keep] * cloud, 0.05, 1.0, 0.004, seed, trail=trail)
+    if vignette:
+        img = img * vign + 0.03 * (xx / W)
+    if hot:
+        img[hot_y, hot_x] = 0.6  # same hot pixels in every frame, they must not vote for "no shift"
+    return np.clip(img, 0, 1).astype(np.float32)
+
+frames = [
+    ImageData(data=hard_frame(0, 0, 0, 500, trail=True), header={}),          # would win on variance
+    ImageData(data=hard_frame(22, -15, 0.8, 501), header={}),
+    ImageData(data=hard_frame(-30, 25, -0.6, 502, cloud=0.35), header={}),     # thin cloud: dim stars
+    ImageData(data=hard_frame(18, 30, 0.4, 503), header={}),
+]
+# A frame of a *different* sky: same hot-pixel pattern, no common stars. It
+# must be dropped, and the shared hot pixels must not pass as a "no shift" match.
+_r = np.random.default_rng(77)
+_ox, _oy, _of = _r.uniform(20, W - 20, N_STARS), _r.uniform(20, H - 20, N_STARS), cat_f
+_other, _ = render(_ox, _oy, _of, 0.05, 1.0, 0.004, 504)
+_other = np.clip(_other * vign + 0.03 * (xx / W), 0, 1).astype(np.float32); _other[hot_y, hot_x] = 0.6
+frames.append(ImageData(data=_other, header={}))
+for mode in (RegistrationMode.STAR_1_PASS, RegistrationMode.STAR_2_PASS, RegistrationMode.TRIANGLE):
+    p = StackingParams(registration_mode=mode, reference_frame_index=-1, use_gpu=False)
+    out = align_frames(frames, p)
+    ref_idx = next((i for i, f in enumerate(frames) if any(a is f for a in out)), -1)
+    ref = frames[ref_idx]
+    res = [residual_vs_reference(a.data, ref.data) for a in out if a is not ref]
+    worst = max((r for r, _ in res if not math.isnan(r)), default=float("nan"))
+    kept_other = any(a is frames[-1] or (a.data.shape == _other.shape and np.array_equal(a.data, _other)) for a in out)
+    print(f"  {mode.name:12s} kept {len(out)}/5 frames (expect 4), foreign frame kept={kept_other} (expect False), "
+          f"auto reference = frame {ref_idx + 1} (frame 1 has the trail), worst residual {worst:.3f}px")

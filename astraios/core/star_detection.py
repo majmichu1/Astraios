@@ -52,6 +52,48 @@ class StarField:
         return len(self.stars)
 
 
+def _subtract_sky(gray: np.ndarray) -> np.ndarray:
+    """Remove the large-scale sky (gradient, vignetting, nebula glow) for
+    detection. Box mean at 1/8 scale, resized back, subtracted."""
+    h, w = gray.shape
+    if h < 64 or w < 64:
+        return gray
+    small = cv2.resize(gray, (max(8, w // 8), max(8, h // 8)), interpolation=cv2.INTER_AREA)
+    k = max(3, (min(small.shape) // 6) | 1)
+    sky = cv2.blur(small, (k, k), borderType=cv2.BORDER_REPLICATE)
+    sky = cv2.resize(sky, (w, h), interpolation=cv2.INTER_LINEAR)
+    return gray - sky
+
+
+def _weighted_centroid(
+    gray: np.ndarray, cx: float, cy: float, background: float, radius: int = 4
+) -> tuple[float, float, float]:
+    """Light-weighted centroid and Gaussian FWHM within a small window.
+
+    Two passes so the window re-centres on the refined position. Returns the
+    contour centroid unchanged when the window carries no light.
+    """
+    h, w = gray.shape
+    fwhm = 0.0
+    for _ in range(2):
+        x0, x1 = int(round(cx)) - radius, int(round(cx)) + radius + 1
+        y0, y1 = int(round(cy)) - radius, int(round(cy)) + radius + 1
+        if x0 < 0 or y0 < 0 or x1 > w or y1 > h:
+            return cx, cy, fwhm
+        win = gray[y0:y1, x0:x1] - background
+        win = np.where(win > 0, win, 0.0)
+        total = float(win.sum())
+        if total <= 1e-12:
+            return cx, cy, fwhm
+        ys, xs = np.mgrid[y0:y1, x0:x1]
+        nx = float((win * xs).sum() / total)
+        ny = float((win * ys).sum() / total)
+        var = float((win * ((xs - nx) ** 2 + (ys - ny) ** 2)).sum() / total) * 0.5
+        fwhm = 2.3548 * np.sqrt(max(var, 1e-6))
+        cx, cy = nx, ny
+    return cx, cy, fwhm
+
+
 def detect_stars(
     image: np.ndarray,
     max_stars: int = 200,
@@ -85,8 +127,14 @@ def detect_stars(
         gray = np.mean(image, axis=0)
     else:
         gray = image
-
+    gray = np.ascontiguousarray(gray, dtype=np.float32)
     h, w = gray.shape
+
+    # Flatten the sky first: one global threshold on a vignetted or
+    # gradient-laden frame either drowns the dim corners or turns the bright
+    # corner into one giant "star". A box mean at 1/8 scale is a good enough
+    # sky model for detection and costs a few milliseconds.
+    gray = _subtract_sky(gray)
 
     # Threshold based on median + sigma * MAD-estimated noise
     med = np.median(gray)
@@ -94,6 +142,7 @@ def detect_stars(
     noise_est = max(mad * 1.4826, 0.01)  # floor prevents near-zero threshold on clean images
     threshold = med + sigma_threshold * noise_est
     threshold = min(threshold, 0.95)  # never so high we miss everything
+
     binary = (gray > threshold).astype(np.uint8) * 255
 
     # Find contours
@@ -116,8 +165,12 @@ def detect_stars(
             continue
         flux = float(gray[iy, ix])
 
-        # Estimate FWHM from contour area (approximation: area ~ pi * (FWHM/2)^2)
-        fwhm = 2.0 * np.sqrt(area / np.pi) if area > 0 else 0.0
+        # Refine the position on the light itself. The contour centroid is
+        # the centre of a binary blob, only as accurate as the threshold cut;
+        # a light-weighted centroid over the star's own pixels is what
+        # registration to a tenth of a pixel needs.
+        cx, cy, fwhm_w = _weighted_centroid(gray, cx, cy, med)
+        fwhm = fwhm_w if fwhm_w > 0 else (2.0 * np.sqrt(area / np.pi) if area > 0 else 0.0)
 
         # Roundness from bounding rect
         _, _, bw, bh = cv2.boundingRect(cnt)
@@ -226,6 +279,16 @@ def transform_quality(
     return float((d < tol).mean())
 
 
+def _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold):
+    """Proximity matching as the triangle matcher's fallback, accepted only
+    when it verifies. Unverified, a frame of a different sky came back with a
+    transform fitted to chance coincidences and was stacked."""
+    t = find_transform(ref_stars, target_stars, ransac_threshold=ransac_threshold)
+    if t is None or transform_quality(ref_pts, tgt_pts, t, ransac_threshold) < 0.3:
+        return None
+    return t
+
+
 def find_transform_triangle(
     ref_stars: StarField | np.ndarray,
     target_stars: StarField | np.ndarray,
@@ -328,7 +391,7 @@ def find_transform_triangle(
     tgt_feats, tgt_idxs = _triangle_features(tgt_pts)
 
     if len(ref_feats) == 0 or len(tgt_feats) == 0:
-        return find_transform(ref_stars, target_stars)
+        return _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold)
 
     # Match triangles via KD-tree on reference side
     tree = KDTree(ref_feats)
@@ -345,7 +408,7 @@ def find_transform_triangle(
 
     if not vote:
         log.debug("Triangle matching: no votes, falling back to NN matching")
-        return find_transform(ref_stars, target_stars)
+        return _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold)
 
     # Sort by vote count; take top candidates
     sorted_pairs = sorted(vote.items(), key=lambda kv: kv[1], reverse=True)
@@ -370,7 +433,7 @@ def find_transform_triangle(
             "Triangle matching: only %d vote pairs (need %d), falling back",
             len(matched_tgt), min_vote_matches,
         )
-        return find_transform(ref_stars, target_stars)
+        return _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold)
 
     ref_arr = np.array(matched_ref, dtype=np.float32)
     tgt_arr = np.array(matched_tgt, dtype=np.float32)
@@ -381,10 +444,10 @@ def find_transform_triangle(
     n_inl = int(inliers.sum()) if inliers is not None else 0
     if transform is None or n_inl < max(3, min_vote_matches):
         log.debug("Triangle matching: RANSAC gave %d inliers, falling back to NN matching", n_inl)
-        return find_transform(ref_stars, target_stars, ransac_threshold=ransac_threshold)
+        return _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold)
     if transform_quality(ref_pts, tgt_pts, transform, ransac_threshold) < 0.3:
         log.debug("Triangle matching: transform verifies poorly, falling back to NN matching")
-        return find_transform(ref_stars, target_stars, ransac_threshold=ransac_threshold)
+        return _verified_nn_fallback(ref_stars, target_stars, ref_pts, tgt_pts, ransac_threshold)
 
     n_inliers = int(inliers.sum()) if inliers is not None else len(matched_tgt)
     log.info(
