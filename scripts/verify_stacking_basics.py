@@ -8,13 +8,24 @@ Everything is synthetic with KNOWN answers: star positions, per-frame affine
 transforms, sky level, gain, noise, cosmic rays and one satellite trail.
 The real pipeline functions are run and their output compared to the truth.
 """
-import math, sys, time, warnings
+import math
+import time
+import warnings
+
 import numpy as np
+
 warnings.filterwarnings("ignore")
 import logging; logging.getLogger("astraios").setLevel(logging.ERROR)
 from astraios.core.image_io import ImageData
-from astraios.core.stacking import (StackingParams, RegistrationMode, RejectionMethod,
-    IntegrationMethod, NormalizationMethod, align_frames, stack_images)
+from astraios.core.stacking import (
+    IntegrationMethod,
+    NormalizationMethod,
+    RegistrationMode,
+    RejectionMethod,
+    StackingParams,
+    align_frames,
+    stack_images,
+)
 from astraios.core.star_detection import detect_stars
 
 H, W = 600, 800
@@ -99,6 +110,7 @@ scenarios = {
 }
 modes = [RegistrationMode.STAR_1_PASS, RegistrationMode.STAR_2_PASS, RegistrationMode.TRIANGLE]
 from astraios.core.device_manager import get_device_manager
+
 has_gpu = get_device_manager().is_gpu
 for name, shifts in scenarios.items():
     frames, truths = make_frames(shifts)
