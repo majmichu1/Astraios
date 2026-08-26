@@ -209,6 +209,23 @@ def find_transform(
     return transform
 
 
+def transform_quality(
+    ref_pts: np.ndarray, tgt_pts: np.ndarray, transform: np.ndarray, tol: float = 3.0
+) -> float:
+    """Fraction of target stars that land within ``tol`` px of some reference
+    star once ``transform`` is applied. An honest score for a candidate
+    registration: a wrong transform scatters the stars and scores near 0."""
+    from scipy.spatial import KDTree
+
+    if transform is None or len(ref_pts) == 0 or len(tgt_pts) == 0:
+        return 0.0
+    pts = np.asarray(tgt_pts, dtype=np.float64)
+    t = np.asarray(transform, dtype=np.float64)
+    moved = pts @ t[:, :2].T + t[:, 2]
+    d, _ = KDTree(np.asarray(ref_pts, dtype=np.float64)).query(moved, k=1)
+    return float((d < tol).mean())
+
+
 def find_transform_triangle(
     ref_stars: StarField | np.ndarray,
     target_stars: StarField | np.ndarray,
@@ -270,14 +287,29 @@ def find_transform_triangle(
     tgt_pts = tgt_pts[:n_stars].astype(np.float32)
 
     def _triangle_features(pts: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Return (features (M,2), indices (M,3)) for all sampled triangles."""
-        n = len(pts)
-        all_combos = list(combinations(range(n), 3))
-        if len(all_combos) > n_triangles:
-            rng = np.random.default_rng(42)
-            chosen = rng.choice(len(all_combos), n_triangles, replace=False)
-            all_combos = [all_combos[i] for i in chosen]
+        """Return (features (M,2), indices (M,3)) for the local triangles.
 
+        Triangles are built from each star and pairs of its nearest
+        neighbours (astroalign's construction). The earlier version drew
+        300 random triangles out of the ~34,000 a 60-star field offers, and
+        drew them independently for the two images, so a triangle present
+        in one sample was almost never present in the other: the vote table
+        was noise and the matcher failed on frames the plain matcher aligned.
+        Local triangles are the same in both images wherever the stars are.
+        """
+        n = len(pts)
+        k_nn = min(6, n - 1)
+        tree_local = KDTree(pts)
+        _, nn = tree_local.query(pts, k=k_nn + 1)
+        seen: set[tuple[int, int, int]] = set()
+        all_combos = []
+        for i in range(n):
+            neigh = [int(j) for j in np.atleast_1d(nn[i])[1:] if j != i]
+            for a, b in combinations(neigh, 2):
+                tri = tuple(sorted((i, a, b)))
+                if tri not in seen:
+                    seen.add(tri)
+                    all_combos.append(tri)
         feats = []
         idxs = []
         for i, j, k in all_combos:
@@ -346,9 +378,13 @@ def find_transform_triangle(
     transform, inliers = cv2.estimateAffinePartial2D(
         tgt_arr, ref_arr, method=cv2.RANSAC, ransacReprojThreshold=ransac_threshold
     )
-    if transform is None:
-        log.debug("Triangle matching: RANSAC failed, falling back to NN matching")
-        return find_transform(ref_stars, target_stars)
+    n_inl = int(inliers.sum()) if inliers is not None else 0
+    if transform is None or n_inl < max(3, min_vote_matches):
+        log.debug("Triangle matching: RANSAC gave %d inliers, falling back to NN matching", n_inl)
+        return find_transform(ref_stars, target_stars, ransac_threshold=ransac_threshold)
+    if transform_quality(ref_pts, tgt_pts, transform, ransac_threshold) < 0.3:
+        log.debug("Triangle matching: transform verifies poorly, falling back to NN matching")
+        return find_transform(ref_stars, target_stars, ransac_threshold=ransac_threshold)
 
     n_inliers = int(inliers.sum()) if inliers is not None else len(matched_tgt)
     log.info(
