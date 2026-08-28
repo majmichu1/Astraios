@@ -22,6 +22,7 @@ from astropy.stats import SigmaClip
 from skimage.registration import phase_cross_correlation as _skimage_pcc
 
 from astraios.core.device_manager import get_device_manager
+from astraios.core.gpu_registration import triangle_transform_gpu
 from astraios.core.gpu_stars import (
     Star,
     compose_affine_transforms,
@@ -1081,6 +1082,7 @@ def align_frames(
     ref_has_stars = _reference_has_stars(ref_stars, ref_sf)
     if not ref_has_stars:
         log.warning("Reference frame has no detectable stars; frames are passed through unaligned")
+    prefer_triangle = False
 
     # Pre-detect ref stars on CPU for triangle mode (always CPU, no GPU path needed)
     if use_triangle:
@@ -1103,17 +1105,26 @@ def align_frames(
           try:
             t_img = dm.from_numpy(frame.data)
             tgt_stars = detect_stars_gpu(_highpass_for_detection(t_img))
-            matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
-            transform = estimate_transform_gpu(matches)
-            if transform is not None and not _match_ok(
-                np.array([[st.x, st.y] for st in ref_stars], dtype=np.float32),
-                np.array([[st.x, st.y] for st in tgt_stars], dtype=np.float32),
-                transform, params.ransac_threshold,
-            ):
-                # Proximity matching only holds for small shifts; a poorly
-                # verifying transform means the dither was too large for it.
-                log.info("Frame %d: proximity match verifies poorly, trying triangle matching", i + 1)
-                transform = None
+            ref_pts_np = np.array([[st.x, st.y] for st in ref_stars], dtype=np.float32)
+            tgt_pts_np = np.array([[st.x, st.y] for st in tgt_stars], dtype=np.float32)
+            transform = None
+            if not prefer_triangle:
+                matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
+                transform = estimate_transform_gpu(matches)
+                if transform is not None and not _match_ok(
+                    ref_pts_np, tgt_pts_np, transform, params.ransac_threshold
+                ):
+                    # Proximity matching only holds for small shifts; once it
+                    # fails, the dither is large for the whole set.
+                    log.info("Frame %d: proximity match verifies poorly, using triangle matching", i + 1)
+                    transform = None
+                    prefer_triangle = True
+            if transform is None:
+                # Rotation/scale/shift-invariant, on the GPU, a few ms per frame.
+                transform = _verified(
+                    triangle_transform_gpu(ref_stars, tgt_stars, tol_px=params.ransac_threshold),
+                    ref_pts_np, tgt_pts_np, params.ransac_threshold,
+                )
 
             if transform is None:
                 log.warning("Frame %d: GPU transform failed, using CPU fallback", i + 1)
@@ -1508,7 +1519,7 @@ def align_from_paths(
     # Once the GPU proximity match has failed verification, the dither is
     # larger than the match distance for the whole set: go straight to the
     # CPU triangle path for the remaining frames instead of failing each one.
-    prefer_cpu_triangle = False
+    prefer_triangle = False
     if not ref_has_stars:
         log.warning("Reference frame has no detectable stars; frames are passed through unaligned")
     out_paths: list = [None] * n
@@ -1589,8 +1600,12 @@ def align_from_paths(
                     Star(x=s.x * _DETECT_SCALE, y=s.y * _DETECT_SCALE, flux=s.flux, fwhm=s.fwhm * _DETECT_SCALE)
                     for s in tgt_stars_small
                 ]
-                matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
-                transform = None if prefer_cpu_triangle else estimate_transform_gpu(matches)
+                ref_pts_np = np.array([[st.x, st.y] for st in ref_stars], dtype=np.float32)
+                tgt_pts_np = np.array([[st.x, st.y] for st in tgt_stars], dtype=np.float32)
+                transform = None
+                if not prefer_triangle:
+                    matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
+                    transform = estimate_transform_gpu(matches)
                 # Verify before trusting. Proximity matching with a limit
                 # smaller than the dither pairs the wrong stars, RANSAC then
                 # fits a small bogus shift, and the frame used to be warped
@@ -1599,13 +1614,16 @@ def align_from_paths(
                 # averaged every star away. A failed check goes to the CPU
                 # fallback below, which verifies and tries triangles.
                 if transform is not None and not _match_ok(
-                    np.array([[st.x, st.y] for st in ref_stars], dtype=np.float32),
-                    np.array([[st.x, st.y] for st in tgt_stars], dtype=np.float32),
-                    transform, params.ransac_threshold,
+                    ref_pts_np, tgt_pts_np, transform, params.ransac_threshold
                 ):
-                    log.info("Frame %d: proximity match verifies poorly, trying triangle matching", i + 1)
+                    log.info("Frame %d: proximity match verifies poorly, using triangle matching", i + 1)
                     transform = None
-                    prefer_cpu_triangle = True
+                    prefer_triangle = True
+                if transform is None:
+                    transform = _verified(
+                        triangle_transform_gpu(ref_stars, tgt_stars, tol_px=params.ransac_threshold),
+                        ref_pts_np, tgt_pts_np, params.ransac_threshold,
+                    )
 
                 if transform is not None and two_pass:
                     t_inv_coarse = _invert_affine_2x3(transform)
@@ -1631,11 +1649,11 @@ def align_from_paths(
                     if res.ndim == 3 and res.shape[0] == 1:
                         res = res[0]
                 else:
-                    if not prefer_cpu_triangle:
+                    if not prefer_triangle:
                         log.warning("Frame %d: GPU transform failed, trying CPU", i + 1)
                     ref_sf2 = _ref_sf_cpu()
                     tgt_sf2 = _cpu_detect_stars(frame_lum, sigma_threshold=params.star_sigma_threshold)
-                    if prefer_cpu_triangle:
+                    if prefer_triangle:
                         cpu_t = _cpu_find_transform_triangle(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
                     else:
                         cpu_t = _cpu_find_transform(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
