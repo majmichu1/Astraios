@@ -868,6 +868,15 @@ class ToolsPanel(QWidget):
                       "correction, only safe for frames shot under identical "
                       "conditions.",
         )
+        self._ignore_black_check = integ.add_check(
+            "Ignore black (0) pixels", True,
+            help_text="Registration fills the area outside each frame's footprint "
+                      "with black (0). With dithered subs those pixels used to be "
+                      "averaged in as sky, so the stack darkened towards its edges. "
+                      "On, they are treated as missing data, the way PixInsight's "
+                      "default range rejection works. Turn off only for data in "
+                      "which 0 is a real measured value.",
+        )
         self._integration_combo = integ.add_combo(
             "Integration",
             ["Average", "Median", "Weighted Average"],
@@ -4329,6 +4338,7 @@ class ToolsPanel(QWidget):
             star_max_match_dist=float(self._max_shift_spin.value()),
             ransac_threshold=float(self._ransac_thresh_spin.value()),
             comet_nucleus_radius=int(self._comet_radius_spin.value()),
+            ignore_black_pixels=self._ignore_black_check.isChecked(),
         )
 
     def get_multiframe_deconv_params(self):

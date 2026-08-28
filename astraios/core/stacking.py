@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -180,6 +181,13 @@ class StackingParams:
     star_sigma_threshold: float = 5.0   # detection threshold in noise sigmas
     star_max_match_dist: float = 100.0  # px, farthest a star may move between frames
     ransac_threshold: float = 3.0       # px, reprojection tolerance when fitting the transform
+    # Registration pads the outside of each frame's footprint with zeros. With
+    # dithered subs those zeros used to be averaged in as sky, so the stack
+    # darkened toward its edges (a 200 px dither on 24 MP left a visible dark
+    # frame). Zero pixels are now treated as missing, as PixInsight's default
+    # range rejection (low = 0) and Siril do; the 1 px interpolation ring at
+    # each footprint edge goes with them.
+    ignore_black_pixels: bool = True
     reference_frame_index: int = -1 # -1 = auto (highest variance), ≥0 = explicit index
     frame_weights: list[float] | None = None  # per-frame weights for WEIGHTED_AVERAGE
 
@@ -230,10 +238,32 @@ def _row_medians(rows_2d: np.ndarray, centers: np.ndarray | None = None) -> np.n
     return out
 
 
+def _valid_frame_stats(
+    flat: np.ndarray, vflat: np.ndarray, min_pixels: int = 16
+) -> tuple[np.ndarray, np.ndarray]:
+    """Per-frame (median, 1.4826*MAD) over the valid pixels of each row of ``flat``.
+
+    A frame with almost nothing valid falls back to all its pixels rather
+    than to statistics of a handful of values.
+    """
+    n = flat.shape[0]
+    meds = np.empty(n, dtype=np.float32)
+    mads = np.empty(n, dtype=np.float32)
+    for i in range(n):
+        v = flat[i][vflat[i]]
+        if v.size < min_pixels:
+            v = flat[i]
+        m = np.median(v)
+        meds[i] = m
+        mads[i] = np.median(np.abs(v - m)) * 1.4826
+    return meds, mads
+
+
 def normalize_stack(
     stack: np.ndarray,
     method: NormalizationMethod = NormalizationMethod.ADDITIVE_SCALING,
     inplace: bool = False,
+    valid: np.ndarray | None = None,
 ) -> np.ndarray:
     """Normalize background levels across frames.
 
@@ -250,6 +280,9 @@ def normalize_stack(
         full-stack allocation; only honoured for floating-point stacks. The
         caller must own ``stack`` (the in-memory stacker does — it builds and
         immediately reuses the buffer).
+    valid : ndarray of bool, optional
+        Same shape as ``stack``; only True pixels enter the statistics, so
+        registration padding does not pull a dithered frame's median down.
     """
     n = stack.shape[0]
     if n < 2 or method == NormalizationMethod.NONE:
@@ -280,21 +313,26 @@ def normalize_stack(
         return out
 
     flat = stack.reshape(n, -1)
-    ref_med = float(np.median(flat[0]))
+    if valid is not None:
+        frame_meds, frame_mads = _valid_frame_stats(flat, valid.reshape(n, -1))
+        ref_med = float(frame_meds[0])
+        ref_mad = float(frame_mads[0])
+    else:
+        ref_med = float(np.median(flat[0]))
+        frame_meds = _row_medians(flat)
+        frame_mads = None
 
     if method == NormalizationMethod.ADDITIVE:
-        frame_meds = _row_medians(flat)
         return _apply(shifts=ref_med - frame_meds)
 
     if method == NormalizationMethod.MULTIPLICATIVE:
-        frame_meds = _row_medians(flat)
         safe_meds = np.where(np.abs(frame_meds) > 1e-8, frame_meds, 1.0)
         return _apply(scales=ref_med / safe_meds)
 
     # ADDITIVE_SCALING (default): robust MAD-based scale + shift
-    ref_mad = float(np.median(np.abs(flat[0] - ref_med))) * 1.4826
-    frame_meds = _row_medians(flat)
-    frame_mads = _row_medians(flat, centers=frame_meds) * 1.4826
+    if frame_mads is None:
+        ref_mad = float(np.median(np.abs(flat[0] - ref_med))) * 1.4826
+        frame_mads = _row_medians(flat, centers=frame_meds) * 1.4826
 
     if ref_mad < 1e-6:
         # Reference has no structure: offset-only correction
@@ -317,8 +355,13 @@ def _compute_frame_norm_factors(
     paths: list,
     method: NormalizationMethod,
     sample_size: int = 256,
+    ignore_zero: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Per-frame scale/shift from center crops — mirrors ``normalize_stack()``."""
+    """Per-frame scale/shift from center crops — mirrors ``normalize_stack()``.
+
+    With ``ignore_zero`` the zero pixels (registration padding) stay out of
+    the statistics, as they do in ``normalize_stack(valid=...)``.
+    """
     n = len(paths)
     scales = np.ones(n, dtype=np.float32)
     shifts = np.zeros(n, dtype=np.float32)
@@ -329,8 +372,14 @@ def _compute_frame_norm_factors(
         return scales, shifts
 
     flats = np.stack([_sample_frame_crop(p, sample_size).ravel() for p in paths])
-    ref_med = float(np.median(flats[0]))
-    frame_meds = np.median(flats, axis=1)
+    if ignore_zero:
+        frame_meds, frame_mads = _valid_frame_stats(flats, flats > 0)
+        ref_med = float(frame_meds[0])
+        ref_mad = float(frame_mads[0])
+    else:
+        ref_med = float(np.median(flats[0]))
+        frame_meds = np.median(flats, axis=1)
+        frame_mads = None
 
     if method == NormalizationMethod.ADDITIVE:
         shifts = (ref_med - frame_meds).astype(np.float32)
@@ -341,8 +390,9 @@ def _compute_frame_norm_factors(
         scales = (ref_med / safe_meds).astype(np.float32)
         return scales, shifts
 
-    ref_mad = float(np.median(np.abs(flats[0] - ref_med))) * 1.4826
-    frame_mads = np.median(np.abs(flats - frame_meds[:, None]), axis=1) * 1.4826
+    if frame_mads is None:
+        ref_mad = float(np.median(np.abs(flats[0] - ref_med))) * 1.4826
+        frame_mads = np.median(np.abs(flats - frame_meds[:, None]), axis=1) * 1.4826
 
     if ref_mad < 1e-6:
         shifts = (ref_med - frame_meds).astype(np.float32)
@@ -357,6 +407,7 @@ def _compute_frame_norm_factors(
 def _compute_frame_norm_factors_exact(
     paths: list,
     method: NormalizationMethod,
+    ignore_zero: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Per-frame scale/shift from FULL frames, matching the in-memory
     ``normalize_stack`` instead of the center-crop approximation.
@@ -382,6 +433,11 @@ def _compute_frame_norm_factors_exact(
         shp = _get_fits_shape(p)
         full_h = int(shp[-2])
         flat = _load_fits_tile(p, 0, full_h).reshape(-1)  # whole frame, normalized
+        if ignore_zero:
+            data = flat[flat > 0]
+            if data.size >= 16:
+                flat = data
+            del data
         frame_meds[i] = np.median(flat)
         frame_mads[i] = np.median(np.abs(flat - frame_meds[i]))
         del flat
@@ -410,16 +466,55 @@ def _compute_frame_norm_factors_exact(
 # ---------------------------------------------------------------------------
 
 
+def _erode_valid_np(valid: np.ndarray) -> np.ndarray:
+    """Shrink a (N, [C,] H, W) validity mask by one pixel in H and W.
+
+    The interpolated pixel next to a frame's zero padding is a blend of sky
+    and zero, so it goes out with the padding.
+    """
+    from scipy.ndimage import minimum_filter
+
+    size = (1,) * (valid.ndim - 2) + (3, 3)
+    return minimum_filter(valid.astype(np.uint8), size=size, mode="nearest").astype(bool)
+
+
+def _valid_from_zero(raw: np.ndarray) -> np.ndarray | None:
+    """Where the frames carry data: everywhere but on zero pixels, eroded 1 px.
+
+    Returns None when every pixel is valid so callers skip the bookkeeping on
+    stacks without registration padding. ``raw`` must be the data before
+    normalization, which turns the padding into non-zero values.
+    """
+    valid = raw > 0
+    if valid.all():
+        return None
+    return _erode_valid_np(valid)
+
+
+def _n_rejected_np(rejected: np.ndarray, valid: np.ndarray | None) -> int:
+    """Count rejected pixels, not the ones that were missing to begin with."""
+    if valid is None:
+        return int(np.sum(rejected))
+    return int(np.sum(rejected & valid))
+
+
 def _reject_sigma_clip(
-    stack: np.ndarray, kappa_low: float, kappa_high: float, max_iterations: int
+    stack: np.ndarray, kappa_low: float, kappa_high: float, max_iterations: int,
+    valid: np.ndarray | None = None,
 ) -> np.ma.MaskedArray:
-    """Astropy sigma clipping — the proven, standard approach."""
+    """Astropy sigma clipping — the proven, standard approach.
+
+    ``valid`` (same shape, True where a frame has data) pre-masks missing
+    pixels so they take no part in the statistics.
+    """
     sigclip = SigmaClip(sigma_lower=kappa_low, sigma_upper=kappa_high, maxiters=max_iterations)
-    return sigclip(stack, axis=0)
+    data = stack if valid is None else np.ma.array(stack, mask=~valid)
+    return sigclip(data, axis=0)
 
 
 def _reject_linear_fit(
-    stack: np.ndarray, kappa_low: float, kappa_high: float, max_iterations: int
+    stack: np.ndarray, kappa_low: float, kappa_high: float, max_iterations: int,
+    valid: np.ndarray | None = None,
 ) -> np.ma.MaskedArray:
     """Linear fit clipping: a straight line through each pixel's values in
     frame order, so a sky that brightens or darkens through the session is
@@ -440,10 +535,12 @@ def _reject_linear_fit(
     """
     n = stack.shape[0]
     if n < 3:
-        return np.ma.masked_array(stack, mask=np.zeros(stack.shape, dtype=bool))
+        return np.ma.masked_array(
+            stack, mask=np.zeros(stack.shape, dtype=bool) if valid is None else ~valid
+        )
     vals = stack.astype(np.float32, copy=False)
     x = np.arange(n, dtype=np.float32).reshape((-1,) + (1,) * (stack.ndim - 1))
-    keep = np.ones(stack.shape, dtype=bool)
+    keep = np.ones(stack.shape, dtype=bool) if valid is None else valid.copy()
     for _ in range(max(1, int(max_iterations))):
         fit = keep.copy()
         if n >= 5:
@@ -479,16 +576,20 @@ def _winsorized_scale(
     """Robust (center, sigma) of ``r`` along axis 0 over the kept values by
     iterative winsorization with Huber's 1.134 correction."""
     rr = np.where(keep, r, np.nan)
-    center = np.nanmedian(rr, axis=0)
-    sigma = np.nanstd(rr, axis=0) + 1e-12
-    for _ in range(iters):
-        w = np.clip(rr, (center - cutoff * sigma)[None], (center + cutoff * sigma)[None])
-        center = np.nanmean(w, axis=0)
-        new = 1.134 * np.nanstd(w, axis=0)
-        done = np.abs(new - sigma) <= 0.005 * np.maximum(sigma, 1e-12)
-        sigma = new
-        if done.all():
-            break
+    with warnings.catch_warnings():
+        # A pixel with nothing kept (all frames missing there) is all-NaN;
+        # its center/sigma are irrelevant and the caller keeps its mask.
+        warnings.simplefilter("ignore", RuntimeWarning)
+        center = np.nanmedian(rr, axis=0)
+        sigma = np.nanstd(rr, axis=0) + 1e-12
+        for _ in range(iters):
+            w = np.clip(rr, (center - cutoff * sigma)[None], (center + cutoff * sigma)[None])
+            center = np.nanmean(w, axis=0)
+            new = 1.134 * np.nanstd(w, axis=0)
+            done = np.abs(new - sigma) <= 0.005 * np.maximum(sigma, 1e-12)
+            sigma = new
+            if done.all():
+                break
     return center, np.maximum(sigma, 1e-8)
 
 
@@ -498,6 +599,7 @@ def _reject_winsorized_sigma(
     kappa_high: float,
     max_iterations: int,
     winsorize_cutoff: float,
+    valid: np.ndarray | None = None,
 ) -> np.ma.MaskedArray:
     """Winsorized sigma clipping, as Siril does it.
 
@@ -515,14 +617,31 @@ def _reject_winsorized_sigma(
     and on an 8-frame stack this method rejected nothing at all.
     """
     x = stack.astype(np.float32, copy=False)
-    center = np.median(x, axis=0)
-    sigma = x.std(axis=0)
+    if valid is None:
+        kf = None
+        center = np.median(x, axis=0)
+        sigma = x.std(axis=0)
+    else:
+        # Missing values are replaced by the pixel's own center so they add
+        # nothing to the spread, and the counts exclude them.
+        kf = valid.astype(np.float32)
+        cnt = np.maximum(kf.sum(axis=0), 1.0)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            center = np.nan_to_num(np.nanmedian(np.where(valid, x, np.nan), axis=0))
+        x = np.where(valid, x, center[None]).astype(np.float32)
+        mean = (x * kf).sum(axis=0) / cnt
+        sigma = np.sqrt(((x - mean[None]) ** 2 * kf).sum(axis=0) / cnt)
     for _ in range(max(1, int(max_iterations)) + 5):
         lo = center - winsorize_cutoff * sigma
         hi = center + winsorize_cutoff * sigma
         w = np.clip(x, lo[None], hi[None])
-        center = w.mean(axis=0)
-        new_sigma = 1.134 * w.std(axis=0)
+        if kf is None:
+            center = w.mean(axis=0)
+            new_sigma = 1.134 * w.std(axis=0)
+        else:
+            center = (w * kf).sum(axis=0) / cnt
+            new_sigma = 1.134 * np.sqrt(((w - center[None]) ** 2 * kf).sum(axis=0) / cnt)
         done = np.abs(new_sigma - sigma) <= 0.005 * np.maximum(sigma, 1e-12)
         sigma = new_sigma
         if done.all():
@@ -530,16 +649,32 @@ def _reject_winsorized_sigma(
     sigma = np.maximum(sigma, 1e-8)
     dev = x - center[None]
     mask = (dev > kappa_high * sigma[None]) | (dev < -kappa_low * sigma[None])
+    if valid is not None:
+        mask |= ~valid
     return np.ma.array(stack, mask=mask)
 
 
 def _reject_percentile_clip(
-    stack: np.ndarray, percentile_low: float, percentile_high: float
+    stack: np.ndarray, percentile_low: float, percentile_high: float,
+    valid: np.ndarray | None = None,
 ) -> np.ma.MaskedArray:
     """Reject per-pixel values outside the specified percentile range (PixInsight)."""
-    lo = np.percentile(stack, percentile_low, axis=0)
-    hi = np.percentile(stack, 100.0 - percentile_high, axis=0)
-    mask = (stack < lo[None]) | (stack > hi[None])
+    if valid is None:
+        lo = np.percentile(stack, percentile_low, axis=0)
+        hi = np.percentile(stack, 100.0 - percentile_high, axis=0)
+        mask = (stack < lo[None]) | (stack > hi[None])
+    else:
+        xs = np.where(valid, stack, np.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            lo = np.nanpercentile(xs, percentile_low, axis=0)
+            hi = np.nanpercentile(xs, 100.0 - percentile_high, axis=0)
+        mask = (stack < lo[None]) | (stack > hi[None]) | ~valid
+    # With one or two values (a stack edge where few frames overlap) both
+    # percentiles fall between them and everything went; keep what there is.
+    none_left = mask.all(axis=0)
+    if none_left.any():
+        mask[:, none_left] = False if valid is None else ~valid[:, none_left]
     return np.ma.array(stack, mask=mask)
 
 
@@ -547,6 +682,7 @@ def _reject_esd(
     stack: np.ndarray,
     alpha: float = 0.05,
     max_outliers: int | None = None,
+    valid: np.ndarray | None = None,
 ) -> np.ma.MaskedArray:
     """Generalized ESD (Extreme Studentised Deviate) rejection (PixInsight).
 
@@ -572,7 +708,7 @@ def _reject_esd(
     # share one code path; every trailing element is one "pixel".
     trailing = stack.shape[1:]
     flat = stack.reshape(n, -1)
-    mask = np.zeros_like(flat, dtype=bool)
+    mask = np.zeros_like(flat, dtype=bool) if valid is None else ~valid.reshape(n, -1)
     pix = np.arange(flat.shape[1])
 
     for i in range(1, max_outliers + 1):
@@ -587,8 +723,10 @@ def _reject_esd(
 
         # Per-pixel stats excluding already-masked values
         vals = np.where(mask, np.nan, flat)
-        mu = np.nanmean(vals, axis=0)
-        sig = np.nanstd(vals, axis=0, ddof=1) + 1e-10
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            mu = np.nanmean(vals, axis=0)
+            sig = np.nanstd(vals, axis=0, ddof=1) + 1e-10
 
         abs_dev = np.abs(vals - mu[None]) / sig[None]
         abs_dev = np.where(mask, -1.0, abs_dev)
@@ -607,15 +745,29 @@ def _reject_esd(
     return np.ma.array(stack, mask=mask.reshape(n, *trailing))
 
 
-def _reject_min_max(stack: np.ndarray, n_reject: int) -> np.ma.MaskedArray:
+def _reject_min_max(
+    stack: np.ndarray, n_reject: int, valid: np.ndarray | None = None
+) -> np.ma.MaskedArray:
     """Reject the n_reject lowest and highest values per pixel (Siril).
 
     Parameters
     ----------
     n_reject : int
         Number of frames to reject at each extreme.
+    valid : ndarray, optional
+        True where a frame has data; the extremes are taken among those
+        values only, and a pixel always keeps at least one of them.
     """
     n = stack.shape[0]
+    if valid is not None:
+        trailing = stack.shape[1:]
+        vflat = valid.reshape(n, -1)
+        xs = np.where(vflat, stack.reshape(n, -1), np.inf)  # missing sort last
+        rank = np.argsort(np.argsort(xs, axis=0, kind="stable"), axis=0, kind="stable")
+        cnt = vflat.sum(axis=0)
+        k = np.minimum(n_reject, np.maximum(cnt - 1, 0) // 2)
+        mask = ~vflat | (rank < k[None]) | (rank >= (cnt - k)[None])
+        return np.ma.array(stack, mask=mask.reshape(n, *trailing))
     if n_reject * 2 >= n:
         # Clamp so at least one frame survives per pixel; rejecting both
         # extremes of a 2-frame stack would leave an all-black result.
@@ -1766,11 +1918,30 @@ def _write_aligned_fits(img: ImageData, out_path) -> None:
 
 
 @torch.no_grad()
+def _erode_valid_t(valid: torch.Tensor) -> torch.Tensor:
+    """GPU twin of _erode_valid_np: 3x3 minimum filter over the last two dims.
+
+    max_pool2d pads with -inf, so pixels outside the tile count as valid and a
+    tile seam never erodes anything by itself.
+    """
+    v = valid.reshape(-1, 1, *valid.shape[-2:]).float()
+    eroded = -torch.nn.functional.max_pool2d(-v, kernel_size=3, stride=1, padding=1)
+    return (eroded > 0.5).reshape(valid.shape)
+
+
+def _n_rejected_t(keep: torch.Tensor, valid: torch.Tensor | None) -> int:
+    if valid is None:
+        return int((~keep).sum().item())
+    return int(((~keep) & valid).sum().item())
+
+
+@torch.no_grad()
 def _gpu_sigma_clip(
     stack: torch.Tensor,
     kappa_low: float,
     kappa_high: float,
     max_iter: int = 5,
+    valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """Iterative sigma clipping on GPU. stack shape: (N, ...).
 
@@ -1785,7 +1956,7 @@ def _gpu_sigma_clip(
     hardware. The median itself is a quantile, not torch.nanmedian, which
     returns the lower middle value on an even count where numpy averages.
     """
-    mask = torch.ones_like(stack, dtype=torch.bool)  # True = keep
+    mask = torch.ones_like(stack, dtype=torch.bool) if valid is None else valid.clone()
 
     for _ in range(max_iter):
         vals = stack.masked_fill(~mask, float("nan"))
@@ -1801,8 +1972,7 @@ def _gpu_sigma_clip(
             break
         mask = new_mask
 
-    n_rejected = int((~mask).sum().item())
-    return mask, n_rejected
+    return mask, _n_rejected_t(mask, valid)
 
 
 @torch.no_grad()
@@ -1811,6 +1981,7 @@ def _gpu_linear_fit_clip(
     kappa_low: float,
     kappa_high: float,
     max_iter: int = 5,
+    valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """GPU twin of _reject_linear_fit; same trimmed fit and winsorized scale.
 
@@ -1818,12 +1989,12 @@ def _gpu_linear_fit_clip(
     """
     n = stack.shape[0]
     if n < 3:
-        return torch.ones_like(stack, dtype=torch.bool), 0
+        return (torch.ones_like(stack, dtype=torch.bool) if valid is None else valid.clone()), 0
     vals = stack.float()
     x = torch.arange(n, device=stack.device, dtype=torch.float32).reshape(
         (-1,) + (1,) * (stack.dim() - 1)
     )
-    keep = torch.ones_like(stack, dtype=torch.bool)
+    keep = torch.ones_like(stack, dtype=torch.bool) if valid is None else valid.clone()
     for _ in range(max(1, int(max_iter))):
         fit = keep.clone()
         if n >= 5:
@@ -1851,7 +2022,7 @@ def _gpu_linear_fit_clip(
         if new_keep.sum() == keep.sum():
             break
         keep = new_keep
-    return keep, int((~keep).sum().item())
+    return keep, _n_rejected_t(keep, valid)
 
 
 @torch.no_grad()
@@ -1882,16 +2053,27 @@ def _gpu_percentile_clip(
     stack: torch.Tensor,
     pct_low: float,
     pct_high: float,
+    valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """Percentile clip on GPU — reject out-of-range pixels.
 
     Returns (boolean mask of KEPT pixels, n_rejected).
     """
-    lo = torch.quantile(stack, pct_low / 100.0, dim=0)
-    hi = torch.quantile(stack, 1.0 - pct_high / 100.0, dim=0)
-    mask = (stack >= lo.unsqueeze(0)) & (stack <= hi.unsqueeze(0))
-    n_rejected = int((~mask).sum().item())
-    return mask, n_rejected
+    if valid is None:
+        lo = torch.quantile(stack, pct_low / 100.0, dim=0)
+        hi = torch.quantile(stack, 1.0 - pct_high / 100.0, dim=0)
+        mask = (stack >= lo.unsqueeze(0)) & (stack <= hi.unsqueeze(0))
+    else:
+        xs = stack.masked_fill(~valid, float("nan"))
+        lo = torch.nanquantile(xs, pct_low / 100.0, dim=0)
+        hi = torch.nanquantile(xs, 1.0 - pct_high / 100.0, dim=0)
+        mask = valid & (stack >= lo.unsqueeze(0)) & (stack <= hi.unsqueeze(0))
+    # Same guard as the CPU twin: a pixel keeps at least what it has.
+    none_left = ~mask.any(dim=0, keepdim=True)
+    if bool(none_left.any()):
+        fallback = torch.ones_like(mask) if valid is None else valid
+        mask = torch.where(none_left, fallback, mask)
+    return mask, _n_rejected_t(mask, valid)
 
 
 @torch.no_grad()
@@ -1902,6 +2084,7 @@ def _gpu_winsorized_sigma_clip(
     kappa_high: float,
     max_iter: int = 5,
     winsorize_cutoff: float = 1.5,
+    valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """GPU twin of _reject_winsorized_sigma: same iteration, same decisions.
 
@@ -1910,14 +2093,27 @@ def _gpu_winsorized_sigma_clip(
     did the rejection on the CPU while the GPU integrated.
     """
     x = stack.float()
-    center = torch.nanquantile(x, 0.5, dim=0)
-    sigma = x.std(dim=0, unbiased=False)
+    if valid is None:
+        kf = None
+        center = torch.nanquantile(x, 0.5, dim=0)
+        sigma = x.std(dim=0, unbiased=False)
+    else:
+        kf = valid.float()
+        cnt = kf.sum(dim=0).clamp(min=1.0)
+        center = torch.nan_to_num(torch.nanquantile(x.masked_fill(~valid, float("nan")), 0.5, dim=0))
+        x = torch.where(valid, x, center.unsqueeze(0))
+        mean = (x * kf).sum(dim=0) / cnt
+        sigma = (((x - mean.unsqueeze(0)) ** 2 * kf).sum(dim=0) / cnt).sqrt()
     for _ in range(max(1, int(max_iter)) + 5):
         lo = (center - winsorize_cutoff * sigma).unsqueeze(0)
         hi = (center + winsorize_cutoff * sigma).unsqueeze(0)
         w = torch.minimum(torch.maximum(x, lo), hi)
-        center = w.mean(dim=0)
-        new_sigma = 1.134 * w.std(dim=0, unbiased=False)
+        if kf is None:
+            center = w.mean(dim=0)
+            new_sigma = 1.134 * w.std(dim=0, unbiased=False)
+        else:
+            center = (w * kf).sum(dim=0) / cnt
+            new_sigma = 1.134 * (((w - center.unsqueeze(0)) ** 2 * kf).sum(dim=0) / cnt).sqrt()
         done = (new_sigma - sigma).abs() <= 0.005 * sigma.clamp(min=1e-12)
         sigma = new_sigma
         if bool(done.all()):
@@ -1925,18 +2121,30 @@ def _gpu_winsorized_sigma_clip(
     sigma = sigma.clamp(min=1e-8)
     dev = x - center.unsqueeze(0)
     keep = ~((dev > kappa_high * sigma.unsqueeze(0)) | (dev < -kappa_low * sigma.unsqueeze(0)))
-    return keep, int((~keep).sum().item())
+    if valid is not None:
+        keep &= valid
+    return keep, _n_rejected_t(keep, valid)
 
 
 def _gpu_min_max(
     stack: torch.Tensor,
     n_reject: int,
+    valid: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, int]:
     """Min/Max rejection on GPU — reject n_reject lowest and highest per pixel.
 
     Returns (boolean mask of KEPT pixels, n_rejected).
     """
     n = stack.shape[0]
+    if valid is not None:
+        # Rank the valid values only (missing ones sort last as +inf) and keep
+        # at least one value per pixel, as the CPU twin does.
+        xs = stack.masked_fill(~valid, float("inf"))
+        rank = xs.argsort(dim=0, stable=True).argsort(dim=0, stable=True)
+        cnt = valid.sum(dim=0)
+        k = torch.clamp((cnt - 1).clamp(min=0) // 2, max=n_reject)
+        mask = valid & (rank >= k.unsqueeze(0)) & (rank < (cnt - k).unsqueeze(0))
+        return mask, _n_rejected_t(mask, valid)
     if n_reject * 2 >= n:
         # Keep at least one frame per pixel; rejecting both extremes of a
         # 2-frame stack would leave nothing (the CPU path has the same guard).
@@ -2218,9 +2426,13 @@ def stack_from_paths(
         if exact_normalization:
             # Full-frame factors (one frame in RAM at a time) so the tiled result
             # matches the in-memory stack instead of the center-crop approximation.
-            scales, shifts = _compute_frame_norm_factors_exact(paths, params.normalization)
+            scales, shifts = _compute_frame_norm_factors_exact(
+                paths, params.normalization, ignore_zero=params.ignore_black_pixels
+            )
         else:
-            scales, shifts = _compute_frame_norm_factors(paths, params.normalization)
+            scales, shifts = _compute_frame_norm_factors(
+                paths, params.normalization, ignore_zero=params.ignore_black_pixels
+            )
         log.debug(
             "Normalization scales: [%.4f, %.4f] shifts: [%.4f, %.4f]",
             scales.min(), scales.max(), shifts.min(), shifts.max(),
@@ -2291,17 +2503,27 @@ def stack_from_paths(
 
         # Load tile from each file — disk → RAM one frame at a time
         tile_frames = []
+        valid_frames = []
         for i, p in enumerate(paths):
             try:
                 tile = _load_fits_tile(p, y0, y1, file_ranges[i])
             except Exception as exc:
                 raise RuntimeError(f"Failed to read tile from frame {i}: {p}") from exc
+            if params.ignore_black_pixels:
+                valid_frames.append(tile > 0)  # before normalization moves the zeros
             tile = tile * scales[i] + shifts[i]
             tile_frames.append(tile)
 
         # Stack → (N, [C,] tile_h, W)
         tile_stack = np.array(tile_frames, dtype=np.float32)
         del tile_frames
+        tile_valid = None
+        if valid_frames:
+            vf = np.array(valid_frames)
+            del valid_frames
+            if not vf.all():
+                tile_valid = _erode_valid_np(vf)
+            del vf
 
         gpu_rejections = {
             RejectionMethod.SIGMA_CLIP,
@@ -2315,21 +2537,29 @@ def stack_from_paths(
             # GPU path: move tile to VRAM, do rejection+integration on GPU
             t = torch.from_numpy(tile_stack).to(dm.device)
             del tile_stack
+            valid_t = None if tile_valid is None else torch.from_numpy(tile_valid).to(dm.device)
 
             if params.rejection == RejectionMethod.SIGMA_CLIP:
-                mask_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
+                mask_t, n_rej = _gpu_sigma_clip(
+                    t, params.kappa_low, params.kappa_high, params.max_iterations, valid=valid_t
+                )
             elif params.rejection == RejectionMethod.LINEAR_FIT:
-                mask_t, n_rej = _gpu_linear_fit_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
+                mask_t, n_rej = _gpu_linear_fit_clip(
+                    t, params.kappa_low, params.kappa_high, params.max_iterations, valid=valid_t
+                )
             elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
                 mask_t, n_rej = _gpu_winsorized_sigma_clip(
-                    t, params.kappa_low, params.kappa_high, params.max_iterations, params.winsorize_cutoff
+                    t, params.kappa_low, params.kappa_high, params.max_iterations,
+                    params.winsorize_cutoff, valid=valid_t,
                 )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-                mask_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
+                mask_t, n_rej = _gpu_percentile_clip(
+                    t, params.percentile_low, params.percentile_high, valid=valid_t
+                )
             elif params.rejection == RejectionMethod.MIN_MAX:
-                mask_t, n_rej = _gpu_min_max(t, params.min_max_reject)
+                mask_t, n_rej = _gpu_min_max(t, params.min_max_reject, valid=valid_t)
             else:  # NONE
-                mask_t = torch.ones_like(t, dtype=torch.bool)
+                mask_t = torch.ones_like(t, dtype=torch.bool) if valid_t is None else valid_t
                 n_rej = 0
 
             # Integration method and frame weights apply to every rejection
@@ -2337,7 +2567,7 @@ def stack_from_paths(
             result_t = _gpu_integrate(t, mask_t, params.integration, _tile_weights_t)
             total_rejected += n_rej
             tile_result = result_t.cpu().numpy()
-            del t, mask_t, result_t
+            del t, mask_t, result_t, valid_t
             if use_gpu and tile_idx % 10 == 9:
                 dm.empty_cache()
         else:
@@ -2349,22 +2579,35 @@ def stack_from_paths(
                 _logged_cpu_rejection = True
             # CPU fallback (winsorized, ESD, and when GPU disabled)
             if params.rejection == RejectionMethod.SIGMA_CLIP:
-                masked = _reject_sigma_clip(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations)
+                masked = _reject_sigma_clip(
+                    tile_stack, params.kappa_low, params.kappa_high, params.max_iterations,
+                    valid=tile_valid,
+                )
             elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
-                masked = _reject_winsorized_sigma(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations, params.winsorize_cutoff)
+                masked = _reject_winsorized_sigma(
+                    tile_stack, params.kappa_low, params.kappa_high, params.max_iterations,
+                    params.winsorize_cutoff, valid=tile_valid,
+                )
             elif params.rejection == RejectionMethod.LINEAR_FIT:
-                masked = _reject_linear_fit(tile_stack, params.kappa_low, params.kappa_high, params.max_iterations)
+                masked = _reject_linear_fit(
+                    tile_stack, params.kappa_low, params.kappa_high, params.max_iterations,
+                    valid=tile_valid,
+                )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
-                masked = _reject_percentile_clip(tile_stack, params.percentile_low, params.percentile_high)
+                masked = _reject_percentile_clip(
+                    tile_stack, params.percentile_low, params.percentile_high, valid=tile_valid
+                )
             elif params.rejection == RejectionMethod.ESD:
-                masked = _reject_esd(tile_stack)
+                masked = _reject_esd(tile_stack, valid=tile_valid)
             elif params.rejection == RejectionMethod.MIN_MAX:
-                masked = _reject_min_max(tile_stack, params.min_max_reject)
+                masked = _reject_min_max(tile_stack, params.min_max_reject, valid=tile_valid)
             else:
-                masked = np.ma.array(tile_stack, mask=False)
+                masked = np.ma.array(
+                    tile_stack, mask=False if tile_valid is None else ~tile_valid
+                )
 
             tile_mask = _get_mask(masked, tile_stack.shape)
-            total_rejected += int(np.sum(tile_mask))
+            total_rejected += _n_rejected_np(tile_mask, tile_valid)
             tile_result = _integrate(masked, params.integration, weights=_tile_weights_np)
             del tile_stack, masked
 
@@ -2457,6 +2700,10 @@ def stack_images(
         aligned_images[i] = None  # release each aligned frame once it is copied
     del aligned_images
 
+    # Missing pixels (registration padding) are found before normalization
+    # shifts the zeros, and stay out of the statistics and the mean.
+    valid = _valid_from_zero(data_stack) if params.ignore_black_pixels else None
+
     # 3. Normalization
     progress(0.35, "Normalizing background levels...")
     if params.normalization == NormalizationMethod.LOCAL:
@@ -2465,7 +2712,9 @@ def stack_images(
     else:
         # In place: stack_images owns data_stack and reuses the buffer, so this
         # avoids a second full-stack allocation during normalization.
-        data_stack = normalize_stack(data_stack, params.normalization, inplace=True)
+        data_stack = normalize_stack(
+            data_stack, params.normalization, inplace=True, valid=valid
+        )
 
     # 4. Rejection + Integration (GPU path when available)
     progress(0.50, f"Running {params.rejection.name}...")
@@ -2487,25 +2736,30 @@ def stack_images(
         # On OOM, fall back to the CPU rejection path instead of crashing.
         try:
             stack_t = dm.from_numpy(data_stack)
+            valid_t = None if valid is None else torch.from_numpy(valid).to(stack_t.device)
             if params.rejection == RejectionMethod.SIGMA_CLIP:
                 mask_t, total_rejected = _gpu_sigma_clip(
-                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations,
+                    valid=valid_t,
                 )
             elif params.rejection == RejectionMethod.LINEAR_FIT:
                 mask_t, total_rejected = _gpu_linear_fit_clip(
-                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+                    stack_t, params.kappa_low, params.kappa_high, params.max_iterations,
+                    valid=valid_t,
                 )
             elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
                 mask_t, total_rejected = _gpu_winsorized_sigma_clip(
                     stack_t, params.kappa_low, params.kappa_high,
-                    params.max_iterations, params.winsorize_cutoff,
+                    params.max_iterations, params.winsorize_cutoff, valid=valid_t,
                 )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 mask_t, total_rejected = _gpu_percentile_clip(
-                    stack_t, params.percentile_low, params.percentile_high
+                    stack_t, params.percentile_low, params.percentile_high, valid=valid_t
                 )
             elif params.rejection == RejectionMethod.MIN_MAX:
-                mask_t, total_rejected = _gpu_min_max(stack_t, params.min_max_reject)
+                mask_t, total_rejected = _gpu_min_max(
+                    stack_t, params.min_max_reject, valid=valid_t
+                )
             weights_t = None
             if params.frame_weights:
                 weights_t = torch.as_tensor(
@@ -2513,7 +2767,9 @@ def stack_images(
                 )
             result_t = _gpu_integrate(stack_t, mask_t, params.integration, weights_t)
             result = result_t.cpu().numpy().astype(np.float32)
-            del stack_t, mask_t, result_t
+            if valid is not None:
+                mask = (~mask_t.cpu().numpy()) & valid  # rejected, among the pixels that had data
+            del stack_t, mask_t, result_t, valid_t
             dm.empty_cache()
         except (RuntimeError, MemoryError) as exc:
             log.warning(
@@ -2527,30 +2783,34 @@ def stack_images(
         masked_data = None
         if params.rejection == RejectionMethod.SIGMA_CLIP:
             masked_data = _reject_sigma_clip(
-                data_stack, params.kappa_low, params.kappa_high, params.max_iterations
+                data_stack, params.kappa_low, params.kappa_high, params.max_iterations,
+                valid=valid,
             )
         elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
             masked_data = _reject_winsorized_sigma(
                 data_stack, params.kappa_low, params.kappa_high,
-                params.max_iterations, params.winsorize_cutoff,
+                params.max_iterations, params.winsorize_cutoff, valid=valid,
             )
         elif params.rejection == RejectionMethod.LINEAR_FIT:
             masked_data = _reject_linear_fit(
-                data_stack, params.kappa_low, params.kappa_high, params.max_iterations
+                data_stack, params.kappa_low, params.kappa_high, params.max_iterations,
+                valid=valid,
             )
         elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
             masked_data = _reject_percentile_clip(
-                data_stack, params.percentile_low, params.percentile_high
+                data_stack, params.percentile_low, params.percentile_high, valid=valid
             )
         elif params.rejection == RejectionMethod.ESD:
-            masked_data = _reject_esd(data_stack)
+            masked_data = _reject_esd(data_stack, valid=valid)
         elif params.rejection == RejectionMethod.MIN_MAX:
-            masked_data = _reject_min_max(data_stack, params.min_max_reject)
+            masked_data = _reject_min_max(data_stack, params.min_max_reject, valid=valid)
         else:
-            masked_data = np.ma.array(data_stack, mask=False)
+            masked_data = np.ma.array(data_stack, mask=False if valid is None else ~valid)
 
         if masked_data is not None:
             mask = _get_mask(masked_data, shape)
+            if valid is not None:
+                mask = mask & valid  # rejected, among the pixels that had data
             total_rejected = int(np.sum(mask))
             progress(0.85, "Integrating frames...")
             _weights = np.asarray(params.frame_weights, dtype=np.float32) if params.frame_weights else None

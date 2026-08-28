@@ -113,3 +113,9 @@ def test_spcc_panel_builds_a_real_sfcc_configuration(panel):
     assert p.sensor in SENSOR_QE_CURVES and p.lp_filter_1 in FILTER_CURVES
     panel._spcc_filter_combo.setCurrentText("Broadband (LRGB interference filters)")
     assert panel.get_spcc_params().filter_b == "Broadband-B (generic LRGB interference)"
+
+
+def test_ignore_black_pixels_checkbox_reaches_stacking_params(panel):
+    assert panel.get_stacking_params().ignore_black_pixels is True
+    panel._ignore_black_check.setChecked(False)
+    assert panel.get_stacking_params().ignore_black_pixels is False

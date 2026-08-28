@@ -375,7 +375,12 @@ class TestStackFromPaths:
         from astropy.io import fits
 
         path = tmp_path / name
-        fits.PrimaryHDU(data.astype(np.float32)).writeto(str(path), overwrite=True)
+        hdu = fits.PrimaryHDU(data.astype(np.float32))
+        # Our own float data: loaded as-is. Without this the loader min-max
+        # stretches each file, and a flat frame with one hot pixel turns into
+        # zeros (missing data) around a 1.0.
+        hdu.header["CREATOR"] = "Astraios"
+        hdu.writeto(str(path), overwrite=True)
         return path
 
     def test_stack_from_paths_matches_stack_frames_normalization(self, tmp_path):
