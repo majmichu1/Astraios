@@ -1908,6 +1908,8 @@ def _write_aligned_fits(img: ImageData, out_path) -> None:
     # unchanged (no min-max stretch): warping interpolation legitimately
     # produces small negatives that must survive the round-trip.
     hdr["CREATOR"] = "Astraios"
+    # The array is top-down (a bottom-up source was flipped on load).
+    hdr["ROWORDER"] = ("TOP-DOWN", "Row 0 is the top of the image")
     hdu = _fits.PrimaryHDU(data=data.astype(np.float32), header=hdr)
     hdu.writeto(str(out_path), overwrite=True)
 
@@ -2252,7 +2254,7 @@ def _load_fits_tile(
     min/max from ``_fits_float_range``) keeps all tiles of a file on one
     normalization scale.
     """
-    from astraios.core.image_io import _normalize_fits_tile
+    from astraios.core.image_io import _normalize_fits_tile, fits_bottom_up
 
     vmin, vmax = file_range if file_range is not None else (None, None)
     with _open_fits_for_tiles(path) as hdul:
@@ -2260,7 +2262,14 @@ def _load_fits_tile(
             if hdu.data is not None:
                 d = hdu.data
                 header = dict(hdu.header)
-                if d.ndim == 2:
+                if fits_bottom_up(header) and d.ndim in (2, 3):
+                    # Rows y0:y1 of the top-down picture live at the far end
+                    # of a bottom-up file, in reverse order.
+                    full_h = d.shape[-2]
+                    r0, r1 = full_h - y1, full_h - y0
+                    tile = np.array(d[r0:r1, :] if d.ndim == 2 else d[:, r0:r1, :])
+                    tile = np.ascontiguousarray(tile[..., ::-1, :])
+                elif d.ndim == 2:
                     tile = np.array(d[y0:y1, :])
                 elif d.ndim == 3:
                     tile = np.array(d[:, y0:y1, :])

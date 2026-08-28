@@ -261,6 +261,22 @@ def _normalize_fits_data(
         return data
 
 
+def fits_bottom_up(header) -> bool:
+    """True when a FITS header declares ``ROWORDER = 'BOTTOM-UP'``.
+
+    Astraios keeps images top-down in memory (row 0 is the top of the
+    picture), like the capture programs that write ``ROWORDER = 'TOP-DOWN'``
+    or no key at all. Siril (and the FITS standard) store the bottom row
+    first and say so with this key; those files have to be flipped on the
+    way in, or a Siril-registered sub, master or stack opens upside down
+    here, and a flat from Siril would be applied to the wrong corners.
+    """
+    try:
+        return str(header.get("ROWORDER", "")).strip().upper() == "BOTTOM-UP"
+    except Exception:
+        return False
+
+
 def load_fits(path: Path, debayer: bool = True) -> ImageData:
     """Load a FITS file and return normalized ImageData."""
     path = Path(path)
@@ -290,6 +306,12 @@ def load_fits(path: Path, debayer: bool = True) -> ImageData:
     else:
         raise ValueError(f"Unexpected FITS data shape: {data.shape}")
 
+    if fits_bottom_up(header):
+        # Bottom row first on disk (Siril, FITS standard): flip to top-down
+        # and say so in the header, so a re-save stays right side up.
+        data = np.ascontiguousarray(data[..., ::-1, :])
+        header["ROWORDER"] = "TOP-DOWN"
+
     frame_type = _guess_frame_type(header, path)
 
     # Auto-debayer raw OSC frames when loaded individually
@@ -313,6 +335,10 @@ def save_fits(image: ImageData, path: Path, overwrite: bool = True) -> None:
 
     # Scale to 32-bit float FITS
     hdu = fits.PrimaryHDU(data.astype(np.float32))
+    # Row 0 of our arrays is the top of the picture. Without this key Siril
+    # assumes the FITS default (bottom row first) and shows our files upside
+    # down.
+    hdu.header["ROWORDER"] = ("TOP-DOWN", "Row 0 is the top of the image")
 
     # Copy useful header keys
     for key in (
