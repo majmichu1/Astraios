@@ -1271,6 +1271,21 @@ def _fast_quality_at(path, sigma: float = 5.0, size: int = 768) -> float:
     file, read without loading the whole frame."""
     import astropy.io.fits as _fits
 
+    if str(path).lower().rsplit(".", 1)[-1] not in ("fit", "fits", "fts"):
+        # JPEG/TIFF/PNG/XISF subs: no FITS sections to read; load the frame
+        # and score its centre. Before this every non-FITS file failed the
+        # scan and the reference silently fell back to the middle frame.
+        from astraios.core.image_io import load_image
+
+        data = load_image(str(path)).data
+        h, w = data.shape[-2], data.shape[-1]
+        y0, x0 = max(0, h // 2 - size // 2), max(0, w // 2 - size // 2)
+        crop = data[..., y0 : y0 + size, x0 : x0 + size]
+        crop = np.asarray(crop, dtype=np.float32)
+        if crop.ndim == 3:
+            crop = crop.mean(axis=0)
+        return _frame_quality(np.ascontiguousarray(crop), sigma)
+
     with _fits.open(str(path), memmap=False, lazy_load_hdus=True) as hdul:
         hdu = next((h for h in hdul if h.data is not None), hdul[0])
         sh = hdu.shape
@@ -1545,8 +1560,22 @@ def align_from_paths(
                     Star(x=s.x * _DETECT_SCALE, y=s.y * _DETECT_SCALE, flux=s.flux, fwhm=s.fwhm * _DETECT_SCALE)
                     for s in tgt_stars_small
                 ]
-                matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=100.0)
+                matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
                 transform = estimate_transform_gpu(matches)
+                # Verify before trusting. Proximity matching with a limit
+                # smaller than the dither pairs the wrong stars, RANSAC then
+                # fits a small bogus shift, and the frame used to be warped
+                # by it and written as aligned with no check at all: 101
+                # dithered subs came out at their raw offsets and the stack
+                # averaged every star away. A failed check goes to the CPU
+                # fallback below, which verifies and tries triangles.
+                if transform is not None and not _match_ok(
+                    np.array([[st.x, st.y] for st in ref_stars], dtype=np.float32),
+                    np.array([[st.x, st.y] for st in tgt_stars], dtype=np.float32),
+                    transform, params.ransac_threshold,
+                ):
+                    log.info("Frame %d: proximity match verifies poorly, trying triangle matching", i + 1)
+                    transform = None
 
                 if transform is not None and two_pass:
                     t_inv_coarse = _invert_affine_2x3(transform)
@@ -1814,6 +1843,39 @@ def _gpu_percentile_clip(
 
 
 @torch.no_grad()
+@torch.no_grad()
+def _gpu_winsorized_sigma_clip(
+    stack: torch.Tensor,
+    kappa_low: float,
+    kappa_high: float,
+    max_iter: int = 5,
+    winsorize_cutoff: float = 1.5,
+) -> tuple[torch.Tensor, int]:
+    """GPU twin of _reject_winsorized_sigma: same iteration, same decisions.
+
+    Returns (boolean mask of KEPT pixels, n_rejected). Winsorized is the
+    default rejection, and until this existed every tiled stack using it
+    did the rejection on the CPU while the GPU integrated.
+    """
+    x = stack.float()
+    center = torch.nanquantile(x, 0.5, dim=0)
+    sigma = x.std(dim=0, unbiased=False)
+    for _ in range(max(1, int(max_iter)) + 5):
+        lo = (center - winsorize_cutoff * sigma).unsqueeze(0)
+        hi = (center + winsorize_cutoff * sigma).unsqueeze(0)
+        w = torch.minimum(torch.maximum(x, lo), hi)
+        center = w.mean(dim=0)
+        new_sigma = 1.134 * w.std(dim=0, unbiased=False)
+        done = (new_sigma - sigma).abs() <= 0.005 * sigma.clamp(min=1e-12)
+        sigma = new_sigma
+        if bool(done.all()):
+            break
+    sigma = sigma.clamp(min=1e-8)
+    dev = x - center.unsqueeze(0)
+    keep = ~((dev > kappa_high * sigma.unsqueeze(0)) | (dev < -kappa_low * sigma.unsqueeze(0)))
+    return keep, int((~keep).sum().item())
+
+
 def _gpu_min_max(
     stack: torch.Tensor,
     n_reject: int,
@@ -2191,6 +2253,7 @@ def stack_from_paths(
 
         gpu_rejections = {
             RejectionMethod.SIGMA_CLIP,
+            RejectionMethod.WINSORIZED_SIGMA,
             RejectionMethod.LINEAR_FIT,
             RejectionMethod.PERCENTILE_CLIP,
             RejectionMethod.MIN_MAX,
@@ -2205,6 +2268,10 @@ def stack_from_paths(
                 mask_t, n_rej = _gpu_sigma_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
             elif params.rejection == RejectionMethod.LINEAR_FIT:
                 mask_t, n_rej = _gpu_linear_fit_clip(t, params.kappa_low, params.kappa_high, params.max_iterations)
+            elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
+                mask_t, n_rej = _gpu_winsorized_sigma_clip(
+                    t, params.kappa_low, params.kappa_high, params.max_iterations, params.winsorize_cutoff
+                )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 mask_t, n_rej = _gpu_percentile_clip(t, params.percentile_low, params.percentile_high)
             elif params.rejection == RejectionMethod.MIN_MAX:
@@ -2355,7 +2422,8 @@ def stack_images(
     mask = None
     dm = get_device_manager()
     use_gpu = params.use_gpu and dm.is_gpu and params.rejection in (
-        RejectionMethod.SIGMA_CLIP, RejectionMethod.PERCENTILE_CLIP,
+        RejectionMethod.SIGMA_CLIP,
+        RejectionMethod.WINSORIZED_SIGMA, RejectionMethod.PERCENTILE_CLIP,
         RejectionMethod.MIN_MAX, RejectionMethod.LINEAR_FIT,
     )
 
@@ -2374,6 +2442,11 @@ def stack_images(
             elif params.rejection == RejectionMethod.LINEAR_FIT:
                 mask_t, total_rejected = _gpu_linear_fit_clip(
                     stack_t, params.kappa_low, params.kappa_high, params.max_iterations
+                )
+            elif params.rejection == RejectionMethod.WINSORIZED_SIGMA:
+                mask_t, total_rejected = _gpu_winsorized_sigma_clip(
+                    stack_t, params.kappa_low, params.kappa_high,
+                    params.max_iterations, params.winsorize_cutoff,
                 )
             elif params.rejection == RejectionMethod.PERCENTILE_CLIP:
                 mask_t, total_rejected = _gpu_percentile_clip(

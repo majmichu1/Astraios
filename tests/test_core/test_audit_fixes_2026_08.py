@@ -175,3 +175,65 @@ class TestSmallFixes:
         expected = (img[1] - 0.05) / np.maximum(img[0] - 0.05, 1e-6)
         sel = (img[0] - 0.05) > 0.05
         assert np.allclose(ratio[sel], expected[sel], atol=1e-3)
+
+
+class TestGPUWinsorized:
+    def test_gpu_twin_matches_cpu_decisions(self):
+        from astraios.core.stacking import _gpu_winsorized_sigma_clip, _reject_winsorized_sigma
+
+        rng = np.random.default_rng(21)
+        stack = rng.normal(0.2, 0.004, (8, 24, 24)).astype(np.float32)
+        stack[3, :10, :] = 0.8   # trail
+        stack[6, 15, 15] = 0.0   # dropout
+        cpu = np.ma.getmaskarray(_reject_winsorized_sigma(stack, 3.0, 3.0, 5, 1.5))
+        keep_t, n = _gpu_winsorized_sigma_clip(get_device_manager().from_numpy(stack), 3.0, 3.0, 5, 1.5)
+        gpu = ~keep_t.cpu().numpy()
+        assert cpu[3, :10, :].all() and gpu[3, :10, :].all()
+        assert (cpu != gpu).mean() < 0.002
+        assert n == int(gpu.sum())
+
+
+class TestAlignFromPathsRealDither:
+    def test_large_dither_is_registered_on_disk(self, tmp_path):
+        """101 real subs dithered by 200 px came back at their raw offsets from
+        align_from_paths (GPU proximity matching with a 100 px limit, never
+        verified). The existing tests used star-less noise and could not see it."""
+        from astropy.io import fits
+
+        from astraios.core.image_io import load_image
+        from astraios.core.stacking import RegistrationMode, StackingParams, align_from_paths
+        from astraios.core.star_detection import detect_stars
+        from scipy.spatial import KDTree
+
+        rng = np.random.default_rng(3)
+        h, w = 600, 800
+        xs, ys = rng.uniform(30, w - 30, 150), rng.uniform(30, h - 30, 150)
+        fl = np.clip(rng.pareto(1.5, 150) * 0.05 + 0.05, 0, 0.9)
+        yy, xx = np.mgrid[0:h, 0:w]
+
+        def frame(dx, dy, seed):
+            img = np.full((h, w), 0.05, np.float32)
+            for x, y, f in zip(xs + dx, ys + dy, fl):
+                if 3 < x < w - 3 and 3 < y < h - 3:
+                    x0, y0 = int(x), int(y)
+                    sl = (slice(max(0, y0 - 6), y0 + 7), slice(max(0, x0 - 6), x0 + 7))
+                    img[sl] += f * np.exp(-((yy[sl] - y) ** 2 + (xx[sl] - x) ** 2) / (2 * 1.5**2))
+            img += np.random.default_rng(seed).normal(0, 0.003, img.shape).astype(np.float32)
+            return np.clip(img, 0, 1).astype(np.float32)
+
+        shifts = [(0, 0), (210, -160), (-190, 175), (205, 190)]
+        paths = []
+        for i, (dx, dy) in enumerate(shifts):
+            pth = tmp_path / f"sub_{i}.fits"
+            fits.PrimaryHDU(data=frame(dx, dy, i)).writeto(str(pth), overwrite=True)
+            paths.append(pth)
+        out = align_from_paths(
+            paths, tmp_path / "aligned",
+            params=StackingParams(registration_mode=RegistrationMode.STAR_2_PASS, reference_frame_index=0),
+        )
+        assert len(out) == 4
+        ref = detect_stars(load_image(str(out[0])).data, max_stars=120, sigma_threshold=6).positions
+        for pth in out[1:]:
+            tgt = detect_stars(load_image(str(pth)).data, max_stars=120, sigma_threshold=6).positions
+            d, _ = KDTree(ref).query(tgt)
+            assert np.median(d) < 0.5, f"{pth.name}: median residual {np.median(d):.2f}px"
