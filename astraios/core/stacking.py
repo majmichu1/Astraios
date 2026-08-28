@@ -1275,6 +1275,20 @@ def _fast_quality_at(path, sigma: float = 5.0, size: int = 768) -> float:
         # JPEG/TIFF/PNG/XISF subs: no FITS sections to read; load the frame
         # and score its centre. Before this every non-FITS file failed the
         # scan and the reference silently fell back to the middle frame.
+        ext = str(path).lower().rsplit(".", 1)[-1]
+        if ext in ("jpg", "jpeg"):
+            # JPEG can be decoded at 1/2 scale directly (DCT draft mode),
+            # about four times faster than a full decode; the score only
+            # ranks frames against each other, so the scale is irrelevant.
+            from PIL import Image
+
+            with Image.open(str(path)) as im:
+                im.draft("L", (im.width // 2, im.height // 2))
+                w, h = im.size
+                x0, y0 = max(0, w // 2 - size // 2), max(0, h // 2 - size // 2)
+                crop = np.asarray(im.convert("L").crop((x0, y0, x0 + size, y0 + size)), dtype=np.float32) / 255.0
+            return _frame_quality(np.ascontiguousarray(crop), sigma)
+
         from astraios.core.image_io import load_image
 
         data = load_image(str(path)).data
@@ -1480,6 +1494,21 @@ def align_from_paths(
 
     # ── Write reference frame aligned (it's already aligned to itself) ────────
     ref_has_stars = _reference_has_stars(ref_stars_small, ref_stars, ref_sf)
+    # The CPU fallback re-detected the reference stars for every frame it
+    # handled (65 of 100 on a strongly dithered set); detect once, lazily.
+    _ref_sf_cache: list = [ref_sf]
+
+    def _ref_sf_cpu():
+        if _ref_sf_cache[0] is None:
+            _ref_sf_cache[0] = _cpu_detect_stars(
+                _ref_for_detection, sigma_threshold=params.star_sigma_threshold
+            )
+        return _ref_sf_cache[0]
+
+    # Once the GPU proximity match has failed verification, the dither is
+    # larger than the match distance for the whole set: go straight to the
+    # CPU triangle path for the remaining frames instead of failing each one.
+    prefer_cpu_triangle = False
     if not ref_has_stars:
         log.warning("Reference frame has no detectable stars; frames are passed through unaligned")
     out_paths: list = [None] * n
@@ -1561,7 +1590,7 @@ def align_from_paths(
                     for s in tgt_stars_small
                 ]
                 matches = match_stars_gpu(ref_stars, tgt_stars, max_dist=params.star_max_match_dist)
-                transform = estimate_transform_gpu(matches)
+                transform = None if prefer_cpu_triangle else estimate_transform_gpu(matches)
                 # Verify before trusting. Proximity matching with a limit
                 # smaller than the dither pairs the wrong stars, RANSAC then
                 # fits a small bogus shift, and the frame used to be warped
@@ -1576,6 +1605,7 @@ def align_from_paths(
                 ):
                     log.info("Frame %d: proximity match verifies poorly, trying triangle matching", i + 1)
                     transform = None
+                    prefer_cpu_triangle = True
 
                 if transform is not None and two_pass:
                     t_inv_coarse = _invert_affine_2x3(transform)
@@ -1601,12 +1631,16 @@ def align_from_paths(
                     if res.ndim == 3 and res.shape[0] == 1:
                         res = res[0]
                 else:
-                    log.warning("Frame %d: GPU transform failed, trying CPU", i + 1)
-                    ref_sf2 = _cpu_detect_stars(_ref_for_detection, sigma_threshold=params.star_sigma_threshold)
+                    if not prefer_cpu_triangle:
+                        log.warning("Frame %d: GPU transform failed, trying CPU", i + 1)
+                    ref_sf2 = _ref_sf_cpu()
                     tgt_sf2 = _cpu_detect_stars(frame_lum, sigma_threshold=params.star_sigma_threshold)
-                    cpu_t = _cpu_find_transform(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
-                    if not _match_ok(ref_sf2.positions, tgt_sf2.positions, cpu_t, params.ransac_threshold):
+                    if prefer_cpu_triangle:
                         cpu_t = _cpu_find_transform_triangle(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
+                    else:
+                        cpu_t = _cpu_find_transform(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
+                        if not _match_ok(ref_sf2.positions, tgt_sf2.positions, cpu_t, params.ransac_threshold):
+                            cpu_t = _cpu_find_transform_triangle(ref_sf2, tgt_sf2, ransac_threshold=params.ransac_threshold)
                     cpu_t = _verified(cpu_t, ref_sf2.positions, tgt_sf2.positions, params.ransac_threshold)
                     if cpu_t is None:
                         if ref_has_stars:
