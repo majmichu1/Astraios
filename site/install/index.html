@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Install Astraios on Windows, Linux or macOS</title>
+<meta name="description" content="Download and install Astraios: Windows installer, Linux script or AppImage, macOS app. Automatic CUDA or CPU PyTorch setup, no Python required.">
+<link rel="canonical" href="https://majmichu1.github.io/Astraios/install/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Astraios Astrophotography">
+<meta property="og:title" content="Install Astraios on Windows, Linux or macOS">
+<meta property="og:description" content="Download and install Astraios: Windows installer, Linux script or AppImage, macOS app. Automatic CUDA or CPU PyTorch setup, no Python required.">
+<meta property="og:url" content="https://majmichu1.github.io/Astraios/install/">
+<meta property="og:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Astraios: free, open-source GPU astrophotography processing for Windows, Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Install Astraios on Windows, Linux or macOS">
+<meta name="twitter:description" content="Download and install Astraios: Windows installer, Linux script or AppImage, macOS app. Automatic CUDA or CPU PyTorch setup, no Python required.">
+<meta name="twitter:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<link rel="icon" href="../assets/img/astraios.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+<link rel="describedby" href="../llms.txt" type="text/plain">
+<link rel="stylesheet" href="../assets/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Astraios", "alternateName": "Astraios Astrophotography", "description": "Free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS, with NVIDIA CUDA or Apple Metal acceleration and automatic CPU fallback. Formerly known as Cosmica. Alpha software.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Astrophotography image processing", "operatingSystem": "Windows 10, Windows 11, Linux, macOS 11+", "softwareVersion": "0.1.25", "releaseNotes": "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md", "downloadUrl": "https://github.com/majmichu1/Astraios/releases/latest", "installUrl": "https://majmichu1.github.io/Astraios/install/", "url": "https://majmichu1.github.io/Astraios/", "codeRepository": "https://github.com/majmichu1/Astraios", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "majmichu1", "url": "https://github.com/majmichu1"}, "screenshot": "https://majmichu1.github.io/Astraios/assets/img/astraios-ui-stretch-synthetic.png", "image": "https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png", "featureList": ["Calibration, registration and stacking with GPU rejection and integration", "Drizzle, multi-session and live stacking, SER lucky imaging", "Photometric and spectrophotometric colour calibration (PCC, SPCC, SFCC)", "Richardson-Lucy, spatially varying and multi-frame deconvolution", "AI denoise with a bundled Noise2Self model, AI super-resolution", "Offline plate solving with a local Gaia DR3 catalog, ASTAP or astrometry.net", "Guided step-by-step processing wizard and non-destructive history", "Python console, macros, batch processing and plugins"]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="../"><img src="../assets/img/astraios.svg" alt="" width="28" height="28"><span>Astraios</span><span class="brand-sub">Astrophotography</span></a>
+  <nav aria-label="Site"><ul><li><a href="../">Home</a></li><li><a href="../features/">Features</a></li><li><a href="../install/" aria-current="page">Install</a></li><li><a href="../benchmarks/">Benchmarks</a></li><li><a href="../compare/pixinsight/">vs PixInsight</a></li><li><a href="../compare/siril/">vs Siril</a></li><li><a href="../faq/">FAQ</a></li></ul></nav>
+  <a class="btn btn-accent btn-sm" href="https://github.com/majmichu1/Astraios/releases/latest">Download</a>
+</header>
+<main id="main" tabindex="-1">
+
+<h1>Install Astraios</h1>
+<p class="lead">Every installer is small. It creates a private Python environment, detects your GPU and downloads the matching PyTorch build (about 2&nbsp;GB for CUDA), so there is no Python setup and no manual CUDA install. Get the files from the <a href="https://github.com/majmichu1/Astraios/releases/latest">latest release</a> (v0.1.25-alpha).</p>
+<div class="table-wrap" role="region" aria-label="Installers by platform" tabindex="0"><p class="scroll-hint" aria-hidden="true">Scroll sideways to see the whole table</p><table><thead><tr><th scope="col">Platform</th><th scope="col">File</th><th scope="col">What to do</th></tr></thead><tbody><tr><th scope="row">Windows 10/11 x64</th><td><code>Astraios-Setup-&lt;version&gt;.exe</code></td><td>Run it. Detects an NVIDIA driver and installs CUDA 12.8 PyTorch, otherwise CPU PyTorch. Unsigned: SmartScreen may warn.</td></tr><tr><th scope="row">Linux x86_64</th><td><code>install-astraios.sh</code></td><td><code>bash install-astraios.sh</code>. Installs under your home directory, no root, no system Python. Fedora, Bazzite, Ubuntu, Arch.</td></tr><tr><th scope="row">Linux, portable</th><td><code>Astraios-&lt;version&gt;-x86_64.AppImage</code></td><td><code>chmod +x</code> and run. PyTorch is provisioned per user on first launch.</td></tr><tr><th scope="row">macOS 11 or later</th><td><code>install-astraios-macos.sh</code></td><td><code>bash install-astraios-macos.sh</code>. Creates Astraios.app; Apple Silicon runs on Metal, Intel Macs on the CPU.</td></tr><tr><th scope="row">Developers</th><td><code>git clone</code> + Poetry</td><td>Python 3.11 to 3.14. Install a CUDA build of torch first for GPU use.</td></tr></tbody></table></div>
+<section>
+  <h2>Which GPU is used</h2>
+  <p>Astraios picks CUDA, then Apple Metal, then CPU, automatically, and prints the device in the log panel at startup. AMD and Intel GPUs are not accelerated. Set <code>ASTRAIOS_FORCE_CPU=1</code> to force the CPU. Large images are processed in tiles so 4 to 8&nbsp;GB of VRAM is enough; on a CUDA out-of-memory error the operation falls back to the CPU.</p>
+</section>
+<section>
+  <h2>CI-tested versus verified by people</h2>
+  <p>Hosted CI runners have no NVIDIA GPU, so the table separates what CI checks on every packaging change from what a person has confirmed on real hardware. Reports from real machines are collected through the <a href="https://github.com/majmichu1/Astraios/issues/new?template=compatibility_report.yml">compatibility report form</a>.</p>
+  <div class="table-wrap" role="region" aria-label="Compatibility status" tabindex="0"><p class="scroll-hint" aria-hidden="true">Scroll sideways to see the whole table</p><table><thead><tr><th scope="col">Platform</th><th scope="col">Checked in CI</th><th scope="col">Verified by a person</th></tr></thead><tbody><tr><th scope="row">Windows x64</th><td>Installer, PyTorch, app launch (CPU build)</td><td>not yet reported</td></tr><tr><th scope="row">Linux x86_64</th><td>Installer end to end (CPU build)</td><td>Maintainer: NVIDIA RTX 5060 Laptop GPU, CUDA 12.8, Bazzite</td></tr><tr><th scope="row">macOS Apple Silicon</th><td>Installer, Astraios.app, Metal backend, Metal-vs-CPU pixel parity</td><td>not yet reported</td></tr><tr><th scope="row">macOS Intel</th><td>Installer, CPU path</td><td>not yet reported</td></tr><tr><th scope="row">NVIDIA CUDA</th><td>Not testable on hosted runners</td><td>Maintainer's machine only</td></tr></tbody></table></div>
+</section>
+<section>
+  <h2>Updating and integrity</h2>
+  <p>Astraios checks GitHub for a newer release at startup (Preferences &gt; Updates to turn it off) and can download the installer for you. Releases built after <time datetime="2026-09-01">September&nbsp;2026</time> publish a <code>.sha256</code> sidecar per asset; the updater verifies against it, and you can check by hand with <code>sha256sum -c</code> or <code>Get-FileHash</code>.</p>
+</section>
+<section>
+  <h2>Troubleshooting</h2>
+  <ul>
+    <li>Expected CUDA but the log says CPU: update the NVIDIA driver and run the installer again.</li>
+    <li>Linux desktop entry missing: log out and back in.</li>
+    <li>Anything else: open an <a href="https://github.com/majmichu1/Astraios/issues">issue</a> with the log panel output, or read <a href="https://github.com/majmichu1/Astraios/blob/main/docs/installation.md">docs/installation.md</a>.</li>
+  </ul>
+</section>
+
+</main>
+<footer class="site-footer">
+  <p><strong>Astraios Astrophotography</strong>, formerly known as Cosmica. Free software under the GNU GPL v3. Alpha, version 0.1.25. Not related to BigCode's Astraios models or the EU ASTRAIOS project.</p>
+  <p><a href="https://github.com/majmichu1/Astraios">GitHub</a> · <a href="https://github.com/majmichu1/Astraios/releases/latest">Releases</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Project facts</a> · <a href="https://github.com/majmichu1/Astraios/discussions">Discussions</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/SECURITY.md">Security</a> · <a href="../llms.txt">llms.txt</a></p>
+  <p>Facts on this site were checked on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>. No analytics, cookies or external resources are used.</p>
+</footer>
+</body>
+</html>

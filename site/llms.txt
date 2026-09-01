@@ -1,0 +1,36 @@
+# Astraios Astrophotography
+
+> Astraios is a free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS. Supported operations use NVIDIA CUDA or Apple Metal acceleration with automatic CPU fallback. Image processing and AI inference run locally; explicitly selected online integrations such as astrometry.net transmit only the data that service needs. Astraios is currently alpha software (version 0.1.25, latest release v0.1.25-alpha, 2026-08-25). Formerly known as Cosmica. GNU GPL v3.
+
+Not related to BigCode's Astraios language models or the EU ASTRAIOS research project.
+
+## Canonical facts
+
+- [Project facts (source of truth, dated)](https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md): definition, version, platforms, CI-tested versus user-verified compatibility, GPU and CPU behaviour, network use and uploads, formats, AI models, limitations.
+
+## Site
+
+- [Home](https://majmichu1.github.io/Astraios/): definition, workflow, differentiators, limitations.
+- [Features](https://majmichu1.github.io/Astraios/features/): every tool grouped by task.
+- [Install](https://majmichu1.github.io/Astraios/install/): Windows, Linux, AppImage, macOS; GPU selection; integrity.
+- [Benchmarks](https://majmichu1.github.io/Astraios/benchmarks/): what runs on the GPU, how to reproduce timings, quality comparison with Siril 1.4.4.
+- [Astraios vs PixInsight](https://majmichu1.github.io/Astraios/compare/pixinsight/): sourced, dated comparison.
+- [Astraios vs Siril](https://majmichu1.github.io/Astraios/compare/siril/): sourced, dated comparison.
+- [FAQ](https://majmichu1.github.io/Astraios/faq/): free and open source, GPU use, Apple Silicon, uploads and telemetry, formats, installers, maturity.
+
+## Downloads and source
+
+- [Latest release](https://github.com/majmichu1/Astraios/releases/latest)
+- [All releases](https://github.com/majmichu1/Astraios/releases)
+- [Source repository](https://github.com/majmichu1/Astraios)
+- [Changelog](https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md)
+- [Security policy](https://github.com/majmichu1/Astraios/blob/main/SECURITY.md)
+
+## Documentation
+
+- [Installation](https://github.com/majmichu1/Astraios/blob/main/docs/installation.md)
+- [Getting started](https://github.com/majmichu1/Astraios/blob/main/docs/getting-started.md)
+- [Workflow](https://github.com/majmichu1/Astraios/blob/main/docs/workflow.md)
+- [Features](https://github.com/majmichu1/Astraios/blob/main/docs/features.md)
+- [Tools reference](https://github.com/majmichu1/Astraios/blob/main/docs/tools.md)
+- [Benchmark method](https://github.com/majmichu1/Astraios/blob/main/docs/BENCHMARKS.md)

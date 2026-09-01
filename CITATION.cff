@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use Astraios in published work, please cite it as below."
+title: "Astraios: free GPU-accelerated astrophotography processing"
+type: software
+authors:
+  - name: "Astraios contributors"
+    alias: majmichu1
+repository-code: "https://github.com/majmichu1/Astraios"
+url: "https://majmichu1.github.io/Astraios/"
+license: GPL-3.0-or-later
+version: "0.1.25"
+date-released: "2026-08-25"
+keywords:
+  - astrophotography
+  - image processing
+  - image stacking
+  - GPU
+  - PyTorch
+abstract: >-
+  Astraios is a free, open-source desktop application for calibrating,
+  registering, stacking and processing deep-sky, planetary and solar
+  astrophotography on Windows, Linux and macOS, using NVIDIA CUDA or Apple
+  Metal acceleration with automatic CPU fallback. The project was formerly
+  known as Cosmica.

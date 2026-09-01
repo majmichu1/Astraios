@@ -1,6 +1,6 @@
 # Astraios — Tools Reference
 
-Complete reference for all processing tools in the Tools Panel.
+Parameter reference for the main tools in the Tools Panel. Every control also explains itself on hover in the app. The full feature list is in [features.md](features.md).
 
 ## Pre-Process Tab
 
@@ -45,8 +45,9 @@ Scores and weights frames for stacking quality.
 ## Stacking Tab
 
 Combine multiple frames into one with outlier rejection.
-- **Rejection**: None / Sigma Clip / Winsorized Sigma / Linear Fit
-- **Integration**: Average / Median
+- **Rejection**: Winsorized Sigma (default) / Sigma Clip / Linear Fit / Percentile Clip / ESD / Min-Max / None
+- **Integration**: Average / Median / Weighted Average
+- **Ignore black (0) pixels** (on): registration padding is treated as missing data
 - **Kappa Low/High** (3.0): Rejection thresholds
 - **Max Iterations** (5): Sigma clipping iterations
 - **Winsorize Cutoff** (1.5): For winsorized rejection
@@ -150,15 +151,18 @@ Classic sharpening via blurred difference.
 Noise removal via median filtering.
 - **Kernel Size** (3): Filter window
 
-## AI Pro Tab (Pro License Required)
+## AI Tools Tab
+
+Every AI tool runs locally on the GPU or CPU; there is no licence and nothing is uploaded.
 
 | Tool | Description |
 |------|-------------|
-| **AI Denoise** | Neural network-based noise reduction |
-| **AI Sharpen** | Neural network-based deconvolution |
-| **StarNet** | Star removal via StarNet v2 |
-| **Smart Processor** | Fully automated end-to-end processing |
-| **Equipment Profile** | Camera/telescope configuration |
+| **AI Denoise** | Noise2Self U-Net, bundled with the app; J-invariant inference with star protection |
+| **AI Super-Resolution** | Real-ESRGAN 2x/4x; weights downloaded on first use, Lanczos fallback |
+| **AI Sharpen** | No published model yet; runs Richardson-Lucy deconvolution |
+| **Star Removal** | Built-in morphological remover; StarNet if you point Preferences at a StarNet binary |
+| **Smart Processor** | Automated end-to-end processing tailored to the identified object |
+| **Equipment Profile** | Camera/telescope configuration used for plate scale |
 
 ## Utility Tab
 
@@ -174,5 +178,5 @@ Noise removal via median filtering.
 | **Pixel Math** | Custom expression evaluator |
 | **Channel Operations** | Split/merge/extract channels |
 | **HDR Composition** | Merge multiple exposures |
-| **Batch Processing** | Process entire sessions (Pro) |
+| **Batch Processing** | Process entire sessions unattended |
 | **Macros** | Record/playback processing sequences |

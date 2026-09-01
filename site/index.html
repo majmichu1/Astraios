@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astraios — Free GPU Astrophotography Processing</title>
+<meta name="description" content="Free, open-source astrophotography software for Windows, Linux and macOS: calibration, stacking, denoising and processing with CUDA or Apple Metal.">
+<link rel="canonical" href="https://majmichu1.github.io/Astraios/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Astraios Astrophotography">
+<meta property="og:title" content="Astraios — Free GPU Astrophotography Processing">
+<meta property="og:description" content="Free, open-source astrophotography software for Windows, Linux and macOS: calibration, stacking, denoising and processing with CUDA or Apple Metal.">
+<meta property="og:url" content="https://majmichu1.github.io/Astraios/">
+<meta property="og:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Astraios: free, open-source GPU astrophotography processing for Windows, Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Astraios — Free GPU Astrophotography Processing">
+<meta name="twitter:description" content="Free, open-source astrophotography software for Windows, Linux and macOS: calibration, stacking, denoising and processing with CUDA or Apple Metal.">
+<meta name="twitter:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<link rel="icon" href="./assets/img/astraios.svg" type="image/svg+xml">
+<link rel="icon" href="./assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="./assets/img/apple-touch-icon.png">
+<link rel="describedby" href="./llms.txt" type="text/plain">
+<link rel="stylesheet" href="./assets/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Astraios", "alternateName": "Astraios Astrophotography", "description": "Free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS, with NVIDIA CUDA or Apple Metal acceleration and automatic CPU fallback. Formerly known as Cosmica. Alpha software.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Astrophotography image processing", "operatingSystem": "Windows 10, Windows 11, Linux, macOS 11+", "softwareVersion": "0.1.25", "releaseNotes": "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md", "downloadUrl": "https://github.com/majmichu1/Astraios/releases/latest", "installUrl": "https://majmichu1.github.io/Astraios/install/", "url": "https://majmichu1.github.io/Astraios/", "codeRepository": "https://github.com/majmichu1/Astraios", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "majmichu1", "url": "https://github.com/majmichu1"}, "screenshot": "https://majmichu1.github.io/Astraios/assets/img/astraios-ui-stretch-synthetic.png", "image": "https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png", "featureList": ["Calibration, registration and stacking with GPU rejection and integration", "Drizzle, multi-session and live stacking, SER lucky imaging", "Photometric and spectrophotometric colour calibration (PCC, SPCC, SFCC)", "Richardson-Lucy, spatially varying and multi-frame deconvolution", "AI denoise with a bundled Noise2Self model, AI super-resolution", "Offline plate solving with a local Gaia DR3 catalog, ASTAP or astrometry.net", "Guided step-by-step processing wizard and non-destructive history", "Python console, macros, batch processing and plugins"]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="./"><img src="./assets/img/astraios.svg" alt="" width="28" height="28"><span>Astraios</span><span class="brand-sub">Astrophotography</span></a>
+  <nav aria-label="Site"><ul><li><a href="./" aria-current="page">Home</a></li><li><a href="./features/">Features</a></li><li><a href="./install/">Install</a></li><li><a href="./benchmarks/">Benchmarks</a></li><li><a href="./compare/pixinsight/">vs PixInsight</a></li><li><a href="./compare/siril/">vs Siril</a></li><li><a href="./faq/">FAQ</a></li></ul></nav>
+  <a class="btn btn-accent btn-sm" href="https://github.com/majmichu1/Astraios/releases/latest">Download</a>
+</header>
+<main id="main" tabindex="-1">
+
+<section class="hero">
+  <p class="eyebrow">Free and open source · Windows, Linux, macOS · <span class="chip chip-warn">alpha</span></p>
+  <h1>Astraios — Free GPU-Accelerated Astrophotography Processing</h1>
+  <p class="lead">Astraios is a free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS. Supported operations use NVIDIA CUDA or Apple Metal acceleration with automatic CPU fallback. Image processing and AI inference run locally; explicitly selected online integrations such as astrometry.net transmit only the data that service needs. Astraios is currently alpha software.</p>
+  <p class="cta"><a class="btn btn-accent" href="https://github.com/majmichu1/Astraios/releases/latest">Download v0.1.25-alpha</a> <a class="btn" href="https://github.com/majmichu1/Astraios">View on GitHub</a> <a class="btn btn-quiet" href="install/">Install guide</a></p>
+</section>
+<ul class="trust" aria-label="Key facts">
+  <li><strong>GPU where it matters</strong><span>CUDA and Apple Metal for registration, stacking, deconvolution, denoising, stretching and AI; automatic CPU fallback on every machine.</span></li>
+  <li><strong>Local-first</strong><span>No account, no telemetry, no licence key. The only image upload is the optional astrometry.net solver.</span></li>
+  <li><strong>Guided</strong><span>A step-by-step wizard that suggests settings from your own image and explains every control.</span></li>
+  <li><strong>Honest about maturity</strong><span>Alpha. Complete workflows, rough edges, one maintainer. Bug reports are welcome.</span></li>
+</ul>
+<figure class="shot">
+  <img src="assets/img/astraios-ui-stretch-synthetic.png" width="1600" height="900" alt="Astraios 0.1.25 main window: project panel on the left, a synthetic star field with a ring nebula on the canvas, the Stretch tools with Auto-Stretch open on the right, and the processing log reporting CUDA on an RTX 5060.">
+  <figcaption>The interface with the Stretch tools open. The image on the canvas is a synthetic test field generated by the project's screenshot script, not a real astrophotograph.</figcaption>
+</figure>
+<section>
+  <h2>How a session goes</h2>
+  <ol class="steps">
+    <li><strong>Load.</strong> Lights, darks, flats and bias frames as FITS, XISF, TIFF, PNG or JPEG; SER video for planetary work.</li>
+    <li><strong>Calibrate and cull.</strong> Master frames, cosmetic correction, subframe scoring by FWHM, eccentricity, SNR and star count.</li>
+    <li><strong>Register and stack.</strong> Star or triangle matching on the GPU, winsorized or sigma rejection, optional drizzle, multi-session and live stacking.</li>
+    <li><strong>Guided Processing.</strong> Crop, gradient removal, colour calibration (PCC, SPCC, SFCC), deconvolution, denoise, stretch and saturation, each previewed and explained.</li>
+    <li><strong>Finish and export.</strong> Narrowband palettes, star removal and recombination, layers, annotation; export to FITS, XISF, TIFF, PNG or JPEG.</li>
+  </ol>
+</section>
+<section>
+  <h2>What sets it apart</h2>
+  <div class="grid">
+    <article><h3>Built in, not bolted on</h3><p>Spatially varying and multi-frame deconvolution, AI denoise with a bundled model, star removal and photometric colour calibration are part of the program, not paid plugins.</p></article>
+    <article><h3>Verified registration</h3><p>Every frame's transform is checked before it is accepted; frames that cannot be registered are left out rather than stacked unaligned, and registration padding never darkens the edges.</p></article>
+    <article><h3>Science tools</h3><p>Aperture photometry, exoplanet transit light curves, transient detection, isophote fitting and an offline minor-body catalog.</p></article>
+    <article><h3>Non-destructive history</h3><p>Every operation is recorded, can be toggled, reordered or re-edited, and exported as a macro or run from the Python console.</p></article>
+  </div>
+  <p><a href="features/">All features</a></p>
+</section>
+<section>
+  <h2>Known limitations</h2>
+  <ul>
+    <li>Alpha software: bugs are expected and some tools are less refined than their PixInsight or Siril equivalents.</li>
+    <li>No camera raw support (CR2, NEF, ARW, DNG); convert to FITS or TIFF first.</li>
+    <li>GPU acceleration is NVIDIA CUDA and Apple Metal only. AMD and Intel GPUs run the CPU path. The CUDA path is verified on the maintainer's machine, not in CI.</li>
+    <li>AI Sharpen has no published model yet and falls back to Richardson-Lucy deconvolution.</li>
+    <li>First install downloads about 2&nbsp;GB of PyTorch; Windows builds are unsigned, so SmartScreen may warn.</li>
+  </ul>
+</section>
+<section>
+  <h2>Questions</h2>
+  <p>Answers to the common ones (is it free, does it need an NVIDIA card, does it upload images, is it production ready) are on the <a href="faq/">FAQ</a>. Documentation lives in the repository: <a href="https://github.com/majmichu1/Astraios/blob/main/docs/getting-started.md">getting started</a>, <a href="https://github.com/majmichu1/Astraios/blob/main/docs/workflow.md">workflow</a>, <a href="https://github.com/majmichu1/Astraios/blob/main/docs/features.md">features</a>, <a href="https://github.com/majmichu1/Astraios/blob/main/docs/tools.md">tools reference</a> and the <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">project facts</a> every page here is checked against.</p>
+</section>
+
+</main>
+<footer class="site-footer">
+  <p><strong>Astraios Astrophotography</strong>, formerly known as Cosmica. Free software under the GNU GPL v3. Alpha, version 0.1.25. Not related to BigCode's Astraios models or the EU ASTRAIOS project.</p>
+  <p><a href="https://github.com/majmichu1/Astraios">GitHub</a> · <a href="https://github.com/majmichu1/Astraios/releases/latest">Releases</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Project facts</a> · <a href="https://github.com/majmichu1/Astraios/discussions">Discussions</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/SECURITY.md">Security</a> · <a href="./llms.txt">llms.txt</a></p>
+  <p>Facts on this site were checked on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>. No analytics, cookies or external resources are used.</p>
+</footer>
+</body>
+</html>

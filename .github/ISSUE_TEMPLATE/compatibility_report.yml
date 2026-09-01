@@ -1,0 +1,79 @@
+name: Compatibility report
+description: Tell us whether Astraios installs and runs on your hardware. CI only covers hosted runners without NVIDIA GPUs, so real machines matter.
+title: "[COMPAT] <OS> / <GPU or CPU>: works | partly | fails"
+labels: ["compatibility"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. Reports from real machines are how the verified-compatibility table in
+        `docs/project-facts.md` grows beyond what CI can test. One report per machine, please.
+  - type: input
+    id: version
+    attributes:
+      label: Astraios version
+      description: From Help > About, or the release you installed (for example v0.1.25-alpha).
+    validations:
+      required: true
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: How you installed it
+      options:
+        - Windows installer (.exe)
+        - Linux installer script (install-astraios.sh)
+        - Linux AppImage
+        - macOS installer script (install-astraios-macos.sh)
+        - From source (Poetry / wheel)
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: "Windows 11 23H2 / Fedora 42 / Bazzite / Ubuntu 24.04 / macOS 15.5"
+    validations:
+      required: true
+  - type: input
+    id: hardware
+    attributes:
+      label: CPU, GPU and RAM
+      placeholder: "Ryzen 7 7840HS, NVIDIA RTX 4060 8 GB, 32 GB / Apple M2 16 GB / Intel i5, no dedicated GPU"
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device reported in the log panel at startup
+      description: Astraios prints the compute device when it starts.
+      options:
+        - CUDA (NVIDIA)
+        - MPS (Apple Metal)
+        - CPU
+        - Did not get that far
+    validations:
+      required: true
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - Works, no problems found
+        - Works with issues (describe below)
+        - Installs but does not start
+        - Installer fails
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: What you tried and what happened
+      description: Which tools you ran (stacking, guided processing, AI denoise, plate solving) and anything odd. Paste the relevant log panel lines.
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: This is a report from a real machine I used, not a guess.
+          required: true

@@ -1,0 +1,6 @@
+# This file is informational only. The robots exclusion protocol is read from
+# https://majmichu1.github.io/robots.txt (the origin root), which this project
+# site cannot control; nothing here is excluded.
+User-agent: *
+Allow: /
+Sitemap: https://majmichu1.github.io/Astraios/sitemap.xml

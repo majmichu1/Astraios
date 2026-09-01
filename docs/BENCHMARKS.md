@@ -1,11 +1,17 @@
 # Benchmarks: Astraios vs Siril
 
-Astraios runs the heavy parts of the processing pipeline on the GPU. Siril runs
-almost entirely on the CPU (it is multithreaded, but it has no general GPU
-compute path). On a machine with a capable GPU, that difference shows up most on
-the operations that are pure pixel math over the whole frame: registration,
-integration, drizzle, convolution-based denoise and sharpening, deconvolution,
-and stretching.
+Astraios runs the heavy parts of the processing pipeline on the GPU. Siril's own
+engine runs on the CPU (multithreaded; its homepage says all algorithms use all
+cores, and GPU offload is an open discussion in its issue tracker as of
+2026-09-01), while GPU use in the Siril ecosystem happens inside external tools
+it can call, such as GraXpert or RC Astro's paid programs. On a machine with a
+capable GPU, that difference shows up most on the operations that are pure pixel
+math over the whole frame: registration, integration, drizzle, convolution-based
+denoise and sharpening, deconvolution, and stretching.
+
+No Astraios-versus-Siril speedup is published here or anywhere else by this
+project, because the two have not yet been timed on the same data with
+comparable settings. The quality comparison below has been done that way.
 
 This page is a method for producing **honest, reproducible** numbers on your own
 hardware, not a set of marketing claims. Speedups depend heavily on your GPU, your
@@ -23,10 +29,10 @@ where the GPU actually does the work.
 | Stage | Astraios | Siril |
 |---|---|---|
 | Registration (star detect, match, warp) | GPU | CPU |
-| Pixel rejection (sigma/percentile/min-max) | GPU | CPU |
+| Pixel rejection (sigma/winsorized/linear-fit/percentile/min-max) | GPU | CPU |
 | Integration | GPU | CPU |
 | Drizzle | GPU | CPU |
-| Wavelet / chroma denoise | GPU | CPU |
+| Wavelet / chroma / TGV denoise, AI denoise | GPU | CPU (AI via external tools) |
 | Deconvolution (Richardson-Lucy) | GPU | CPU |
 | Wavelet sharpen, unsharp, convolution | GPU | CPU |
 | Background extraction, stretch, curves | GPU | CPU |
@@ -112,3 +118,27 @@ background extract  1f                 53 ms
   off a slow disk, you are benchmarking the disk, not either program.
 - Do not claim a number you did not measure. A single fabricated "10 minutes vs
   30 seconds" that someone reproduces and disproves costs more trust than it buys.
+
+## Quality comparison with Siril
+
+Measured 2026-08-28 on the maintainer's machine (NVIDIA RTX 5060 Laptop GPU,
+7.7 GB VRAM, Fedora-based Linux): 50 JPEG subs of M42 (Sony A7 III,
+6000x4000, 240 mm, one night) registered and stacked in both Astraios 0.1.25
+(`main`, GPU) and Siril 1.4.4 (`siril-cli`, Lanczos-4 registration,
+winsorized sigma clipping 3/3, additive-plus-scaling normalization, no
+weighting), with the same reference frame. Siril's output was flipped for
+`ROWORDER`, the two stacks were registered to each other, and identical sky
+and the same 554 stars were compared.
+
+| Measure | Astraios | Siril 1.4.4 |
+|---|---|---|
+| Same-star peak height, ratio | 1.005 | 1.000 |
+| Same-star FWHM | 3.76 px | 3.79 px |
+| Sky noise, 1 px scale (Siril = 1) | 1.10 | 1.00 |
+| Sky noise, 4x4 and 8x8 binning | 1.00 | 1.00 |
+
+Stacking Astraios' own aligned frames in Siril gives the same result as
+stacking them in Astraios (noise ratio 0.996 to 1.006), so normalization,
+rejection and integration are equivalent; the single-pixel difference comes
+from Siril's clamped Lanczos-4 resampling versus Astraios' bicubic warp.
+These are quality measurements, not timings; no timing comparison is claimed.

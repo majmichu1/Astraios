@@ -4,21 +4,20 @@ Welcome to **Astraios**, a professional astrophotography image processing applic
 
 ## Installation
 
-**Note:** Astraios is currently available as **source code only**. We are working on pre-compiled installers (.exe, .dmg, .AppImage) for a future release.
+Astraios ships installers for Windows, Linux (installer script and AppImage)
+and macOS; they set up their own Python environment and download the PyTorch
+build that matches your GPU. Get them from the
+[latest release](https://github.com/majmichu1/Astraios/releases/latest) and
+follow [installation.md](installation.md).
 
-### From Source (Linux, macOS, Windows)
+To run from source instead (developers):
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/majmichu1/astraios.git
-cd astraios
-
-# 2. Install dependencies (requires Poetry)
-# If you don't have Poetry: https://python-poetry.org/docs/#installation
-poetry install
-
-# 3. Run the application
+git clone https://github.com/majmichu1/Astraios.git
+cd Astraios
+poetry install --with dev      # requires Poetry: https://python-poetry.org/docs/#installation
 poetry run astraios
+```
 
 ## First Launch
 
@@ -105,17 +104,19 @@ The recommended processing order for a typical astrophotography image:
 
 ## Features
 
-Astraios is currently **100% free and open-source**. All features are available to everyone.
+Astraios is free and open source (GPL-3.0); every feature is available to
+everyone. The full inventory is in [features.md](features.md).
 
-### Processing Pipeline
-- **Calibration**: Dark/Flat/Bias frame management.
-- **Stacking**: Sigma-clip, winsorized sigma, and linear fit rejection.
-- **Stretch**: Auto-stretch, GHS, and manual curves.
-- **Tools**: Background extraction, SCNR, deconvolution, and more.
-
-### AI Features (Coming Soon)
-- **AI Denoise**: Self-supervised learning for superior noise reduction.
-- **AI Sharpen**: Neural deconvolution for sharpening without ringing artifacts.
+- **Processing pipeline**: calibration, registration and stacking with
+  several rejection methods, drizzle, multi-session and live stacking.
+- **Stretch and colour**: auto-stretch, GHS, arcsinh, curves, PCC/SPCC/SFCC,
+  SCNR, PixelMath.
+- **Detail and noise**: deconvolution (Richardson-Lucy, spatially varying,
+  multi-frame), wavelets, TGV, NLM, chroma denoise.
+- **AI tools**: AI Denoise runs locally with a bundled model; AI
+  Super-Resolution downloads its weights on first use; AI Sharpen has no
+  published model yet and runs Richardson-Lucy instead.
+- **Guided Processing** (Ctrl+G) walks the whole workflow step by step.
 
 ## Subframe Selector
 
@@ -182,4 +183,5 @@ several minutes.
 ## Need Help?
 
 - **Help → About Astraios** — version info
-- **GitHub Issues** — [Report bugs](https://github.com/majmichu1/astraios/issues)
+- **GitHub Discussions** — [Ask questions](https://github.com/majmichu1/Astraios/discussions)
+- **GitHub Issues** — [Report bugs](https://github.com/majmichu1/Astraios/issues)

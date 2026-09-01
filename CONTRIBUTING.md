@@ -8,8 +8,8 @@ Thank you for your interest in contributing! Astraios is a community-driven proj
 
 ```bash
 # Clone the repository
-git clone https://github.com/majmichu1/astraios.git
-cd astraios
+git clone https://github.com/majmichu1/Astraios.git
+cd Astraios
 
 # Install dependencies, including dev tools (pytest, ruff, mypy)
 poetry install --extras dev

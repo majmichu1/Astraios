@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+#### Documentation, website and trust
+- **Project facts** (`docs/project-facts.md`): one dated source of truth for every public claim (version, platforms, CI-tested versus user-verified compatibility, GPU and CPU behaviour, network use and uploads, formats, AI models, limitations). README, the website, the FAQ, the structured data and `llms.txt` all repeat facts from it.
+- **README** rewritten as a landing document: definition, alpha status, current screenshot (synthetic field, labelled), download, install matrix, verified compatibility, workflow, features summary, measurements without fabricated speed-ups, a dated comparison, limitations and FAQ. The full feature inventory moved to `docs/features.md`; install details to `docs/installation.md`.
+- **Stale text removed**: "source code only" installation, "AI coming soon", the "AI Pro Tab (Pro License Required)" section, an unclosed code fence in `docs/getting-started.md`, "everything runs on the GPU", and a `SECURITY.md` that described a licence system and denied every upload while the astrometry.net backend uploads a mono FITS of the image being solved.
+- **Website** at https://majmichu1.github.io/Astraios/ (`site/`, deployed by `.github/workflows/pages.yml`): home, features, install, benchmarks, Astraios vs PixInsight, Astraios vs Siril and FAQ, with canonical URLs, Open Graph and Twitter metadata, JSON-LD (`SoftwareApplication`, `FAQPage`), a sitemap, a scoped `llms.txt`, skip link, visible focus, reduced-motion support and scrollable tables. No analytics, cookies or external resources. `scripts/check_site.py` validates it before every deployment.
+- **Comparisons** with PixInsight 1.9.4 and Siril 1.4.4 are dated, sourced from official pages, and separate core-engine GPU acceleration from paid third-party plugins. `docs/BENCHMARKS.md` publishes the like-for-like quality measurement against Siril (same subs, settings and reference) and states that no speed comparison is published yet.
+- **License file** restored to the canonical GNU GPL v3 text. The previous file carried an inserted "additional permission" that restated section 4 and a changed preamble line, which stopped GitHub from recognising the licence. The declared licence (`GPL-3.0-or-later` in `pyproject.toml`) is unchanged.
+- **Community and packaging metadata**: `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CITATION.cff`, an issue-template chooser that points questions at Discussions and vulnerabilities at private reporting, a compatibility-report form that separates CI runs from real hardware, and complete `project.urls`, keywords and classifiers in `pyproject.toml`.
+
+#### Release integrity
+- **Checksum sidecars**: tagged releases built by `.github/workflows/build.yml` now publish one `<asset>.sha256` per asset, computed from the final artifacts after every build job. The in-app updater already verified downloads against exactly that sidecar name; until now no release carried one. `scripts/check_release_checksums.py` validates the sidecars before upload and `tests/test_updater/test_release_checksums.py` covers the format, the updater's parser and the installers' wheel lookup, which must skip sidecars.
+- Alpha releases stay normal (non-prerelease) GitHub releases on purpose: the updater and the Linux and macOS installers resolve `/releases/latest`, which ignores prereleases.
+
 ## [0.1.25] - 2026-08-25
 
 ### Added

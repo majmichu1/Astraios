@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astraios vs Siril: a fair comparison (2026)</title>
+<meta name="description" content="How Astraios compares with Siril 1.4.4: both free and GPL, Siril mature and CPU-based, Astraios alpha with GPU processing, bundled AI denoise and a guided workflow. With sources.">
+<link rel="canonical" href="https://majmichu1.github.io/Astraios/compare/siril/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Astraios Astrophotography">
+<meta property="og:title" content="Astraios vs Siril: a fair comparison (2026)">
+<meta property="og:description" content="How Astraios compares with Siril 1.4.4: both free and GPL, Siril mature and CPU-based, Astraios alpha with GPU processing, bundled AI denoise and a guided workflow. With sources.">
+<meta property="og:url" content="https://majmichu1.github.io/Astraios/compare/siril/">
+<meta property="og:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Astraios: free, open-source GPU astrophotography processing for Windows, Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Astraios vs Siril: a fair comparison (2026)">
+<meta name="twitter:description" content="How Astraios compares with Siril 1.4.4: both free and GPL, Siril mature and CPU-based, Astraios alpha with GPU processing, bundled AI denoise and a guided workflow. With sources.">
+<meta name="twitter:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<link rel="icon" href="../../assets/img/astraios.svg" type="image/svg+xml">
+<link rel="icon" href="../../assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../../assets/img/apple-touch-icon.png">
+<link rel="describedby" href="../../llms.txt" type="text/plain">
+<link rel="stylesheet" href="../../assets/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Astraios", "alternateName": "Astraios Astrophotography", "description": "Free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS, with NVIDIA CUDA or Apple Metal acceleration and automatic CPU fallback. Formerly known as Cosmica. Alpha software.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Astrophotography image processing", "operatingSystem": "Windows 10, Windows 11, Linux, macOS 11+", "softwareVersion": "0.1.25", "releaseNotes": "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md", "downloadUrl": "https://github.com/majmichu1/Astraios/releases/latest", "installUrl": "https://majmichu1.github.io/Astraios/install/", "url": "https://majmichu1.github.io/Astraios/", "codeRepository": "https://github.com/majmichu1/Astraios", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "majmichu1", "url": "https://github.com/majmichu1"}, "screenshot": "https://majmichu1.github.io/Astraios/assets/img/astraios-ui-stretch-synthetic.png", "image": "https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png", "featureList": ["Calibration, registration and stacking with GPU rejection and integration", "Drizzle, multi-session and live stacking, SER lucky imaging", "Photometric and spectrophotometric colour calibration (PCC, SPCC, SFCC)", "Richardson-Lucy, spatially varying and multi-frame deconvolution", "AI denoise with a bundled Noise2Self model, AI super-resolution", "Offline plate solving with a local Gaia DR3 catalog, ASTAP or astrometry.net", "Guided step-by-step processing wizard and non-destructive history", "Python console, macros, batch processing and plugins"]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="../../"><img src="../../assets/img/astraios.svg" alt="" width="28" height="28"><span>Astraios</span><span class="brand-sub">Astrophotography</span></a>
+  <nav aria-label="Site"><ul><li><a href="../../">Home</a></li><li><a href="../../features/">Features</a></li><li><a href="../../install/">Install</a></li><li><a href="../../benchmarks/">Benchmarks</a></li><li><a href="../../compare/pixinsight/">vs PixInsight</a></li><li><a href="../../compare/siril/" aria-current="page">vs Siril</a></li><li><a href="../../faq/">FAQ</a></li></ul></nav>
+  <a class="btn btn-accent btn-sm" href="https://github.com/majmichu1/Astraios/releases/latest">Download</a>
+</header>
+<main id="main" tabindex="-1">
+
+<h1>Astraios vs Siril</h1>
+<p class="lead">Both are free, GPL-3.0 and cover calibration through stacking and processing. Checked against official Siril sources on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>: Astraios 0.1.25 (v0.1.25-alpha) and Siril 1.4.4 (released <time datetime="2026-06-17">17&nbsp;June&nbsp;2026</time>).</p>
+<p><strong>Short version.</strong> Siril is the mature, stable, well-documented choice with a large community. Astraios runs its own engine on the GPU, bundles AI denoise and deconvolution, and offers a guided workflow, at alpha maturity. On the same subs with matched settings the two produce the same star peaks and sharpness; see the <a href="../../benchmarks/">measured quality comparison</a>. No speed comparison is published yet.</p>
+<div class="table-wrap" role="region" aria-label="Astraios versus Siril" tabindex="0"><p class="scroll-hint" aria-hidden="true">Scroll sideways to see the whole table</p><table><thead><tr><th scope="col"></th><th scope="col">Astraios 0.1.25 (alpha)</th><th scope="col">Siril 1.4.4</th></tr></thead><tbody><tr><th scope="row">Price and licence</th><td>Free, GPL-3.0</td><td>Free, GPL-3.0 (<a href="https://gitlab.com/free-astro/siril">GitLab</a>)</td></tr><tr><th scope="row">Platforms</th><td>Windows, Linux, macOS (Apple Silicon via Metal)</td><td>Windows, Linux, macOS with native Apple Silicon and Intel builds (<a href="https://siril.org/">siril.org</a>)</td></tr><tr><th scope="row">Maturity</th><td>Alpha, first release 2026, one maintainer</td><td>Stable since 2005 (as SIRI-L), 1.4.4 released 2026-06-17, large community and documentation</td></tr><tr><th scope="row">Core-engine GPU acceleration</th><td>CUDA and Apple Metal for registration, stacking, deconvolution, denoising, stretching and AI; CPU fallback</td><td>None in Siril's own engine: all algorithms are multithreaded on the CPU (<a href="https://siril.org/">siril.org</a>); GPU offload is an open discussion (<a href="https://gitlab.com/free-astro/siril/-/issues/1450">issue 1450</a>). 1.4.2 improved installing GPU libraries for the Python-script tools it calls (<a href="https://siril.org/download/2026-02-18-siril-1-4-2/">release notes</a>)</td></tr><tr><th scope="row">AI denoise and deconvolution</th><td>AI denoise built in with a bundled model; classical and spatially varying deconvolution built in</td><td>Not native; reached through scripts that call GraXpert (free) or RC Astro's paid tools (<a href="https://siril.readthedocs.io/en/stable/processing/graxpert.html">GraXpert interface</a>, <a href="https://siril.org/2026/06/rc-astro-tools-available-in-siril/">RC Astro in Siril</a>)</td></tr><tr><th scope="row">Star removal</th><td>Built-in morphological remover; StarNet optional</td><td>StarNet via Python script; the legacy built-in interface is deprecated (<a href="https://siril.readthedocs.io/en/stable/processing/stars/starnet.html">docs</a>)</td></tr><tr><th scope="row">Calibration, registration, stacking</th><td>Built in; verified transforms, winsorized default, drizzle, multi-session</td><td>Built in; global star alignment, rejection stacking, drizzle (<a href="https://siril.readthedocs.io/en/stable/preprocessing/registration.html">registration</a>, <a href="https://siril.readthedocs.io/en/stable/preprocessing/stacking.html">stacking</a>)</td></tr><tr><th scope="row">Plate solving and colour calibration</th><td>Offline local Gaia DR3, ASTAP, astrometry.net; PCC, SPCC, SFCC</td><td>Built-in solver with local catalogs; PCC and SPCC with offline Gaia catalogs (<a href="https://siril.readthedocs.io/en/latest/processing/color-calibration/pcc.html">PCC</a>, <a href="https://siril.readthedocs.io/en/latest/processing/color-calibration/spcc.html">SPCC</a>)</td></tr><tr><th scope="row">Live stacking</th><td>Yes</td><td>Yes, marked experimental (<a href="https://siril.readthedocs.io/en/stable/Livestack.html">docs</a>)</td></tr><tr><th scope="row">Planetary lucky imaging</th><td>SER stacking, de-rotation, projection</td><td>SER support and rejection-based selection; pixel-wise planetary registration (<a href="https://siril.readthedocs.io/en/stable/preprocessing/stacking.html">docs</a>)</td></tr><tr><th scope="row">Scripting</th><td>Python console, macros, plugins</td><td>SSF scripts and Python scripting</td></tr><tr><th scope="row">Guided step-by-step workflow</th><td>Yes</td><td>No wizard; scripts automate pre-processing</td></tr><tr><th scope="row">Non-destructive history</th><td>Yes</td><td>Not documented</td></tr><tr><th scope="row">Documentation and support</th><td>Docs in the repository, Discussions</td><td>Full documentation (<a href="https://siril.readthedocs.io/en/stable/">readthedocs</a>), community forums</td></tr></tbody></table></div>
+<section>
+  <h2>Working together</h2>
+  <p>Astraios reads Siril's FITS output right side up (it honours <code>ROWORDER</code>), can stack subs Siril registered, and can reuse a Seti Astro Gaia catalog folder. Using Siril for pre-processing and Astraios for the guided post-processing, or the other way round, works.</p>
+</section>
+<section>
+  <h2>What Astraios does not have</h2>
+  <ul>
+    <li>Twenty years of stability and a community that has seen every kind of data.</li>
+    <li>Siril's photometry and astrometry depth, its scripting ecosystem and its documentation.</li>
+    <li>Camera raw support.</li>
+  </ul>
+</section>
+<p>Sources: <a href="https://siril.org/">siril.org</a>, <a href="https://siril.org/download/2026-06-17-siril-1-4-4/">Siril 1.4.4 release</a>, <a href="https://siril.org/download/2026-02-18-siril-1-4-2/">Siril 1.4.2 release notes</a>, <a href="https://siril.readthedocs.io/en/stable/">Siril documentation</a>, <a href="https://gitlab.com/free-astro/siril/-/issues/1450">Siril issue 1450</a>, <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Astraios project facts</a>.</p>
+
+</main>
+<footer class="site-footer">
+  <p><strong>Astraios Astrophotography</strong>, formerly known as Cosmica. Free software under the GNU GPL v3. Alpha, version 0.1.25. Not related to BigCode's Astraios models or the EU ASTRAIOS project.</p>
+  <p><a href="https://github.com/majmichu1/Astraios">GitHub</a> · <a href="https://github.com/majmichu1/Astraios/releases/latest">Releases</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Project facts</a> · <a href="https://github.com/majmichu1/Astraios/discussions">Discussions</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/SECURITY.md">Security</a> · <a href="../../llms.txt">llms.txt</a></p>
+  <p>Facts on this site were checked on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>. No analytics, cookies or external resources are used.</p>
+</footer>
+</body>
+</html>

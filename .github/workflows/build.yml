@@ -204,3 +204,42 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.AppImage
+
+  # ------------------------------------------------------------------ #
+  #  Checksums — one <asset>.sha256 sidecar per release asset          #
+  #  The in-app updater verifies a downloaded installer against the    #
+  #  sidecar named exactly "<asset name>.sha256" (astraios/updater/    #
+  #  auto_updater.py), so the hashes are computed from the final       #
+  #  artifacts after every build job and uploaded next to them. The   #
+  #  installers' asset lookup and the updater both skip *.sha256.      #
+  # ------------------------------------------------------------------ #
+  publish-checksums:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build-windows-installer, publish-linux-installer, publish-macos-installer, build-appimage]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download every release artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Write one sidecar per asset
+        run: |
+          mkdir -p checksums
+          # Flatten: each artifact dir holds the files that went to the release.
+          find artifacts -type f \( -name '*.exe' -o -name '*.whl' -o -name '*.AppImage' -o -name 'install-astraios*.sh' \) -print0 \
+            | while IFS= read -r -d '' f; do
+                name=$(basename "$f")
+                # "<hash>  <name>" is what `sha256sum -c` and the updater's parser expect.
+                (cd "$(dirname "$f")" && sha256sum "$name") > "checksums/$name.sha256"
+              done
+          ls -la checksums
+          cat checksums/*.sha256
+          python3 scripts/check_release_checksums.py checksums artifacts
+
+      - name: Upload sidecars to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: checksums/*.sha256

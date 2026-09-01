@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and how-to
+    url: https://github.com/majmichu1/Astraios/discussions
+    about: Ask in Discussions. Issues are for bugs, compatibility reports and feature requests.
+  - name: Security vulnerability
+    url: https://github.com/majmichu1/Astraios/security/advisories/new
+    about: Report privately through GitHub; please do not open a public issue.

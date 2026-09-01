@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astraios features — stacking, calibration, deconvolution, AI denoise</title>
+<meta name="description" content="Every tool in Astraios grouped by task: calibration, GPU registration and stacking, drizzle, PCC/SPCC, deconvolution, AI denoise, plate solving, photometry and more.">
+<link rel="canonical" href="https://majmichu1.github.io/Astraios/features/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Astraios Astrophotography">
+<meta property="og:title" content="Astraios features — stacking, calibration, deconvolution, AI denoise">
+<meta property="og:description" content="Every tool in Astraios grouped by task: calibration, GPU registration and stacking, drizzle, PCC/SPCC, deconvolution, AI denoise, plate solving, photometry and more.">
+<meta property="og:url" content="https://majmichu1.github.io/Astraios/features/">
+<meta property="og:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Astraios: free, open-source GPU astrophotography processing for Windows, Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Astraios features — stacking, calibration, deconvolution, AI denoise">
+<meta name="twitter:description" content="Every tool in Astraios grouped by task: calibration, GPU registration and stacking, drizzle, PCC/SPCC, deconvolution, AI denoise, plate solving, photometry and more.">
+<meta name="twitter:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<link rel="icon" href="../assets/img/astraios.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+<link rel="describedby" href="../llms.txt" type="text/plain">
+<link rel="stylesheet" href="../assets/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Astraios", "alternateName": "Astraios Astrophotography", "description": "Free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS, with NVIDIA CUDA or Apple Metal acceleration and automatic CPU fallback. Formerly known as Cosmica. Alpha software.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Astrophotography image processing", "operatingSystem": "Windows 10, Windows 11, Linux, macOS 11+", "softwareVersion": "0.1.25", "releaseNotes": "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md", "downloadUrl": "https://github.com/majmichu1/Astraios/releases/latest", "installUrl": "https://majmichu1.github.io/Astraios/install/", "url": "https://majmichu1.github.io/Astraios/", "codeRepository": "https://github.com/majmichu1/Astraios", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "majmichu1", "url": "https://github.com/majmichu1"}, "screenshot": "https://majmichu1.github.io/Astraios/assets/img/astraios-ui-stretch-synthetic.png", "image": "https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png", "featureList": ["Calibration, registration and stacking with GPU rejection and integration", "Drizzle, multi-session and live stacking, SER lucky imaging", "Photometric and spectrophotometric colour calibration (PCC, SPCC, SFCC)", "Richardson-Lucy, spatially varying and multi-frame deconvolution", "AI denoise with a bundled Noise2Self model, AI super-resolution", "Offline plate solving with a local Gaia DR3 catalog, ASTAP or astrometry.net", "Guided step-by-step processing wizard and non-destructive history", "Python console, macros, batch processing and plugins"]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="../"><img src="../assets/img/astraios.svg" alt="" width="28" height="28"><span>Astraios</span><span class="brand-sub">Astrophotography</span></a>
+  <nav aria-label="Site"><ul><li><a href="../">Home</a></li><li><a href="../features/" aria-current="page">Features</a></li><li><a href="../install/">Install</a></li><li><a href="../benchmarks/">Benchmarks</a></li><li><a href="../compare/pixinsight/">vs PixInsight</a></li><li><a href="../compare/siril/">vs Siril</a></li><li><a href="../faq/">FAQ</a></li></ul></nav>
+  <a class="btn btn-accent btn-sm" href="https://github.com/majmichu1/Astraios/releases/latest">Download</a>
+</header>
+<main id="main" tabindex="-1">
+
+<h1>Features</h1>
+<p class="lead">Everything Astraios does, grouped by task. Tools marked GPU run on CUDA or Apple Metal when available and on the CPU otherwise; the rest run on the CPU by design. The authoritative inventory with every option is <a href="https://github.com/majmichu1/Astraios/blob/main/docs/features.md">docs/features.md</a>.</p>
+<section><h2>Pre-processing</h2><ul>
+<li>Calibration masters (dark, flat, bias) and batch calibration; Batch Preprocessing matches frames by exposure, filter, binning and temperature and runs the whole pipeline.</li>
+<li>Cosmetic correction, banding reduction, debayer (RGGB, BGGR, GRBG, GBRG), pedestal.</li>
+<li>Subframe Selector: FWHM, eccentricity, SNR, background and star count; sigma, best-N and best-percent selection.</li>
+</ul></section>
+<section><h2>Registration and stacking (GPU)</h2><ul>
+<li>Star, triangle, FFT and comet alignment with 2-pass refinement; every transform is verified before a frame is accepted.</li>
+<li>Rejection: winsorized sigma (default), sigma clip, linear fit, percentile, ESD, min/max. Normalization: additive, multiplicative, additive with scaling, local. Registration padding is treated as missing data.</li>
+<li>Drizzle 2x and 3x, multi-session stacking with per-session weighting, live stacking, SER lucky imaging for planets, Moon and Sun, multi-frame deconvolution.</li>
+</ul></section>
+<section><h2>Gradients, colour and stretch</h2><ul>
+<li>Background extraction: polynomial, ABE (RBF) and DBE (GPU); background neutralization; linear fit between images.</li>
+<li>Photometric colour calibration against Gaia DR3 (PCC), spectrophotometric (SPCC) and spectral-flux (SFCC) calibration with sensor and filter curves; SCNR.</li>
+<li>Stretches: auto, statistical, arcsinh, star stretch, generalized hyperbolic (GHS), histogram transform, curves; PixelMath with syntax highlighting.</li>
+</ul></section>
+<section><h2>Detail and noise</h2><ul>
+<li>Deconvolution: Richardson-Lucy with regularization and deringing, Wiener, spatially varying (per-zone PSF), multi-frame (GPU).</li>
+<li>Denoise: TGV, wavelet, chroma (GPU), non-local means (CPU), and AI Denoise with a bundled Noise2Self model (GPU).</li>
+<li>AI Super-Resolution 2x/4x (Real-ESRGAN, weights downloaded on first use), wavelets, CLAHE, unsharp mask, WaveScale HDR and Dark Enhance, texture and clarity, halo and star reduction.</li>
+<li>Star removal: built-in morphological remover; StarNet if you install it (runs as a separate process).</li>
+</ul></section>
+<section><h2>Narrowband and composition</h2><ul>
+<li>HOO, SHO and custom mappings; 12 named palettes; narrowband normalization; continuum subtraction; star colour recovery; add stars; LRGB and channel combine; HDR composition.</li>
+</ul></section>
+<section><h2>Science</h2><ul>
+<li>Aperture photometry with calibrated magnitudes and limiting magnitude; exoplanet transit light curves; transient hunter; isophote analysis; SNR; dither analysis; alt-az field rotation.</li>
+</ul></section>
+<section><h2>Plate solving and annotation</h2><ul>
+<li>Offline solving with a local Gaia DR3 catalog, ASTAP, or astrometry.net (the only backend that uploads an image, and only when you choose it).</li>
+<li>WCS overlay, DSO labels, constellation lines, finder chart, what's in my image, what's in my sky, minor bodies from downloadable orbital elements.</li>
+</ul></section>
+<section><h2>Workflow</h2><ul>
+<li>Guided Processing wizard; Smart Processor (identify the target and apply a recipe); teaching tooltips on every control.</li>
+<li>Non-destructive history, macros, batch processing, batch convert and rename, Python console, plugin system, layers with 18 blend modes, effects, image peeker, blink comparator.</li>
+</ul></section>
+<section><h2>Formats</h2>
+<p>Read FITS, XISF, TIFF, PNG, JPEG and SER; write FITS, XISF, TIFF (8/16-bit), PNG (8/16-bit), JPEG. Camera raw files (CR2, NEF, ARW, DNG) are not supported.</p>
+</section>
+
+</main>
+<footer class="site-footer">
+  <p><strong>Astraios Astrophotography</strong>, formerly known as Cosmica. Free software under the GNU GPL v3. Alpha, version 0.1.25. Not related to BigCode's Astraios models or the EU ASTRAIOS project.</p>
+  <p><a href="https://github.com/majmichu1/Astraios">GitHub</a> · <a href="https://github.com/majmichu1/Astraios/releases/latest">Releases</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Project facts</a> · <a href="https://github.com/majmichu1/Astraios/discussions">Discussions</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/SECURITY.md">Security</a> · <a href="../llms.txt">llms.txt</a></p>
+  <p>Facts on this site were checked on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>. No analytics, cookies or external resources are used.</p>
+</footer>
+</body>
+</html>

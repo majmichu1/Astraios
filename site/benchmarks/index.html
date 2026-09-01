@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Astraios benchmarks and measurements</title>
+<meta name="description" content="Which Astraios stages run on the GPU, how to reproduce timings on your own hardware, and a like-for-like quality comparison with Siril 1.4.4 on the same subs.">
+<link rel="canonical" href="https://majmichu1.github.io/Astraios/benchmarks/">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d1117">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Astraios Astrophotography">
+<meta property="og:title" content="Astraios benchmarks and measurements">
+<meta property="og:description" content="Which Astraios stages run on the GPU, how to reproduce timings on your own hardware, and a like-for-like quality comparison with Siril 1.4.4 on the same subs.">
+<meta property="og:url" content="https://majmichu1.github.io/Astraios/benchmarks/">
+<meta property="og:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="Astraios: free, open-source GPU astrophotography processing for Windows, Linux and macOS">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Astraios benchmarks and measurements">
+<meta name="twitter:description" content="Which Astraios stages run on the GPU, how to reproduce timings on your own hardware, and a like-for-like quality comparison with Siril 1.4.4 on the same subs.">
+<meta name="twitter:image" content="https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png">
+<link rel="icon" href="../assets/img/astraios.svg" type="image/svg+xml">
+<link rel="icon" href="../assets/img/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png">
+<link rel="describedby" href="../llms.txt" type="text/plain">
+<link rel="stylesheet" href="../assets/style.css">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Astraios", "alternateName": "Astraios Astrophotography", "description": "Free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS, with NVIDIA CUDA or Apple Metal acceleration and automatic CPU fallback. Formerly known as Cosmica. Alpha software.", "applicationCategory": "MultimediaApplication", "applicationSubCategory": "Astrophotography image processing", "operatingSystem": "Windows 10, Windows 11, Linux, macOS 11+", "softwareVersion": "0.1.25", "releaseNotes": "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md", "downloadUrl": "https://github.com/majmichu1/Astraios/releases/latest", "installUrl": "https://majmichu1.github.io/Astraios/install/", "url": "https://majmichu1.github.io/Astraios/", "codeRepository": "https://github.com/majmichu1/Astraios", "license": "https://www.gnu.org/licenses/gpl-3.0.html", "isAccessibleForFree": true, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "EUR"}, "author": {"@type": "Person", "name": "majmichu1", "url": "https://github.com/majmichu1"}, "screenshot": "https://majmichu1.github.io/Astraios/assets/img/astraios-ui-stretch-synthetic.png", "image": "https://majmichu1.github.io/Astraios/assets/img/astraios-social-preview.png", "featureList": ["Calibration, registration and stacking with GPU rejection and integration", "Drizzle, multi-session and live stacking, SER lucky imaging", "Photometric and spectrophotometric colour calibration (PCC, SPCC, SFCC)", "Richardson-Lucy, spatially varying and multi-frame deconvolution", "AI denoise with a bundled Noise2Self model, AI super-resolution", "Offline plate solving with a local Gaia DR3 catalog, ASTAP or astrometry.net", "Guided step-by-step processing wizard and non-destructive history", "Python console, macros, batch processing and plugins"]}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="../"><img src="../assets/img/astraios.svg" alt="" width="28" height="28"><span>Astraios</span><span class="brand-sub">Astrophotography</span></a>
+  <nav aria-label="Site"><ul><li><a href="../">Home</a></li><li><a href="../features/">Features</a></li><li><a href="../install/">Install</a></li><li><a href="../benchmarks/" aria-current="page">Benchmarks</a></li><li><a href="../compare/pixinsight/">vs PixInsight</a></li><li><a href="../compare/siril/">vs Siril</a></li><li><a href="../faq/">FAQ</a></li></ul></nav>
+  <a class="btn btn-accent btn-sm" href="https://github.com/majmichu1/Astraios/releases/latest">Download</a>
+</header>
+<main id="main" tabindex="-1">
+
+<h1>Benchmarks and measurements</h1>
+<p class="lead">This page publishes methodology and fully contextualised Astraios measurements. It does not publish an Astraios-versus-Siril speed-up, because the two tools have not yet been timed on the same data with comparable settings. When that is done it will appear here with hardware, versions, frame count, dimensions, settings, warm-up, synchronization and repeat-run details.</p>
+<section>
+  <h2>What runs on the GPU</h2>
+  <div class="table-wrap" role="region" aria-label="GPU and CPU stages" tabindex="0"><p class="scroll-hint" aria-hidden="true">Scroll sideways to see the whole table</p><table><thead><tr><th scope="col">Stage</th><th scope="col">Astraios</th></tr></thead><tbody><tr><th scope="row">Registration (star detection, matching, warp)</th><td>GPU</td></tr><tr><th scope="row">Pixel rejection (sigma, winsorized, linear fit, percentile, min/max)</th><td>GPU</td></tr><tr><th scope="row">Integration, drizzle</th><td>GPU</td></tr><tr><th scope="row">Wavelet, chroma and TGV denoise; AI denoise; AI super-resolution</th><td>GPU</td></tr><tr><th scope="row">Deconvolution (Richardson-Lucy, spatially varying, multi-frame)</th><td>GPU</td></tr><tr><th scope="row">Wavelet sharpen, unsharp mask, convolution, CLAHE</th><td>GPU</td></tr><tr><th scope="row">Background extraction, stretches, curves</th><td>GPU</td></tr><tr><th scope="row">Master calibration combine</th><td>CPU (astropy/numpy)</td></tr><tr><th scope="row">Non-local-means denoise</th><td>CPU (OpenCV)</td></tr><tr><th scope="row">Plate solving, catalog lookups, file I/O</th><td>CPU</td></tr></tbody></table></div>
+  <p>Every GPU stage has a CPU implementation that produces the same result within a tolerance of 0.001% of full scale, so a CPU-only machine gets the same output, slower.</p>
+</section>
+<section>
+  <h2>Reproducing timings</h2>
+  <p>The repository ships <code>scripts/benchmark.py</code>. It prints the device, frame size and count, and the median wall-clock of each operation after a warm-up run with a device synchronize around the timed region.</p>
+  <pre><code>poetry run python scripts/benchmark.py --size 3000x4000 --frames 30 --color
+poetry run python scripts/benchmark.py --frames-dir /path/to/lights --runs 5 --json astraios.json</code></pre>
+  <p>Illustrative shape of one run, not a published number (synthetic 1.5&nbsp;MP colour frames, 8 subs, NVIDIA RTX 5060 Laptop GPU, machine under other load): register plus stack 8 frames 1898&nbsp;ms; drizzle 2x 133&nbsp;ms; wavelet denoise 129&nbsp;ms; Richardson-Lucy 30 iterations 78&nbsp;ms; background extraction 53&nbsp;ms. Rules for a fair comparison and a Siril script template are in <a href="https://github.com/majmichu1/Astraios/blob/main/docs/BENCHMARKS.md">docs/BENCHMARKS.md</a>.</p>
+</section>
+<section>
+  <h2>Quality comparison with Siril 1.4.4</h2>
+  <p>Measured on <time datetime="2026-08-28">28&nbsp;August&nbsp;2026</time> on the maintainer's machine (NVIDIA RTX 5060 Laptop GPU, 7.7&nbsp;GB VRAM, Fedora-based Linux): the same 50 JPEG subs of M42 (Sony A7 III, 6000&times;4000, 240&nbsp;mm) registered and stacked in Astraios 0.1.25 and in Siril 1.4.4 through <code>siril-cli</code> with matched settings (Lanczos-4 registration, winsorized sigma clipping 3/3, additive-plus-scaling normalization, no weighting) and the same reference frame. The two stacks were registered to each other and identical sky and the same 554 stars were compared.</p>
+  <div class="table-wrap" role="region" aria-label="Quality comparison" tabindex="0"><p class="scroll-hint" aria-hidden="true">Scroll sideways to see the whole table</p><table><thead><tr><th scope="col">Measure</th><th scope="col">Astraios</th><th scope="col">Siril 1.4.4</th></tr></thead><tbody><tr><th scope="row">Same-star peak height (ratio)</th><td>1.005</td><td>1.000</td></tr><tr><th scope="row">Same-star FWHM</th><td>3.76 px</td><td>3.79 px</td></tr><tr><th scope="row">Sky noise at the 1 px scale (Siril = 1)</th><td>1.10</td><td>1.00</td></tr><tr><th scope="row">Sky noise at 4&times;4 and 8&times;8 binning</th><td>1.00</td><td>1.00</td></tr></tbody></table></div>
+  <p>Stacking Astraios' own aligned frames in Siril gives the same result as stacking them in Astraios (noise ratio 0.996 to 1.006), so normalization, rejection and integration are equivalent. The single-pixel difference comes from Siril's clamped Lanczos-4 resampling versus Astraios' bicubic warp. These are quality measurements, not timings.</p>
+</section>
+
+</main>
+<footer class="site-footer">
+  <p><strong>Astraios Astrophotography</strong>, formerly known as Cosmica. Free software under the GNU GPL v3. Alpha, version 0.1.25. Not related to BigCode's Astraios models or the EU ASTRAIOS project.</p>
+  <p><a href="https://github.com/majmichu1/Astraios">GitHub</a> · <a href="https://github.com/majmichu1/Astraios/releases/latest">Releases</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/docs/project-facts.md">Project facts</a> · <a href="https://github.com/majmichu1/Astraios/discussions">Discussions</a> · <a href="https://github.com/majmichu1/Astraios/blob/main/SECURITY.md">Security</a> · <a href="../llms.txt">llms.txt</a></p>
+  <p>Facts on this site were checked on <time datetime="2026-09-01">1&nbsp;September&nbsp;2026</time>. No analytics, cookies or external resources are used.</p>
+</footer>
+</body>
+</html>

@@ -1,14 +1,14 @@
 [project]
 name = "astraios"
 version = "0.1.25"
-description = "Professional GPU-accelerated astrophotography image processing"
+description = "Free, open-source GPU-accelerated astrophotography processing: calibration, registration, stacking, denoising and more (alpha)"
 authors = [
     {name = "Astraios Contributors"}
 ]
 readme = "README.md"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11,<3.15"
-keywords = ["astrophotography", "image-processing", "astronomy", "FITS", "deep-learning"]
+keywords = ["astrophotography", "astronomy", "image-processing", "image-stacking", "FITS", "XISF", "deep-sky", "planetary-imaging", "GPU", "CUDA", "Metal", "PyTorch", "denoising", "deconvolution", "plate-solving", "photometry"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: End Users/Desktop",
@@ -17,7 +17,14 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Environment :: X11 Applications :: Qt",
+    "Topic :: Multimedia :: Graphics",
 ]
+
 
 dependencies = [
     "PyQt6>=6.6,<7",
@@ -55,6 +62,13 @@ astraios = "astraios.__main__:main"
 
 [project.gui-scripts]
 astraios-gui = "astraios.__main__:main"
+[project.urls]
+Homepage = "https://majmichu1.github.io/Astraios/"
+Repository = "https://github.com/majmichu1/Astraios"
+Documentation = "https://github.com/majmichu1/Astraios/tree/main/docs"
+Issues = "https://github.com/majmichu1/Astraios/issues"
+Changelog = "https://github.com/majmichu1/Astraios/blob/main/CHANGELOG.md"
+Releases = "https://github.com/majmichu1/Astraios/releases"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
