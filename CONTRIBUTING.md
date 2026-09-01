@@ -76,7 +76,7 @@ poetry run python scripts/train_denoise_model.py --input astro_data --epochs 30
 ```
 
 ## License
-By contributing, you agree that your contributions will be licensed under the GPL v3.
+By contributing, you agree that your contributions will be licensed under the GNU GPL, version 3 or (at your option) any later version (GPL-3.0-or-later), like the rest of Astraios. Please follow the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## Buy Me a Coffee
 If you'd like to support the project financially:

@@ -2,7 +2,7 @@
 
 Astraios is a free, open-source desktop application for calibrating, registering, stacking and processing deep-sky, planetary and solar astrophotography on Windows, Linux and macOS. Supported operations use NVIDIA CUDA or Apple Metal acceleration with automatic CPU fallback. Image processing and AI inference run locally; explicitly selected online integrations such as astrometry.net transmit only the data that service needs. Astraios is alpha software.
 
-[![License: GPL v3](https://img.shields.io/badge/License-GPL--3.0-blue.svg)](LICENSE)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/majmichu1/Astraios?label=release)](https://github.com/majmichu1/Astraios/releases/latest)
 [![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](docs/project-facts.md#version-and-maturity)
 [![Quality gate](https://github.com/majmichu1/Astraios/actions/workflows/ci.yml/badge.svg)](https://github.com/majmichu1/Astraios/actions/workflows/ci.yml)
@@ -25,7 +25,7 @@ Installers are small. They set up a private Python environment, detect your GPU 
 
 - **GPU-accelerated where it matters, with automatic CPU fallback.** Registration, rejection and integration, drizzle, deconvolution, wavelets, denoising, stretching and AI inference run on CUDA or Apple Metal; every tool still works on a CPU-only machine.
 - **A guided workflow, not a wall of dialogs.** Guided Processing walks the correct order one step at a time, suggests settings measured from your own image and previews before committing. Every control explains what turning it up or down does.
-- **Local-first and free.** GPL-3.0, no account, no licence key, no telemetry. AI denoise ships bundled; deconvolution, star removal and colour calibration are built in rather than paid plugins.
+- **Local-first and free.** GPL-3.0-or-later, no account, no licence key, no telemetry. AI denoise ships bundled; deconvolution, star removal and colour calibration are built in rather than paid plugins.
 
 ## Install
 
@@ -120,7 +120,7 @@ Checked against official documentation on 2026-09-01; versions: Siril 1.4.4, Pix
 
 | | Astraios 0.1.25 (alpha) | Siril 1.4.4 | PixInsight 1.9.4 |
 |---|---|---|---|
-| Price and licence | Free, GPL-3.0 | Free, GPL-3.0 | 300 EUR plus VAT, proprietary |
+| Price and licence | Free, GPL-3.0-or-later | Free, GPL-3.0 | 300 EUR plus VAT, proprietary |
 | Core-engine GPU acceleration | CUDA and Apple Metal for the operations listed above; CPU fallback | None in the core engine (multithreaded CPU); GPU only inside third-party tools it can call | None in the core as of 1.9.4; GPU inside paid third-party plugins (RC Astro) |
 | AI denoise | Built in, bundled model | Via external tools (GraXpert, RC Astro) | Paid plugin (NoiseXTerminator) |
 | Deconvolution | Built in, incl. spatially varying and multi-frame | Built in (classical) | Built in (classical); AI via paid plugin |
@@ -155,7 +155,7 @@ Feature names that look alike are not a claim of parity; PixInsight and Siril ar
 
 - [Project facts](docs/project-facts.md) (source of truth for every public claim) · [Installation](docs/installation.md) · [Getting started](docs/getting-started.md) · [Workflow](docs/workflow.md) · [Features](docs/features.md) · [Tools reference](docs/tools.md) · [Benchmarks](docs/BENCHMARKS.md)
 - Questions: [Discussions](https://github.com/majmichu1/Astraios/discussions) · Bugs: [Issues](https://github.com/majmichu1/Astraios/issues) · Security: [SECURITY.md](SECURITY.md) · [Support](SUPPORT.md)
-- [Contributing](CONTRIBUTING.md) · [Credits](CREDITS.md) · [Citation](CITATION.cff)
+- [Contributing](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md) · [Credits](CREDITS.md) · [Citation](CITATION.cff)
 
 ## Developers
 
@@ -172,4 +172,4 @@ poetry run ruff check .        # lint
 
 ## License and credits
 
-GNU General Public License v3 (`GPL-3.0-or-later` in `pyproject.toml`), required by PyQt6. Several tools are ported from [Seti Astro Suite Pro](https://github.com/setiastro/setiastrosuitepro) by Franklin Marek (GPL-3.0-or-later) with attribution in each module and in [CREDITS.md](CREDITS.md). Built on PyQt6, PyTorch, Astropy, OpenCV, scikit-image, PyWavelets and uv.
+GNU General Public License, version 3 or (at your option) any later version (SPDX `GPL-3.0-or-later`; the unmodified licence text is in [LICENSE](LICENSE), project notices in [NOTICE](NOTICE)), required by PyQt6. Several tools are ported from [Seti Astro Suite Pro](https://github.com/setiastro/setiastrosuitepro) by Franklin Marek (GPL-3.0-or-later) with attribution in each module and in [CREDITS.md](CREDITS.md). Built on PyQt6, PyTorch, Astropy, OpenCV, scikit-image, PyWavelets and uv.

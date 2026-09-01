@@ -13,6 +13,7 @@ Here is where to go for what.
   is built from CI runs and these reports.
 - **Feature requests**: [feature request form](https://github.com/majmichu1/Astraios/issues/new?template=feature_request.md).
 - **Security**: see [SECURITY.md](SECURITY.md); do not post vulnerabilities publicly.
+- **Conduct**: the [code of conduct](CODE_OF_CONDUCT.md) applies everywhere the project talks.
 
 Before asking, the documentation covers most things:
 [installation](docs/installation.md), [getting started](docs/getting-started.md),

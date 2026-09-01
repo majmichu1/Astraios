@@ -36,7 +36,7 @@ project, or any other software called Astraios.
 | Latest release | v0.1.25-alpha, 2026-08-25 | [Releases](https://github.com/majmichu1/Astraios/releases/latest) |
 | Maturity | Alpha. Expect rough edges; report bugs | `Development Status :: 3 - Alpha` classifier |
 | Release channel | Every tagged release is a normal (non-prerelease) GitHub release; the updater and installers read `/releases/latest` | `astraios/updater/auto_updater.py`, `packaging/linux/install-astraios.sh` |
-| License | GNU GPL v3; `pyproject.toml` declares `GPL-3.0-or-later` | `LICENSE` (canonical text), `pyproject.toml` |
+| License | GNU GPL, version 3 or (at your option) any later version: SPDX `GPL-3.0-or-later`, confirmed by the owner on 2026-09-01 | `LICENSE` (unmodified GPL-3.0 text), `NOTICE`, `pyproject.toml`, `CITATION.cff` |
 | Test suite | 2301 tests collected on 2026-09-01; CI runs the whole suite on a CPU-only Ubuntu runner | `.github/workflows/ci.yml` |
 
 ## Platforms and distribution

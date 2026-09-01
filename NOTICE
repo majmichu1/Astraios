@@ -1,0 +1,19 @@
+Astraios (formerly Cosmica)
+Copyright (C) 2026 the Astraios contributors
+
+Astraios is free software: you can redistribute it and/or modify it under the
+terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version (SPDX-License-Identifier: GPL-3.0-or-later). The full licence text is
+in LICENSE, unmodified. Astraios is distributed WITHOUT ANY WARRANTY; see the
+licence for details.
+
+Portions are ported from Seti Astro Suite Pro by Franklin Marek
+(GPL-3.0-or-later, https://github.com/setiastro/setiastrosuitepro); each such
+module carries its attribution, and CREDITS.md lists them. The bundled fonts
+(Space Grotesk, JetBrains Mono) are under the SIL Open Font License; their
+licence files sit next to them in astraios/resources/fonts/. Other
+dependencies and their licences are listed in CREDITS.md.
+
+Astraios uses PyQt6, which is available under the GPL v3; this is why the
+GPL is required for the application as a whole.
