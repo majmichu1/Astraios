@@ -132,13 +132,18 @@ and the same 554 stars were compared.
 
 | Measure | Astraios | Siril 1.4.4 |
 |---|---|---|
-| Same-star peak height, ratio | 1.005 | 1.000 |
-| Same-star FWHM | 3.76 px | 3.79 px |
+| Same-star peak height, ratio | 1.003 | 1.000 |
+| Same-star FWHM | 3.81 px | 3.87 px |
 | Sky noise, 1 px scale (Siril = 1) | 1.10 | 1.00 |
-| Sky noise, 4x4 and 8x8 binning | 1.00 | 1.00 |
+| Sky noise, 4x4 / 8x8 binning | 1.03 / 1.00 | 1.00 |
 
 Stacking Astraios' own aligned frames in Siril gives the same result as
 stacking them in Astraios (noise ratio 0.996 to 1.006), so normalization,
-rejection and integration are equivalent; the single-pixel difference comes
-from Siril's clamped Lanczos-4 resampling versus Astraios' bicubic warp.
-These are quality measurements, not timings; no timing comparison is claimed.
+rejection and integration are equivalent. With the resampling of 2026-09-02
+(one clamped kernel on both devices) and the same reference frame the two
+stacks compare as: star peaks 1.003, Astraios FWHM 3.81 px vs Siril 3.87 px,
+noise 1.10x at 1 px, 1.03x at 4x4, 1.00x at 8x8; Astraios with Lanczos-4
+clamped: 3.84 px and 1.11x/1.02x/1.00x. Slightly sharper stars for slightly
+more single-pixel noise is the resampling trade-off, not a defect of either
+tool. These are quality measurements, not timings; no timing comparison is
+claimed.

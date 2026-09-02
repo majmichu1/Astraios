@@ -112,7 +112,7 @@ The complete inventory with every tool and its options is in [docs/features.md](
 
 ## Measurements
 
-Astraios ships a benchmark harness (`scripts/benchmark.py`) and a method for fair timing against other tools; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md). No Astraios-versus-Siril speedup is published, because both tools have not yet been timed on the same data with comparable settings. What has been measured, on the same 50 subs with matched settings and the same reference frame: Astraios and Siril 1.4.4 produce the same star peaks (ratio 1.005) and the same star FWHM (3.76 vs 3.79 px); Siril's registered frames are about 10% quieter at the single-pixel scale, and the two are equal at 4x4 binning and coarser. Method and numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md#quality-comparison-with-siril).
+Astraios ships a benchmark harness (`scripts/benchmark.py`) and a method for fair timing against other tools; see [docs/BENCHMARKS.md](docs/BENCHMARKS.md). No Astraios-versus-Siril speedup is published, because both tools have not yet been timed on the same data with comparable settings. What has been measured, on the same 50 subs with matched settings and the same reference frame: Astraios and Siril 1.4.4 produce the same star peaks (ratio 1.003); Astraios' stars are slightly sharper (FWHM 3.81 vs 3.87 px) with correspondingly about 10% more single-pixel noise, and the two are equal at 4x4 binning and coarser. Method and numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md#quality-comparison-with-siril).
 
 ## How it compares
 

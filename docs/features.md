@@ -15,6 +15,7 @@ else runs on the CPU by design.
 - **Calibration**: master dark, flat and bias creation, batch light-frame calibration.
 - **Batch Preprocessing**: folder scan, automatic matching by EXPTIME, FILTER, BINNING and CCD-TEMP, master creation, calibration, registration and integration in one run.
 - **Alignment** (GPU): star-based registration (1-pass, 2-pass refinement, triangle matching), FFT phase correlation, comet nucleus tracking. Every transform is verified before a frame is accepted; unregistrable frames are left out rather than stacked unaligned.
+- **Resampling** (GPU and CPU, same result): clamped bicubic by default, Lanczos-4 (what Siril and PixInsight use) or bilinear; clamping removes ringing around stars and lowers stack noise at no cost to sharpness.
 - **Stacking** (GPU): sigma-clip, winsorized sigma (default), linear fit, percentile clip, ESD and min/max rejection; additive, multiplicative, additive-plus-scaling and local normalization; registration padding is treated as missing data so edges do not darken.
 - **Drizzle** (GPU): 2x and 3x, square and Gaussian kernels.
 - **Multi-Session Stacking**: combine nights with per-session adaptive weighting.

@@ -782,6 +782,22 @@ class ToolsPanel(QWidget):
                 lower="Stricter — demands a tighter fit.",
             ),
         )
+        self._interp_combo = reg.add_combo(
+            "Resampling",
+            ["Bicubic (clamped)", "Lanczos-4 (clamped)", "Lanczos-4", "Bicubic",
+             "Bilinear (fast, soft)"],
+            current="Bicubic (clamped)",
+            help_text="How each frame's pixels are resampled when it is warped onto "
+                      "the reference. Bicubic (clamped) is the recommended default. "
+                      "Bicubic and Lanczos-4 keep stars sharp; "
+                      "Lanczos-4 is the kernel Siril and PixInsight use and is the "
+                      "sharpest, but takes about a second per 24-megapixel frame "
+                      "even on a GPU. Bilinear is fastest and softens stars a little. "
+                      "'Clamped' limits every resampled value to the range of the "
+                      "pixels around it: no dark rings around bright stars and less "
+                      "noise in the stack, at no cost to star sharpness (measured "
+                      "against Siril on the same subs).",
+        )
         self._comet_radius_spin = styled_spin(3, 300, 15, 1, 0, " px")
         self._comet_radius_row = QWidget()
         self._comet_radius_row.setLayout(field_row(
@@ -3502,8 +3518,9 @@ class ToolsPanel(QWidget):
 
         # Credit card
         credit = QLabel(
-            "AI models powered by CosmicClarity — "
-            "MIT-licensed astro AI by Franklin Marek (Seti Astro)"
+            "Every AI tool runs on this machine. AI Denoise ships with its "
+            "Noise2Self model; StarNet and Cosmic Clarity (Seti Astro) are "
+            "optional models you point Preferences at."
         )
         credit.setWordWrap(True)
         credit.setStyleSheet(
@@ -3660,7 +3677,10 @@ class ToolsPanel(QWidget):
                       "nebulosity) without also over-processing the stars, "
                       "then add the stars back afterward.",
         )
-        star.add_info("Remove stars from image using deep learning.")
+        star.add_info(
+            "Built-in morphological star remover; StarNet (deep learning) when its "
+            "binary is set in Preferences."
+        )
         self._star_removal_path = star.add_combo(
             "Backend",
             ["Auto (StarNet v2 preferred)", "StarNet v2", "Built-in (starrem2k13)"],
@@ -4339,6 +4359,8 @@ class ToolsPanel(QWidget):
             ransac_threshold=float(self._ransac_thresh_spin.value()),
             comet_nucleus_radius=int(self._comet_radius_spin.value()),
             ignore_black_pixels=self._ignore_black_check.isChecked(),
+            interpolation=self._interp_choice()[0],
+            clamp_interpolation=self._interp_choice()[1],
         )
 
     def get_multiframe_deconv_params(self):
@@ -4405,7 +4427,19 @@ class ToolsPanel(QWidget):
             "max_shift": int(self._max_shift_spin.value()),
             "ransac_threshold": float(self._ransac_thresh_spin.value()),
             "comet_nucleus_radius": int(self._comet_radius_spin.value()),
+            "interpolation": self._interp_choice()[0],
+            "clamp_interpolation": self._interp_choice()[1],
         }
+
+    def _interp_choice(self) -> tuple[str, bool]:
+        text = self._interp_combo.currentText()
+        if "Lanczos" in text:
+            kernel = "lanczos4"
+        elif "Bilinear" in text:
+            kernel = "bilinear"
+        else:
+            kernel = "bicubic"
+        return kernel, "clamped" in text
 
     def get_stretch_params(self) -> StretchParams:
         return StretchParams(

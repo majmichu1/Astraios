@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### Registration
+- **One resampling kernel on both devices, clamped** (`astraios/core/interpolation.py`): the GPU alignment paths used to resample with `grid_sample` bicubic while the CPU paths used OpenCV Lanczos-4, so the same stack differed by hardware. Every alignment path (star, triangle, FFT, comet; in memory and from disk) now goes through one warp with `StackingParams.interpolation` ("bicubic" default, "lanczos4", "bilinear") and `clamp_interpolation` (on by default), implemented with cv2 on the CPU and torch on the GPU and matching to OpenCV's fixed-point precision. Clamping limits every resampled value to the range of the surrounding source pixels: no dark rings around stars, and on white noise the per-frame factor is 0.83 for bicubic and drops from 0.90 to 0.88 for Lanczos-4. On the like-for-like set against Siril 1.4.4 (same 50 subs, reference and stacking settings) the clamped-bicubic stack has the same star peaks (ratio 1.003), is slightly sharper (FWHM 3.81 vs 3.87 px) and correspondingly ~10% noisier at the single-pixel scale, equal from 4x4 binning up. Lanczos-4 on the GPU is a 64-tap gather (about 1.3 s per 24-megapixel colour frame); clamped bicubic takes 0.07 s. The Registration section has a **Resampling** control with the same choices.
+
+### Fixed
+
+- **Foreign float FITS got a per-file gain** (`astraios/core/image_io.py`): float FITS without our CREATOR key were min-max normalized by their own range, so a Siril-registered sub whose Lanczos overshoot reached 1.07 on a saturated star loaded at 0.93x while its neighbour with no overshoot loaded at 1.00x, and the two were stacked together. Foreign floats now keep their nominal scale: values in about [0, 1] are left alone (overshoot included), ADU-like values are divided by 65535, and only exotic ranges fall back to min-max. Tiled and whole-image loads agree.
+
 ### Changed
 
 #### Documentation, website and trust
@@ -85,6 +94,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### AI module
 - **CosmicClarity download** (`astraios/ai/inference/cosmic_clarity.py`): Platform-aware download URLs (Linux/macOS/Windows). Atomic tempfile + rename + chmod. No more silent failures on platform mismatch.
 
+### Fixed
+
+- **Foreign float FITS got a per-file gain** (`astraios/core/image_io.py`): float FITS without our CREATOR key were min-max normalized by their own range, so a Siril-registered sub whose Lanczos overshoot reached 1.07 on a saturated star loaded at 0.93x while its neighbour with no overshoot loaded at 1.00x, and the two were stacked together. Foreign floats now keep their nominal scale: values in about [0, 1] are left alone (overshoot included), ADU-like values are divided by 65535, and only exotic ranges fall back to min-max. Tiled and whole-image loads agree.
+
 ### Changed
 
 #### Performance improvements
@@ -100,6 +113,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Object SNR
 - **Smart Processor** (`astraios/ai/smart_processor.py`): `object_snr` now uses `bg + 3σ` object mask (was P95 global threshold, which was background-biased). Object SNR = `max(0, (obj_median − bg) / noise)`.
+
+### Fixed
+
+- **Foreign float FITS got a per-file gain** (`astraios/core/image_io.py`): float FITS without our CREATOR key were min-max normalized by their own range, so a Siril-registered sub whose Lanczos overshoot reached 1.07 on a saturated star loaded at 0.93x while its neighbour with no overshoot loaded at 1.00x, and the two were stacked together. Foreign floats now keep their nominal scale: values in about [0, 1] are left alone (overshoot included), ADU-like values are divided by 65535, and only exotic ranges fall back to min-max. Tiled and whole-image loads agree.
 
 ### Changed
 

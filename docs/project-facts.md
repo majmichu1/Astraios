@@ -84,6 +84,9 @@ them.
   solver or local catalog), catalog lookups, file I/O.
 - Large images are processed in tiles so consumer VRAM (4 to 8 GB) is enough;
   on CUDA out-of-memory the operation falls back to the CPU.
+- Registration resamples with the same kernel on both devices (clamped
+  bicubic by default; Lanczos-4 and bilinear selectable), so a stack does not
+  depend on the hardware it was made on (`astraios/core/interpolation.py`).
 
 ## Local processing, network use, uploads, telemetry
 

@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as functional
@@ -33,6 +32,12 @@ from astraios.core.gpu_stars import (
     warp_image_gpu,
 )
 from astraios.core.image_io import FrameType, ImageData, load_image
+from astraios.core.interpolation import (
+    DEFAULT_INTERPOLATION,
+    invert_affine,
+    warp_affine_cpu,
+    warp_affine_gpu,
+)
 from astraios.core.local_normalization import LocalNormParams, local_normalize
 from astraios.core.star_detection import (
     align_image as _cpu_align_image,
@@ -188,6 +193,16 @@ class StackingParams:
     # range rejection (low = 0) and Siril do; the 1 px interpolation ring at
     # each footprint edge goes with them.
     ignore_black_pixels: bool = True
+    # Resampling kernel for the registered frames, the same on GPU and CPU:
+    # "bicubic" (default: clamped Keys cubic, 30 ms per 24 MP frame on a GPU),
+    # "lanczos4" (what Siril and PixInsight use; sharpest, ~1.3 s per frame on
+    # the GPU), "bilinear" (fastest, softest). Clamping limits every value to
+    # the range of the source pixels around it, which removes the ringing
+    # around stars and stops a high-order kernel from amplifying noise; it is
+    # what made Siril's registered frames ~20% quieter than ours at the same
+    # star peaks and FWHM. See astraios/core/interpolation.py.
+    interpolation: str = DEFAULT_INTERPOLATION
+    clamp_interpolation: bool = True
     reference_frame_index: int = -1 # -1 = auto (highest variance), ≥0 = explicit index
     frame_weights: list[float] | None = None  # per-frame weights for WEIGHTED_AVERAGE
 
@@ -833,24 +848,38 @@ def _invert_affine_2x3(m: np.ndarray) -> np.ndarray:
     return np.linalg.inv(m3)[:2].astype(np.float32)
 
 
+def _warp_output_gpu(
+    t_img: torch.Tensor, transform: np.ndarray, params: StackingParams
+) -> torch.Tensor:
+    """Resample a frame tensor by the *forward* transform with the configured kernel."""
+    return warp_affine_gpu(
+        t_img, invert_affine(transform), None, params.interpolation, params.clamp_interpolation
+    )
+
+
+def _warp_output_cpu(
+    data: np.ndarray, transform: np.ndarray, ref_shape: tuple[int, ...], params: StackingParams
+) -> np.ndarray:
+    """CPU twin of _warp_output_gpu (same kernel, same clamping)."""
+    return warp_affine_cpu(
+        data, transform, (ref_shape[-2], ref_shape[-1]),
+        params.interpolation, params.clamp_interpolation,
+    )
+
+
 # ---------------------------------------------------------------------------
 # FFT Alignment (GPU + CPU paths)
 # ---------------------------------------------------------------------------
 
 
-def _apply_shift_cpu(data: np.ndarray, row_shift: float, col_shift: float) -> np.ndarray:
-    """Apply sub-pixel translation using OpenCV Lanczos4 (CPU)."""
+def _apply_shift_cpu(
+    data: np.ndarray, row_shift: float, col_shift: float, params: StackingParams | None = None
+) -> np.ndarray:
+    """Apply a sub-pixel translation on the CPU with the configured kernel."""
+    if params is None:
+        params = StackingParams()
     mat = np.float64([[1, 0, col_shift], [0, 1, row_shift]])
-    if data.ndim == 3:
-        h, w = data.shape[1], data.shape[2]
-        return np.stack([
-            cv2.warpAffine(data[c], mat, (w, h), flags=cv2.INTER_LANCZOS4,
-                           borderMode=cv2.BORDER_CONSTANT)
-            for c in range(data.shape[0])
-        ])
-    h, w = data.shape
-    return cv2.warpAffine(data, mat, (w, h), flags=cv2.INTER_LANCZOS4,
-                          borderMode=cv2.BORDER_CONSTANT)
+    return _warp_output_cpu(data, mat, data.shape, params)
 
 
 def _fft_align_frames(
@@ -859,6 +888,7 @@ def _fft_align_frames(
     upsample_factor: int,
     use_gpu: bool,
     reference_frame_index: int = -1,
+    params: StackingParams | None = None,
 ) -> list[ImageData]:
     """Align via FFT phase cross-correlation (translation only).
 
@@ -897,6 +927,8 @@ def _fft_align_frames(
 
     ref_gray = to_gray(ref_img.data)
 
+    if params is None:
+        params = StackingParams()
     if gpu_available:
         ref_tensor = dm.from_numpy(ref_gray.astype(np.float32))
 
@@ -912,8 +944,8 @@ def _fft_align_frames(
             row_shift, col_shift = _gpu_fft_shift(ref_tensor, tgt_tensor, upsample_factor)
             # Apply with GPU warp (negate shifts — warp_image_gpu expects inverse transform)
             full_tensor = dm.from_numpy(tgt.data.astype(np.float32))
-            mat = np.array([[1, 0, -col_shift], [0, 1, -row_shift]], dtype=np.float32)
-            warped_tensor = warp_image_gpu(full_tensor, mat, mode="bicubic")
+            mat = np.array([[1, 0, col_shift], [0, 1, row_shift]], dtype=np.float32)
+            warped_tensor = _warp_output_gpu(full_tensor, mat, params)
             shifted_data = dm.to_cpu(warped_tensor).numpy().astype(np.float32)
             if shifted_data.ndim == 3 and shifted_data.shape[0] == 1:
                 shifted_data = shifted_data[0]
@@ -923,7 +955,7 @@ def _fft_align_frames(
         else:
             shift, _, _ = _skimage_pcc(ref_gray, tgt_gray, upsample_factor=upsample_factor)
             row_shift, col_shift = float(shift[0]), float(shift[1])
-            shifted_data = _apply_shift_cpu(tgt.data, row_shift, col_shift)
+            shifted_data = _apply_shift_cpu(tgt.data, row_shift, col_shift, params)
 
         log.debug("Frame %d: row=%.3f col=%.3f", i + 1, row_shift, col_shift)
         aligned[i] = ImageData(
@@ -1102,29 +1134,13 @@ def _comet_align_frames(
         # Apply translation: use GPU (warp_image_gpu) when available, else OpenCV
         d = frame.data
         dm = get_device_manager()
+        M = np.float32([[1, 0, dx], [0, 1, dy]])
         if dm.device.type != "cpu":
-            # warp_image_gpu expects the inverse (output→input) affine matrix.
-            # Forward shift (dx_col, dy_row) → inverse matrix has (-dx, -dy).
-            M_inv = np.float32([[1, 0, -dx], [0, 1, -dy]])
             t_frame = torch.from_numpy(d).to(dm.device)
-            with torch.no_grad():
-                warped_t = warp_image_gpu(t_frame, M_inv, mode="bilinear")
-            shifted = warped_t.cpu().numpy()
-            del t_frame, warped_t
+            shifted = _warp_output_gpu(t_frame, M, params).cpu().numpy()
+            del t_frame
         else:
-            import cv2 as _cv2
-            M = np.float32([[1, 0, dx], [0, 1, dy]])
-            if d.ndim == 2:
-                h_d, w_d = d.shape
-                shifted = _cv2.warpAffine(d, M, (w_d, h_d), flags=_cv2.INTER_LINEAR,
-                                          borderMode=_cv2.BORDER_CONSTANT, borderValue=0.0)
-            else:
-                c_d, h_d, w_d = d.shape
-                shifted = np.stack([
-                    _cv2.warpAffine(d[ch], M, (w_d, h_d), flags=_cv2.INTER_LINEAR,
-                                    borderMode=_cv2.BORDER_CONSTANT, borderValue=0.0)
-                    for ch in range(c_d)
-                ], axis=0)
+            shifted = _warp_output_cpu(d, M, d.shape, params)
 
         aligned.append(ImageData(
             data=shifted.astype(np.float32),
@@ -1177,7 +1193,7 @@ def align_frames(
     if params.registration_mode == RegistrationMode.FFT_TRANSLATION:
         return _fft_align_frames(
             images, progress, params.upsample_factor, params.use_gpu,
-            reference_frame_index=params.reference_frame_index,
+            reference_frame_index=params.reference_frame_index, params=params,
         )
 
     if params.registration_mode == RegistrationMode.COMET:
@@ -1296,7 +1312,7 @@ def align_frames(
                         aligned[i] = frame
                     gpu_done = True
                     continue
-                warped_data = _cpu_align_image(frame.data, transform, ref_img.data.shape)
+                warped_data = _warp_output_cpu(frame.data, transform, ref_img.data.shape, params)
                 aligned[i] = ImageData(
                     data=warped_data.astype(np.float32),
                     header=frame.header.copy(),
@@ -1319,8 +1335,7 @@ def align_frames(
                     # Compose forward transforms: refine ∘ transform
                     transform = compose_affine_transforms(transform, refine_transform)
 
-            transform_inv = _invert_affine_2x3(transform)
-            final = warp_image_gpu(t_img, transform_inv, mode="bicubic")
+            final = _warp_output_gpu(t_img, transform, params)
             res = dm.to_cpu(final).numpy().astype(np.float32)
             if res.ndim == 3 and res.shape[0] == 1:
                 res = res[0]
@@ -1374,7 +1389,7 @@ def align_frames(
                 if refine is not None:
                     transform = compose_affine_transforms(transform, refine)
 
-            res = _cpu_align_image(frame.data, transform, ref_img.data.shape).astype(np.float32)
+            res = _warp_output_cpu(frame.data, transform, ref_img.data.shape, params)
 
         aligned[i] = ImageData(
             data=res, header=frame.header.copy(), frame_type=frame.frame_type
@@ -1795,8 +1810,7 @@ def align_from_paths(
                         transform = compose_affine_transforms(transform, refine)
 
                 if transform is not None:
-                    transform_inv = _invert_affine_2x3(transform)
-                    final = warp_image_gpu(t_img, transform_inv, mode="bicubic")
+                    final = _warp_output_gpu(t_img, transform, params)
                     res = dm.to_cpu(final).numpy().astype(np.float32)
                     if res.ndim == 3 and res.shape[0] == 1:
                         res = res[0]
@@ -1819,7 +1833,7 @@ def align_from_paths(
                         else:
                             res = frame.data
                     else:
-                        res = _cpu_align_image(frame.data, cpu_t, ref_shape).astype(np.float32)
+                        res = _warp_output_cpu(frame.data, cpu_t, ref_shape, params)
             else:
                 tgt_sf = _cpu_detect_stars(frame_lum, sigma_threshold=params.star_sigma_threshold)
                 if use_triangle:
@@ -1847,7 +1861,7 @@ def align_from_paths(
                         refine = _cpu_find_transform(ref_sf, tgt_sf2, ransac_threshold=params.ransac_threshold)
                         if refine is not None:
                             transform = compose_affine_transforms(transform, refine)
-                    res = _cpu_align_image(frame.data, transform, ref_shape).astype(np.float32)
+                    res = _warp_output_cpu(frame.data, transform, ref_shape, params)
 
             if res is None:
 

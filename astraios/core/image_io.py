@@ -251,11 +251,20 @@ def _normalize_fits_data(
         info = np.iinfo(data.dtype)
         return ((data.astype(np.float32) - info.min) / (info.max - info.min))
     else:
+        # Foreign float data (no CREATOR key). Its scale is decided by the
+        # nominal range it sits in, never by its own min/max: Siril's
+        # registered frames are [0, 1] floats whose Lanczos overshoot reaches
+        # 1.07 on saturated stars, and a per-file min-max stretch gave every
+        # such frame its own gain (0.93 on one sub, 1.00 on the next), which
+        # went straight into the stack. Values slightly outside [0, 1] are
+        # kept; the display clips and the stacker handles them.
         data = data.astype(np.float32)
         dmin = float(np.min(data)) if vmin is None else float(vmin)
         dmax = float(np.max(data)) if vmax is None else float(vmax)
-        if dmax <= 1.0 and dmin >= 0.0:
+        if dmin >= -0.05 and dmax <= 1.25:
             return data
+        if dmin >= -0.05 * 65535 and dmax <= 1.25 * 65535:
+            return data / np.float32(65535.0)
         if dmax - dmin > 0:
             return (data - dmin) / (dmax - dmin)
         return data

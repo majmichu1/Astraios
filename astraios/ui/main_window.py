@@ -3375,6 +3375,8 @@ class MainWindow(QMainWindow):
                 star_sigma_threshold=params_dict.get("star_sensitivity", 5.0),
                 star_max_match_dist=float(params_dict.get("max_shift", 100)),
                 ransac_threshold=params_dict.get("ransac_threshold", 3.0),
+                interpolation=params_dict.get("interpolation", "bicubic"),
+                clamp_interpolation=params_dict.get("clamp_interpolation", True),
             )
             self._log_panel.log(
                 f"Starting alignment ({params_dict['mode'].name}) — "
@@ -3406,6 +3408,8 @@ class MainWindow(QMainWindow):
                 star_sigma_threshold=params_dict.get("star_sensitivity", 5.0),
                 star_max_match_dist=float(params_dict.get("max_shift", 100)),
                 ransac_threshold=params_dict.get("ransac_threshold", 3.0),
+                interpolation=params_dict.get("interpolation", "bicubic"),
+                clamp_interpolation=params_dict.get("clamp_interpolation", True),
             )
 
             if not self._project:

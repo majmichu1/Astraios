@@ -119,3 +119,17 @@ def test_ignore_black_pixels_checkbox_reaches_stacking_params(panel):
     assert panel.get_stacking_params().ignore_black_pixels is True
     panel._ignore_black_check.setChecked(False)
     assert panel.get_stacking_params().ignore_black_pixels is False
+
+
+def test_resampling_combo_reaches_stacking_params(panel):
+    s = panel.get_stacking_params()
+    assert (s.interpolation, s.clamp_interpolation) == ("bicubic", True)
+    panel._interp_combo.setCurrentText("Lanczos-4 (clamped)")
+    s = panel.get_stacking_params()
+    a = panel.get_alignment_params()
+    assert (s.interpolation, s.clamp_interpolation) == ("lanczos4", True)
+    assert (a["interpolation"], a["clamp_interpolation"]) == ("lanczos4", True)
+    panel._interp_combo.setCurrentText("Bicubic")
+    assert panel.get_stacking_params().clamp_interpolation is False
+    panel._interp_combo.setCurrentText("Bilinear (fast, soft)")
+    assert panel.get_stacking_params().interpolation == "bilinear"
