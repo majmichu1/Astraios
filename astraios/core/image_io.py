@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape, quoteattr
 
+import cv2
 import numpy as np
 from astropy.io import fits
 from PIL import Image
@@ -619,45 +620,42 @@ def load_image(path: str | Path, debayer: bool = True) -> ImageData:
 
 
 def _load_common_image(path: Path) -> ImageData:
-    """Load common image formats via Pillow, with tifffile fallback for 32-bit TIFFs."""
-    suffix = path.suffix.lower()
+    """Load TIFF, PNG and JPEG at their full bit depth.
 
-    # tifffile handles 32-bit float TIFFs (e.g. Siril stacks) that Pillow rejects
+    Readers in order: tifffile (TIFF codecs OpenCV lacks), OpenCV (8/16-bit
+    mono and colour, 32-bit float, LZW TIFF), then Pillow. Pillow alone has no
+    16-bit colour mode, so 16-bit RGB TIFF/PNG used to load as 8-bit.
+    Values are scaled by their type's range, or for floats by their nominal
+    range (same rules as FITS), never by the file's own min/max: a per-file
+    stretch gave every TIFF sub its own gain.
+    """
+    suffix = path.suffix.lower()
+    raw = None
     if suffix in (".tif", ".tiff"):
         try:
             import tifffile
+
             raw = tifffile.imread(str(path))
-            # asarray avoids a second full-size copy when the data is already
-            # float32 (e.g. Siril stacks); for integer TIFFs it converts once.
-            data = np.asarray(raw, dtype=np.float32)
-            if data is not raw:
-                del raw  # free the source buffer immediately
-            if data.ndim == 3 and data.shape[2] in (3, 4):
-                # HWC → CHW, drop alpha — one contiguous copy
-                data = np.ascontiguousarray(np.transpose(data[:, :, :3], (2, 0, 1)))
-            # Normalize to [0, 1] IN PLACE — no extra full-size temporaries.
-            data = _normalize01_inplace(data)
-            return ImageData(data=data, file_path=path, frame_type=FrameType.UNKNOWN)
         except Exception:
-            log.debug("tifffile could not read %s, falling back to Pillow", path, exc_info=True)
+            log.debug("tifffile could not read %s, trying OpenCV", path, exc_info=True)
+    if raw is None:
+        raw = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_UNCHANGED)
+        if raw is not None and raw.ndim == 3:
+            # OpenCV is BGR(A): keep the colour channels, in RGB order.
+            raw = raw[:, :, 2::-1] if raw.shape[2] >= 3 else raw[:, :, 0]
+    if raw is None:
+        from PIL import Image
 
-    from PIL import Image
+        img = Image.open(path)
+        if img.mode not in ("L", "I;16", "I;16B", "I", "F"):
+            img = img.convert("RGB")
+        raw = np.asarray(img)
 
-    img = Image.open(path)
-    if img.mode in ("I;16", "I;16B"):
-        data = np.asarray(img, dtype=np.uint16).astype(np.float32)
-        data *= 1.0 / 65535.0
-    elif img.mode == "I":
-        data = np.asarray(img, dtype=np.int32).astype(np.float32)
-        data = _normalize01_inplace(data)
-    elif img.mode == "F":
-        data = np.array(img, dtype=np.float32)
-        data = _normalize01_inplace(data)
-    else:
-        img = img.convert("RGB")
-        data = np.asarray(img, dtype=np.float32) * (1.0 / 255.0)
-        data = np.ascontiguousarray(np.transpose(data, (2, 0, 1)))  # (H,W,C) -> (C,H,W)
-
+    if raw.ndim == 3 and raw.shape[2] == 1:
+        raw = raw[:, :, 0]
+    elif raw.ndim == 3 and raw.shape[2] in (3, 4):
+        raw = np.transpose(raw[:, :, :3], (2, 0, 1))  # (H, W, C) -> (C, H, W)
+    data = np.ascontiguousarray(_normalize_fits_data(raw), dtype=np.float32)
     return ImageData(data=data, file_path=path, frame_type=FrameType.UNKNOWN)
 
 
@@ -710,41 +708,39 @@ def save_image(
         raise ValueError(f"Unsupported export format: {suffix}")
 
 
-def _save_tiff(image: ImageData, path: Path, bit_depth: int = 16) -> None:
-    """Save ImageData to 16-bit or 8-bit TIFF."""
-    data = _to_display_array(image)
+def _encode_cv2(data: np.ndarray, ext: str, bit_depth: int) -> bytes:
+    """Encode an (H, W) or (H, W, C) float [0, 1] array as TIFF or PNG.
 
-    if bit_depth == 16:
-        img = _array_to_pil_16(data)
-        img.save(str(path), compression="tiff_lzw")
+    OpenCV writes 8/16-bit mono and colour (and 32-bit float TIFF) natively.
+    Pillow has no 16-bit colour mode, so 16-bit RGB TIFF/PNG used to be
+    written as 8-bit without telling the user.
+    """
+    if data.ndim == 3:
+        # Grey + alpha keeps the grey; colour goes RGB -> BGR for OpenCV.
+        data = data[:, :, 0] if data.shape[2] < 3 else data[:, :, 2::-1]
+    if bit_depth == 32 and ext == ".tif":
+        arr = np.asarray(data, dtype=np.float32)
+    elif bit_depth == 8:
+        arr = (data * 255).clip(0, 255).astype(np.uint8)
     else:
-        data_u8 = (data * 255).clip(0, 255).astype(np.uint8)
-        img = Image.fromarray(data_u8, mode=_tiff_mode(data_u8))
-        img.save(str(path), compression="tiff_lzw")
+        arr = (data * 65535).clip(0, 65535).astype(np.uint16)
+    params = [cv2.IMWRITE_TIFF_COMPRESSION, 5] if ext == ".tif" else []  # 5 = LZW
+    ok, buf = cv2.imencode(ext, np.ascontiguousarray(arr), params)
+    if not ok:
+        raise OSError(f"Could not encode {ext} ({arr.dtype}, shape {arr.shape})")
+    return buf.tobytes()
 
+
+def _save_tiff(image: ImageData, path: Path, bit_depth: int = 16) -> None:
+    """Save ImageData to 8-bit, 16-bit or 32-bit float TIFF (LZW)."""
+    path.write_bytes(_encode_cv2(_to_display_array(image), ".tif", bit_depth))
     log.info("Saved TIFF (%d-bit): %s", bit_depth, path)
 
 
 def _save_png(image: ImageData, path: Path, bit_depth: int = 16) -> None:
-    """Save ImageData to PNG (8-bit or 16-bit if Pillow supports it)."""
-    data = _to_display_array(image)
-
-    if bit_depth == 16:
-        img = _array_to_pil_16(data)
-        try:
-            img.save(str(path))
-        except (OSError, ValueError):
-            # Fallback to 8-bit if 16-bit not supported
-            log.warning("16-bit PNG not supported, falling back to 8-bit")
-            data_u8 = (data * 255).clip(0, 255).astype(np.uint8)
-            img = Image.fromarray(data_u8, mode=_png_mode(data_u8))
-            img.save(str(path))
-    else:
-        data_u8 = (data * 255).clip(0, 255).astype(np.uint8)
-        img = Image.fromarray(data_u8, mode=_png_mode(data_u8))
-        img.save(str(path))
-
-    log.info("Saved PNG (%d-bit): %s", bit_depth, path)
+    """Save ImageData to 8-bit or 16-bit PNG."""
+    path.write_bytes(_encode_cv2(_to_display_array(image), ".png", min(bit_depth, 16)))
+    log.info("Saved PNG (%d-bit): %s", min(bit_depth, 16), path)
 
 
 def _array_to_pil_16(data: np.ndarray) -> Image.Image:
