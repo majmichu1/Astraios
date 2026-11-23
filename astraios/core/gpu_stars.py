@@ -83,10 +83,11 @@ def detect_stars_gpu(
     from scipy import ndimage
 
     is_max_np = is_max.cpu().numpy()
-    image_np = image.detach().cpu().numpy()
     labels, n_comp = ndimage.label(is_max_np)
     if n_comp == 0:
         return []
+
+    H, W = image.shape
 
     # Reduce per connected component over ONLY the flagged pixels (a sparse mask:
     # a few thousand local-maxima pixels) instead of scanning the full image per
@@ -103,30 +104,43 @@ def detect_stars_gpu(
     cys = sum_y / counts
     cxs = sum_x / counts
     comp_flux = np.full(n_comp, -np.inf, dtype=np.float64)
-    np.maximum.at(comp_flux, lab - 1, image_np[ys_lm, xs_lm].astype(np.float64))
+    # Peak flux per component: gather ONLY the flagged pixels' values on the
+    # GPU (a few thousand floats) instead of transferring the whole image.
+    flagged_idx = torch.from_numpy(ys_lm * W + xs_lm).to(image.device).long()
+    flagged_vals = image.reshape(-1)[flagged_idx].cpu().numpy().astype(np.float64)
+    np.maximum.at(comp_flux, lab - 1, flagged_vals)
 
     keep = np.argsort(-comp_flux)[:max_stars]
     cys, cxs, comp_flux = cys[keep], cxs[keep], comp_flux[keep]
 
-    H, W = image.shape
     patch_r = 5
-    patch_size = 2 * patch_r + 1
 
-    # Extract all star patches in one GPU operation via unfold (patch centered on
-    # the rounded centroid) and estimate FWHM from the half-maximum area.
+    # Extract the star patches with a flat index gather. unfold() materialized
+    # EVERY patch of the image (patch_size² × H×W elements — ~3 GB at 24 MP)
+    # just to read a few hundred of them; the gather below reads exactly the
+    # same values (same padded tensor, same row-major patch layout) at a tiny
+    # fraction of the memory traffic.
     padded = functional.pad(
         image.unsqueeze(0).unsqueeze(0),
         (patch_r, patch_r, patch_r, patch_r),
         mode="constant", value=0.0,
     )
-    patches = functional.unfold(padded, kernel_size=patch_size, stride=1).squeeze(0)
+    Wp = W + 2 * patch_r
+    flat = padded.view(-1)
 
     ri = np.clip(np.round(cys).astype(np.int64), 0, H - 1)
     ci = np.clip(np.round(cxs).astype(np.int64), 0, W - 1)
-    star_idx = torch.from_numpy(ri * W + ci).to(image.device).long()
+    centers = torch.from_numpy((ri + patch_r) * Wp + (ci + patch_r)).to(image.device).long()
+    dy, dx = torch.meshgrid(
+        torch.arange(-patch_r, patch_r + 1),
+        torch.arange(-patch_r, patch_r + 1),
+        indexing="ij",
+    )
+    offsets = (dy * Wp + dx).reshape(-1).to(image.device)
+    star_patches = flat[centers[:, None] + offsets[None, :]]  # (n_stars, patch_size²)
+
     peak = torch.from_numpy(comp_flux).to(image.device, dtype=image.dtype)
-    star_patches = patches[:, star_idx]
-    area = (star_patches > peak.unsqueeze(0) * 0.5).float().sum(dim=0)
+    area = (star_patches > peak.unsqueeze(1) * 0.5).float().sum(dim=1)
     fwhm_vals = (2.0 * (area.clamp(min=1.0) / 3.14159).sqrt()).clamp(1.5, patch_r * 2.0)
     fwhm_cpu = fwhm_vals.cpu().tolist()
 

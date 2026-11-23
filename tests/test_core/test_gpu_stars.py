@@ -178,3 +178,42 @@ class TestComposeAffineTransforms:
         # m2(m1(p)) for p=(0,0): m1 -> (3,4), m2 -> (3+7, 4+1) = (10, 5)
         np.testing.assert_allclose(combined[0, 2], 10.0, atol=0.01)
         np.testing.assert_allclose(combined[1, 2], 5.0, atol=0.01)
+
+
+class TestPatchGatherFWHM:
+    """Regression: star FWHM is measured from per-star patches gathered by
+    flat indexing. This used to materialize every patch of the image via
+    unfold (~3 GB at 24 MP); the gather must give identical results."""
+
+    def _gaussian_field(self, h, w, stars, fwhm=3.0):
+        img = np.zeros((h, w), dtype=np.float32) + 0.02
+        sigma = fwhm / 2.3548
+        r = int(np.ceil(fwhm * 3))
+        yy, xx = np.mgrid[-r:r + 1, -r:r + 1]
+        g = np.exp(-(xx**2 + yy**2) / (2 * sigma**2)).astype(np.float32)
+        for (y, x, flux) in stars:
+            img[y - r:y + r + 1, x - r:x + r + 1] += flux * g
+        return np.clip(img, 0, 1).astype(np.float32)
+
+    def test_fwhm_close_to_truth(self):
+        stars = [(120, 150, 0.9), (200, 320, 0.7), (80, 400, 0.5)]
+        img = torch.from_numpy(self._gaussian_field(300, 500, stars, fwhm=3.0))
+        found = detect_stars_gpu(img, threshold_sigma=3.0)
+        assert len(found) == len(stars)
+        for s in found:
+            # half-maximum-area FWHM estimator is approximate; allow ±1 px
+            assert 2.0 <= s.fwhm <= 4.0, f"fwhm {s.fwhm} out of range"
+
+    def test_centroids_subpixel_accurate(self):
+        stars = [(100, 200, 0.9)]
+        img = torch.from_numpy(self._gaussian_field(250, 400, stars, fwhm=3.5))
+        found = detect_stars_gpu(img, threshold_sigma=3.0)
+        assert len(found) == 1
+        assert abs(found[0].x - 200) < 1.0
+        assert abs(found[0].y - 100) < 1.0
+
+    def test_saturated_plateau_single_detection(self):
+        img = torch.zeros(120, 120) + 0.02
+        img[50:60, 50:60] = 1.0  # flat-top plateau -> many local maxima
+        found = detect_stars_gpu(img, threshold_sigma=2.0)
+        assert len(found) == 1, "plateau must collapse to one detection"
