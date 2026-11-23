@@ -179,7 +179,7 @@ def _compute_white_balance(
     for star in sf.stars:
         ix, iy = int(round(star.x)), int(round(star.y))
         # Aperture photometry: sum within small radius
-        r = max(int(star.fwhm), 2)
+        r = max(int(star.footprint_diameter), 2)
         y_lo = max(0, iy - r)
         y_hi = min(image.shape[1], iy + r + 1)
         x_lo = max(0, ix - r)
@@ -340,7 +340,7 @@ def _match_stars_to_catalog(image, detected, catalog_stars, wcs, height, width):
             continue
 
         # Aperture photometry on the star
-        r = max(int(round(star.fwhm * 1.5)), 3)
+        r = max(int(round(star.footprint_diameter * 1.5)), 3)
         y_lo = max(0, int(py) - r)
         y_hi = min(height, int(py) + r + 1)
         x_lo = max(0, int(px) - r)

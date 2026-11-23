@@ -436,11 +436,11 @@ def _select_stars(
 
     if params.min_star_size > 0:
         internal_min = params.min_star_size * 0.02
-        stars = [s for s in stars if max(s.fwhm / 2.0, 0.5) >= internal_min]
+        stars = [s for s in stars if max(s.footprint_diameter / 2.0, 0.5) >= internal_min]
 
     internal_max = 96.0 + params.max_star_size * 0.04
     if internal_max < 100.0 and stars:
-        sorted_by_r = sorted(stars, key=lambda s: s.fwhm, reverse=True)
+        sorted_by_r = sorted(stars, key=lambda s: s.footprint_diameter, reverse=True)
         removal_pct = (100.0 - internal_max) / 100.0
         num_remove = int(len(sorted_by_r) * removal_pct)
         if num_remove > 0:
@@ -449,7 +449,7 @@ def _select_stars(
 
     out: list[_RenderStar] = []
     for s in stars:
-        radius = max(1.0, s.fwhm / 2.0)
+        radius = max(1.0, s.footprint_diameter / 2.0)
         brightness = float(np.clip(s.flux, 0.0, 1.0))
         color = _sample_star_color(img_rgb, s.x, s.y, radius)
         out.append(_RenderStar(s.x, s.y, brightness, radius, color))
