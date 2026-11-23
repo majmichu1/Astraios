@@ -22,7 +22,7 @@ full-resolution frames. A `numpy` implementation is already effectively
 bandwidth-bound and avoids a host<->device round trip for what is normally a
 one-shot, interactive operation; there is no iterative/tiled workload here
 to justify GPU dispatch through :mod:`astraios.core.device_manager`. Kept as
-plain NumPy per CLAUDE.md's guidance that light-weight ops don't need torch.
+plain NumPy because light-weight ops don't need torch.
 
 Conventions: float32 images in ``[0, 1]``. Mono is ``(H, W)``, color is
 ``(C, H, W)`` (channels-first), matching :mod:`astraios.core.image_io`.

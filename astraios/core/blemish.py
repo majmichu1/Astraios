@@ -15,7 +15,7 @@ one image region onto another with a soft circular brush.
 Both are local, small-kernel operations on a user-selected radius (typically
 a handful to a few hundred pixels) — there is no benefit to a GPU dispatch
 for a single dab, so this module is CPU-only (see ``device_manager`` module
-docstring / CLAUDE.md: GPU is reserved for whole-image or large-kernel ops).
+docstring: GPU is reserved for whole-image or large-kernel ops).
 The original SASpro implementation used per-pixel Python loops; here the same
 math is fully vectorized with NumPy.
 

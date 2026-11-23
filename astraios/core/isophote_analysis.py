@@ -30,8 +30,8 @@ distributions. Third/fourth-order harmonic coefficients (a3/b3/a4/b4) are
 also fitted per ring for informational output and for the optional
 higher-harmonic contribution to the rendered model.
 
-Sigma clipping uses ``astropy.stats.sigma_clip`` (never hand-rolled -- see
-CLAUDE.md). This is a whole-image analysis rather than a large-array
+Sigma clipping uses ``astropy.stats.sigma_clip`` (never hand-rolled; the
+battle-tested version). This is a whole-image analysis rather than a large-array
 per-pixel transform in a tight loop, so it runs on CPU; the small amount of
 large-array work (building the final 2-D model/residual) uses vectorized
 NumPy rather than Python loops.

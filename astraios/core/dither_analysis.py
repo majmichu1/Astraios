@@ -19,7 +19,7 @@ This module ports that statistics core (``_compute_stats`` /
 affine registration for direct translation measurement, since we are not
 porting the full ``StarRegistrationThread``/UI pipeline here:
 
-* :attr:`DitherOffsetMethod.PHASE_CORRELATION` -- per CLAUDE.md guidance,
+* :attr:`DitherOffsetMethod.PHASE_CORRELATION` -- per project guidance,
   ``skimage.registration.phase_cross_correlation`` on frame luminance,
   matching :mod:`astraios.core.stacking`'s own use of the same routine for
   frame alignment.
