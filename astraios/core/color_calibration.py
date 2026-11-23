@@ -155,6 +155,38 @@ def _neutralize_background(
     return (offsets[0], offsets[1], offsets[2])
 
 
+def _aperture_flux(
+    image: np.ndarray, cx: float, cy: float, r: int, gap: int = 2, width: int = 4
+) -> list[float] | None:
+    """Sky-subtracted box photometry of one star, per channel.
+
+    Sums the (2r+1)^2 box around (cx, cy) and subtracts the local sky: the
+    per-channel median of a square ring that starts ``gap`` px outside the box
+    and is ``width`` px wide. A median ignores neighbour stars in the ring.
+    Without this the sky inside the box drags every colour toward grey.
+    Returns None when the box or the ring has too few pixels (frame edge).
+    """
+    _, h, w = image.shape
+    ix, iy = int(round(cx)), int(round(cy))
+    r_in = r + gap
+    r_out = r_in + width
+    y0, y1 = max(0, iy - r_out), min(h, iy + r_out + 1)
+    x0, x1 = max(0, ix - r_out), min(w, ix + r_out + 1)
+    if y1 <= y0 or x1 <= x0:
+        return None
+    region = image[:, y0:y1, x0:x1]
+    yy, xx = np.mgrid[y0:y1, x0:x1]
+    cheb = np.maximum(np.abs(yy - iy), np.abs(xx - ix))
+    box = cheb <= r
+    ring = cheb > r_in
+    n_box = int(box.sum())
+    if n_box < 4 or int(ring.sum()) < 8:
+        return None
+    sky = np.median(region[:, ring], axis=1)
+    flux = region[:, box].sum(axis=1, dtype=np.float64) - sky * n_box
+    return [float(v) for v in flux]
+
+
 def _compute_white_balance(
     image: np.ndarray,
     params: ColorCalibrationParams,
@@ -177,18 +209,11 @@ def _compute_white_balance(
     # Measure star fluxes in each channel
     star_colors = []
     for star in sf.stars:
-        ix, iy = int(round(star.x)), int(round(star.y))
-        # Aperture photometry: sum within small radius
+        # Aperture photometry with the local sky subtracted
         r = max(int(star.footprint_diameter), 2)
-        y_lo = max(0, iy - r)
-        y_hi = min(image.shape[1], iy + r + 1)
-        x_lo = max(0, ix - r)
-        x_hi = min(image.shape[2], ix + r + 1)
-
-        if y_hi - y_lo < 2 or x_hi - x_lo < 2:
+        rgb = _aperture_flux(image, star.x, star.y, r)
+        if rgb is None:
             continue
-
-        rgb = [float(image[ch, y_lo:y_hi, x_lo:x_hi].sum()) for ch in range(3)]
         if all(v > 0 for v in rgb):
             star_colors.append(rgb)
 
@@ -339,17 +364,11 @@ def _match_stars_to_catalog(image, detected, catalog_stars, wcs, height, width):
         if best_match is None:
             continue
 
-        # Aperture photometry on the star
+        # Aperture photometry with the local sky subtracted
         r = max(int(round(star.footprint_diameter * 1.5)), 3)
-        y_lo = max(0, int(py) - r)
-        y_hi = min(height, int(py) + r + 1)
-        x_lo = max(0, int(px) - r)
-        x_hi = min(width, int(px) + r + 1)
-
-        if y_hi - y_lo < 2 or x_hi - x_lo < 2:
+        fluxes = _aperture_flux(image, px, py, r)
+        if fluxes is None:
             continue
-
-        fluxes = [float(image[ch, y_lo:y_hi, x_lo:x_hi].sum()) for ch in range(3)]
 
         if all(f > 0 for f in fluxes):
             matches.append({"instrumental": fluxes, "catalog": best_match})
