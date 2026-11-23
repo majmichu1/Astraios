@@ -105,6 +105,7 @@ from astraios.core.wavelets import wavelet_sharpen
 from astraios.core.wcs import normalise_wcs_dict
 from astraios.ui.panels.project_panel import ProjectPanel
 from astraios.ui.panels.tools_panel import ToolsPanel
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.histogram import HistogramWidget
 from astraios.ui.widgets.image_canvas import ImageCanvas
 from astraios.ui.widgets.log_panel import LogPanel, QtLogHandler
@@ -517,7 +518,7 @@ class MainWindow(QMainWindow):
         )
         version_badge = QLabel(f"v{astraios.__version__}")
         version_badge.setStyleSheet(
-            "color: #8b949e; font-size: 9px; padding: 2px 0 0 0;"
+            f"color: {TEXT_SECONDARY}; font-size: 9px; padding: 2px 0 0 0;"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         left_layout.addWidget(logo_widget)
@@ -1242,7 +1243,7 @@ class MainWindow(QMainWindow):
         self._canvas_zoom_label.setFixedWidth(40)
         self._canvas_zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._canvas_zoom_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px;"
+            f"color: {TEXT_SECONDARY}; font-size: 11px;"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         zoom_in_tb = _ctb("＋", "Zoom In")
@@ -1293,7 +1294,7 @@ class MainWindow(QMainWindow):
         self._canvas_coord_label = QLabel("")
         self._canvas_coord_label.setTextFormat(Qt.TextFormat.RichText)
         self._canvas_coord_label.setStyleSheet(
-            "color: #8b949e; font-size: 10px;"
+            f"color: {TEXT_SECONDARY}; font-size: 10px;"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         tb_layout.addWidget(self._canvas_coord_label)
@@ -1339,7 +1340,7 @@ class MainWindow(QMainWindow):
 
         self._hist_stats_label = QLabel("")
         self._hist_stats_label.setStyleSheet(
-            "color: #8b949e; font-size: 10px;"
+            f"color: {TEXT_SECONDARY}; font-size: 10px;"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         hist_header_layout.addWidget(self._hist_stats_label)
@@ -1592,7 +1593,7 @@ class MainWindow(QMainWindow):
 
         def _sb_label(text="", val: bool = False) -> QLabel:
             lbl = QLabel(text)
-            color = "#e6edf3" if val else "#8b949e"
+            color = "#e6edf3" if val else TEXT_SECONDARY
             font = (
                 "font-family: 'JetBrains Mono', 'Fira Code', monospace;" if val else ""
             )
@@ -1638,12 +1639,12 @@ class MainWindow(QMainWindow):
         )
         self._vram_label = QLabel("")
         self._vram_label.setStyleSheet(
-            "color: #8b949e; font-size: 10px; padding: 0 8px;"
+            f"color: {TEXT_SECONDARY}; font-size: 10px; padding: 0 8px;"
             " font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         self._cuda_badge = QLabel("")
         self._cuda_badge.setTextFormat(Qt.TextFormat.RichText)
-        self._cuda_badge.setStyleSheet("color: #8b949e; font-size: 10px; padding: 0 4px;")
+        self._cuda_badge.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px; padding: 0 4px;")
         sb.addPermanentWidget(self._cuda_badge)
         sb.addPermanentWidget(self._vram_label)
         sb.addPermanentWidget(self._preview_indicator)

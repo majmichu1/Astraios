@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ class CopyAstrometryDialog(QDialog):
             "solution, or to seed a tile with a neighbor's placement."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "Copies CTYPE/CRVAL/CRPIX/CD/PC/CDELT/SIP distortion keywords "

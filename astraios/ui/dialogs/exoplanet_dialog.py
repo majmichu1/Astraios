@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -146,7 +147,7 @@ class ExoplanetDialog(QDialog):
             "frame before running."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         lay.addWidget(intro)
 
         form = QFormLayout()
@@ -336,7 +337,7 @@ class ExoplanetDialog(QDialog):
                 f"No transit detected (deepest dip {depth_ppt:.2f} ppt, "
                 f"{result.n_good_frames} good frames)."
             )
-            self._verdict.setStyleSheet("color: #8b949e;")
+            self._verdict.setStyleSheet(f"color: {TEXT_SECONDARY};")
         self._status.setText("Done.")
 
     def _on_fail(self, msg):

@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ class FieldRotationDialog(QDialog):
             "zenith. Rate = 15.04 x cos(lat) x cos(az) / cos(alt) arcsec/sec."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         outer.addWidget(intro)
 
         form = QFormLayout()

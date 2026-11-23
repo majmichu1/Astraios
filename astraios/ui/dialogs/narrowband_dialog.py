@@ -23,6 +23,7 @@ from astraios.core.narrowband import (
     NarrowbandParams,
     combine_narrowband,
 )
+from astraios.ui.theme import TEXT_SECONDARY
 
 
 class NarrowbandDialog(QDialog):
@@ -45,7 +46,7 @@ class NarrowbandDialog(QDialog):
 
         info = QLabel("Load mono images for each narrowband filter channel.")
         info.setWordWrap(True)
-        info.setStyleSheet("color: #8b949e; font-size: 11px;")
+        info.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         assign_layout.addWidget(info)
 
         self._ha_label = QLabel("Ha: (none)")
@@ -107,7 +108,7 @@ class NarrowbandDialog(QDialog):
 
         # Status
         self._status_label = QLabel("")
-        self._status_label.setStyleSheet("color: #8b949e;")
+        self._status_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
         layout.addWidget(self._status_label)
 
         # Buttons

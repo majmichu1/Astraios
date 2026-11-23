@@ -38,6 +38,7 @@ from astraios.core.subframe_selector import (
     score_subframes,
 )
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 
 _THUMB_SIZE = 80   # px — thumbnail column width/height
 
@@ -337,7 +338,7 @@ class SubframeDialog(QDialog):
         btn_row.addWidget(self._score_btn)
         btn_row.addStretch()
         self._frame_count_label = QLabel("No frames loaded")
-        self._frame_count_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._frame_count_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         btn_row.addWidget(self._frame_count_label)
         layout.addLayout(btn_row)
 
@@ -402,7 +403,7 @@ class SubframeDialog(QDialog):
 
         # ── Summary label ─────────────────────────────────────────────────────
         self._summary_label = QLabel("")
-        self._summary_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._summary_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         layout.addWidget(self._summary_label)
 
         if preloaded_paths:

@@ -29,6 +29,7 @@ from astraios.core.equipment import (
     load_filter_database,
     load_telescope_database,
 )
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
@@ -55,7 +56,7 @@ class EquipmentDialog(QDialog):
         self._camera_combo = QComboBox()
         cam_layout.addWidget(self._camera_combo)
         self._camera_info = QLabel("")
-        self._camera_info.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._camera_info.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         cam_layout.addWidget(self._camera_info)
         layout.addWidget(cam_group)
 
@@ -65,7 +66,7 @@ class EquipmentDialog(QDialog):
         self._telescope_combo = QComboBox()
         scope_layout.addWidget(self._telescope_combo)
         self._scope_info = QLabel("")
-        self._scope_info.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._scope_info.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         scope_layout.addWidget(self._scope_info)
 
         # Manual telescope entry (initially hidden)

@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.ez_scripts import list_presets, run_preset
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 
 
 class _EZWorker(QThread):
@@ -83,7 +84,7 @@ class EZScriptDialog(QDialog):
 
         self._desc = QLabel("")
         self._desc.setWordWrap(True)
-        self._desc.setStyleSheet("color: #8b949e; padding: 4px;")
+        self._desc.setStyleSheet(f"color: {TEXT_SECONDARY}; padding: 4px;")
         lay.addWidget(self._desc)
 
         self._progress = QProgressBar()

@@ -24,21 +24,24 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-# ── Design tokens (mirrors theme.py) ─────────────────────
-BG_PRIMARY    = "#0d1117"
-BG_SECONDARY  = "#161b22"
-BG_TERTIARY   = "#21262d"
-BG_HOVER      = "#30363d"
-BORDER        = "#30363d"
-TEXT_PRIMARY  = "#e6edf3"
-TEXT_SECONDARY= "#8b949e"
-ACCENT        = "#2ea043"
-ACCENT_HOVER  = "#3fb950"
-ACCENT_DARK   = "#1a4d2e"
-ACCENT_PURPLE = "#8957e5"
-RED           = "#f85149"
-ORANGE        = "#d29922"
-BLUE          = "#388bfd"
+# ── Design tokens: re-exported from theme.py, the single source of truth ──
+# Other modules import these names from ui_kit, so they stay importable here.
+from astraios.ui.theme import (  # noqa: F401  (re-exported)
+    ACCENT,
+    ACCENT_DARK,
+    ACCENT_HOVER,
+    ACCENT_PURPLE,
+    BG_HOVER,
+    BG_PRIMARY,
+    BG_SECONDARY,
+    BG_TERTIARY,
+    BORDER,
+    ORANGE,
+    RED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
+from astraios.ui.theme import ACCENT_BLUE as BLUE  # noqa: F401
 
 FONT_MONO = '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace'
 

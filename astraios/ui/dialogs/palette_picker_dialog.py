@@ -34,6 +34,7 @@ from astraios.core.palette_picker import (
     PalettePickerParams,
 )
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ class PalettePickerDialog(QDialog):
             "supplies one channel; load the other one or two from file."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         lay.addWidget(intro)
 
         # ---------------- Channels ----------------
@@ -155,7 +156,7 @@ class PalettePickerDialog(QDialog):
 
         self._palette_desc = QLabel("")
         self._palette_desc.setWordWrap(True)
-        self._palette_desc.setStyleSheet("color: #8b949e;")
+        self._palette_desc.setStyleSheet(f"color: {TEXT_SECONDARY};")
         palette_layout.addWidget(self._palette_desc)
 
         # Custom weight matrix (only shown/used for Palette.CUSTOM).

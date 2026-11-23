@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 _BANNER = (
     f"Astraios Python Console  —  {sys.version.split()[0]}\n"
     "  image      — current ImageData  (set when you open the console)\n"
@@ -60,7 +62,7 @@ class _PySyntaxHighlighter(QSyntaxHighlighter):
         str_fmt.setForeground(QColor("#3fb950"))
 
         cmt_fmt = QTextCharFormat()
-        cmt_fmt.setForeground(QColor("#8b949e"))
+        cmt_fmt.setForeground(QColor(TEXT_SECONDARY))
         cmt_fmt.setFontItalic(True)
 
         num_fmt = QTextCharFormat()
@@ -204,7 +206,7 @@ class PythonConsoleWidget(QWidget):
         self._build_ui()
         self._thread_message.connect(self._write)
         self._thread_refresh.connect(lambda: self._inspector.refresh(self._namespace))
-        self._write(_BANNER, color="#8b949e")
+        self._write(_BANNER, color=TEXT_SECONDARY)
         self._write(">>> ", color="#58a6ff")
 
     def _setup_namespace(self):
@@ -403,7 +405,7 @@ class PythonConsoleWidget(QWidget):
     def set_timeout(self, seconds: float):
         """Set the per-command timeout in seconds. 0 disables the timeout."""
         self._timeout_sec = max(0.0, float(seconds))
-        self._write(f"Timeout set to {self._timeout_sec}s.\n", color="#8b949e")
+        self._write(f"Timeout set to {self._timeout_sec}s.\n", color=TEXT_SECONDARY)
 
     def _write(self, text: str, color: str | None = None):
         self._output.moveCursor(QTextCursor.MoveOperation.End)
@@ -419,7 +421,7 @@ class PythonConsoleWidget(QWidget):
 
     def _clear_output(self):
         self._output.clear()
-        self._write(_BANNER, color="#8b949e")
+        self._write(_BANNER, color=TEXT_SECONDARY)
 
     def _load_script(self):
         path, _ = QFileDialog.getOpenFileName(

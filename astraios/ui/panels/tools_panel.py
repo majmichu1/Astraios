@@ -2276,7 +2276,7 @@ class ToolsPanel(QWidget):
             sub = QHBoxLayout()
             sub.setSpacing(2)
             lbl = QLabel(label)
-            lbl.setStyleSheet("color: #8b949e; font-size: 10px;")
+            lbl.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px;")
             sub.addWidget(lbl)
             sub.addWidget(spin)
             rgb_row.addLayout(sub)

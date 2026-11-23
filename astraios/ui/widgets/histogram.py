@@ -7,6 +7,8 @@ from PyQt6.QtCore import QPointF, Qt
 from PyQt6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QWidget
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 
 class HistogramWidget(QWidget):
     """Renders R/G/B/Luminance histograms with log scale and clip indicators."""
@@ -102,7 +104,7 @@ class HistogramWidget(QWidget):
             painter.drawLine(QPointF(margin, y), QPointF(margin + w, y))
 
         if self._data is None:
-            painter.setPen(QPen(QColor("#8b949e")))
+            painter.setPen(QPen(QColor(TEXT_SECONDARY)))
             painter.drawText(
                 self.rect(), Qt.AlignmentFlag.AlignCenter,
                 "No histogram data yet",

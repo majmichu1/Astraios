@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.processing_graph import ProcessingGraph
+from astraios.ui.theme import TEXT_SECONDARY
 
 
 def _summarize_params(params: dict, max_items: int = 4) -> str:
@@ -84,7 +85,7 @@ class ProcessingGraphDialog(QDialog):
             "non-destructively."
         )
         info.setWordWrap(True)
-        info.setStyleSheet("color: #8b949e; padding: 4px;")
+        info.setStyleSheet(f"color: {TEXT_SECONDARY}; padding: 4px;")
         lay.addWidget(info)
 
         self._list = QListWidget()

@@ -18,6 +18,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 # Keywords that should never be edited (structural)
 _READONLY_KEYS = frozenset({
     "SIMPLE", "BITPIX", "NAXIS", "NAXIS1", "NAXIS2", "NAXIS3",
@@ -42,7 +44,7 @@ class FITSHeaderDialog(QDialog):
 
         # Info
         info = QLabel(f"{len(header)} keywords  •  grey rows are read-only structural keys")
-        info.setStyleSheet("color: #8b949e; font-size: 11px;")
+        info.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         layout.addWidget(info)
 
         # Table

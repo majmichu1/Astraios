@@ -34,6 +34,7 @@ from astraios.core.batch_rename import (
     find_collisions,
     plan_renames,
 )
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ class BatchRenameDialog(QDialog):
             "until you click Apply."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         layout.addWidget(intro)
 
         layout.addWidget(QLabel("Input files:"))

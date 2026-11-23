@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 log = logging.getLogger(__name__)
 
 FILE_FILTERS = "FITS / TIFF (*.fit *.fits *.fts *.xisf *.tif *.tiff);;All Files (*)"
@@ -66,7 +68,7 @@ class _ChannelRow(QWidget):
         row.setSpacing(4)
 
         colors = {"R": "#f85149", "G": "#3fb950", "B": "#58a6ff"}
-        ch_lbl = QLabel(f"<b style='color:{colors.get(output_channel,'#8b949e')}'>{output_channel}</b>")
+        ch_lbl = QLabel(f"<b style='color:{colors.get(output_channel, TEXT_SECONDARY)}'>{output_channel}</b>")
         ch_lbl.setFixedWidth(14)
         row.addWidget(ch_lbl)
 
@@ -159,7 +161,7 @@ class ChannelCombineDialog(QDialog):
             "ℹ For HOO: OIII is used for both G and B. Load the same OIII file in both G and B slots."
         )
         self._hoo_note.setWordWrap(True)
-        self._hoo_note.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._hoo_note.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         self._hoo_note.setVisible(False)
         main_layout.addWidget(self._hoo_note)
 

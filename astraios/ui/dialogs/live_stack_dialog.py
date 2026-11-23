@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.image_io import load_image
 from astraios.core.live_stack import LiveStacker
+from astraios.ui.theme import BORDER, TEXT_SECONDARY
 
 log = logging.getLogger(__name__)
 
@@ -99,11 +100,11 @@ class LiveStackDialog(QDialog):
 
         sep = QWidget()
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: #30363d;")
+        sep.setStyleSheet(f"background: {BORDER};")
         ctrl.addWidget(sep)
 
         mode_label = QLabel("Alignment")
-        mode_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        mode_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         ctrl.addWidget(mode_label)
 
         self._mode_combo = QComboBox()
@@ -134,13 +135,13 @@ class LiveStackDialog(QDialog):
 
         self._status_label = QLabel("No frames loaded")
         self._status_label.setStyleSheet(
-            "color: #8b949e; font-size: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
+            f"color: {TEXT_SECONDARY}; font-size: 12px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         ctrl.addWidget(self._status_label)
 
         self._elapsed_label = QLabel("Elapsed: 0s")
         self._elapsed_label.setStyleSheet(
-            "color: #8b949e; font-size: 11px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
+            f"color: {TEXT_SECONDARY}; font-size: 11px; font-family: 'JetBrains Mono', 'Fira Code', monospace;"
         )
         ctrl.addWidget(self._elapsed_label)
 
@@ -156,7 +157,7 @@ class LiveStackDialog(QDialog):
         self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._preview_label.setMinimumSize(400, 300)
         self._preview_label.setStyleSheet(
-            "background-color: #000; border: 1px solid #30363d; border-radius: 4px;"
+            f"background-color: #000; border: 1px solid {BORDER}; border-radius: 4px;"
         )
         self._preview_label.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
@@ -168,7 +169,7 @@ class LiveStackDialog(QDialog):
     @staticmethod
     def _combo_ss() -> str:
         return (
-            "QComboBox { background: #21262d; color: #e6edf3; border: 1px solid #30363d;"
+            f"QComboBox {{ background: #21262d; color: #e6edf3; border: 1px solid {BORDER};"
             " border-radius: 4px; padding: 4px 8px; font-size: 11px; }"
             " QComboBox::drop-down { border: none; }"
             " QComboBox QAbstractItemView { background: #21262d; color: #e6edf3;"

@@ -33,17 +33,28 @@ from astraios.core.pixel_math import (
     prepare_variables,
     validate_expression,
 )
+from astraios.ui.theme import (
+    ACCENT_DARK,
+    ACCENT_HOVER,
+    BG_PRIMARY,
+    BG_SECONDARY,
+    BG_TERTIARY,
+    BORDER,
+    RED,
+    TEXT_PRIMARY,
+    TEXT_SECONDARY,
+)
 
 _ACCENT = "#58a6ff"
-_ACCENT_DARK = "#1a4d2e"
-_BG_PRIMARY = "#0d1117"
-_BG_SECONDARY = "#161b22"
-_BG_TERTIARY = "#21262d"
-_TEXT_PRIMARY = "#e6edf3"
-_TEXT_SECONDARY = "#8b949e"
-_BORDER = "#30363d"
-_SUCCESS = "#3fb950"
-_ERROR = "#f85149"
+_ACCENT_DARK = ACCENT_DARK
+_BG_PRIMARY = BG_PRIMARY
+_BG_SECONDARY = BG_SECONDARY
+_BG_TERTIARY = BG_TERTIARY
+_TEXT_PRIMARY = TEXT_PRIMARY
+_TEXT_SECONDARY = TEXT_SECONDARY
+_BORDER = BORDER
+_SUCCESS = ACCENT_HOVER
+_ERROR = RED
 
 
 class _ExpressionHighlighter(QSyntaxHighlighter):

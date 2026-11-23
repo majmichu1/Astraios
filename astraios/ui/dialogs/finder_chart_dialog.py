@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -101,7 +102,7 @@ class FinderChartDialog(QDialog):
             "field marker, and an optional imaging-train field-of-view box."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         lay.addWidget(intro)
 
         if self._wcs_header is None:

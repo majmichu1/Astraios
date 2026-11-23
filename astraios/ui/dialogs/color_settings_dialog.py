@@ -30,6 +30,7 @@ from astraios.core.color_management import (
     detect_monitor_profile,
     register_profile,
 )
+from astraios.ui.theme import TEXT_SECONDARY
 
 log = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ class ColorSettingsDialog(QDialog):
         )
         self._monitor_path_label = QLabel(path_str)
         self._monitor_path_label.setWordWrap(True)
-        self._monitor_path_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._monitor_path_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         mon_layout.addRow("Path:", self._monitor_path_label)
 
         detect_btn = QPushButton("Re-detect Monitor Profile")

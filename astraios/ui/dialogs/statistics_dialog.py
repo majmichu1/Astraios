@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from astraios.core.statistics import ImageStatistics
+from astraios.ui.theme import TEXT_SECONDARY
 
 
 def _snr_db(snr_linear: float) -> str:
@@ -28,7 +29,7 @@ def _snr_db(snr_linear: float) -> str:
 def _noise_quality_color(snr_linear: float) -> str:
     """Return CSS color based on SNR quality."""
     if snr_linear <= 0:
-        return "#8b949e"
+        return TEXT_SECONDARY
     db = 20 * math.log10(snr_linear)
     if db >= 40:
         return "#3fb950"   # excellent

@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -64,7 +65,7 @@ class AstroBinExportDialog(QDialog):
             "CSV format AstroBin's acquisition-details importer expects."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "AstroBin's filter field wants a numeric equipment-database ID, "

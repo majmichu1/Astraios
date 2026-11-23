@@ -23,6 +23,7 @@ from astraios.core.batch import (
     batch_process,
 )
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 
 
 class BatchWorker(QThread):
@@ -120,7 +121,7 @@ class BatchDialog(QDialog):
         out_row = QHBoxLayout()
         out_row.addWidget(QLabel("Output:"))
         self._output_label = QLabel("(not set)")
-        self._output_label.setStyleSheet("color: #8b949e;")
+        self._output_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
         out_row.addWidget(self._output_label, 1)
         out_btn = QPushButton("Choose...")
         out_btn.clicked.connect(self._choose_output)

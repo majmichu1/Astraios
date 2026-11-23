@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.image_io import ImageData
 from astraios.core.ser_reader import SERFrameReader
+from astraios.ui.theme import TEXT_SECONDARY
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class SERViewerDialog(QDialog):
         lay.addLayout(file_row)
 
         self._info_label = QLabel("No SER file loaded.")
-        self._info_label.setStyleSheet("color: #8b949e;")
+        self._info_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
         self._info_label.setWordWrap(True)
         lay.addWidget(self._info_label)
 
@@ -131,7 +132,7 @@ class SERViewerDialog(QDialog):
 
         self._stats_label = QLabel("")
         self._stats_label.setStyleSheet(
-            "font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; color: #8b949e;"
+            f"font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; color: {TEXT_SECONDARY};"
         )
         lay.addWidget(self._stats_label)
 

@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.image_peek import FramePeek, ImagePeekParams, peek_frames
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import field_row, help_dot, param_help
 
 _TILE_THUMB_SIZE = 140  # px — thumbnail edge inside the grid tile
@@ -128,7 +129,7 @@ class _PeekTile(QFrame):
         fwhm_txt = f"FWHM {frame.fwhm:.1f}px" if frame.fwhm is not None else ""
         caption = QLabel(f"{name}\nmed {frame.median:.4f}  {fwhm_txt}  {stars_txt}")
         caption.setWordWrap(True)
-        caption.setStyleSheet("color: #8b949e; font-size: 10px;")
+        caption.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 10px;")
         caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         caption.setFixedWidth(_TILE_THUMB_SIZE)
         layout.addWidget(caption)
@@ -220,7 +221,7 @@ class ImagePeekerDialog(QDialog):
         controls.addWidget(self._peek_btn)
 
         self._count_label = QLabel("No frames loaded")
-        self._count_label.setStyleSheet("color: #8b949e; font-size: 11px;")
+        self._count_label.setStyleSheet(f"color: {TEXT_SECONDARY}; font-size: 11px;")
         controls.addWidget(self._count_label)
 
         layout.addLayout(controls)

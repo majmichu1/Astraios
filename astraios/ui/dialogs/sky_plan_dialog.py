@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 
 from astraios.core.sky_plan import ALL_OBJECT_TYPES, SkyPlanParams
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot, make_dialog_scrollable, param_help
 
 log = logging.getLogger(__name__)
@@ -209,7 +210,7 @@ class SkyPlanDialog(QDialog):
             "locally with astropy; no network access."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         lay.addWidget(intro)
 
         lay.addLayout(self._build_location_group())

@@ -17,6 +17,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 FORMAT_FILTERS = {
     ".tif": "TIFF 16-bit (*.tif *.tiff)",
     ".png": "PNG 16-bit (*.png)",
@@ -78,7 +80,7 @@ class ExportDialog(QDialog):
 
         # Info label
         info_label = QLabel(
-            "<span style='color: #8b949e;'>TIFF and PNG support 16-bit for "
+            f"<span style='color: {TEXT_SECONDARY};'>TIFF and PNG support 16-bit for "
             "high-quality output. JPEG is always 8-bit.</span>"
         )
         info_label.setWordWrap(True)

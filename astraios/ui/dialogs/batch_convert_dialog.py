@@ -33,6 +33,7 @@ from astraios.core.batch_convert import (
     batch_convert,
 )
 from astraios.ui.dialogs.dialog_workers import stop_worker
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot, param_help
 
 log = logging.getLogger(__name__)
@@ -91,7 +92,7 @@ class BatchConvertDialog(QDialog):
             "are not supported (Astraios has no RAW decoder)."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         layout.addWidget(intro)
 
         layout.addWidget(QLabel("Input files:"))

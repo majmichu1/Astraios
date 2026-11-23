@@ -7,6 +7,8 @@ from PyQt6.QtCore import QPoint, QPointF, QRect, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QImage, QMouseEvent, QPainter, QPen, QPixmap, QWheelEvent
 from PyQt6.QtWidgets import QLabel, QPushButton, QRubberBand, QWidget
 
+from astraios.ui.theme import TEXT_SECONDARY
+
 
 class ImageCanvas(QWidget):
     """High-performance image display with zoom, pan, split preview, and overlays."""
@@ -263,7 +265,7 @@ class ImageCanvas(QWidget):
         if self._pixmap is None:
             painter = QPainter(self)
             painter.fillRect(self.rect(), Qt.GlobalColor.black)
-            painter.setPen(QPen(QColor("#8b949e")))
+            painter.setPen(QPen(QColor(TEXT_SECONDARY)))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
                              "No image loaded\nDrag & drop FITS/XISF files here")
             painter.end()

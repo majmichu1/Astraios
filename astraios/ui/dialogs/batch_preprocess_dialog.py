@@ -31,17 +31,18 @@ from astraios.core.preprocessing import (
     scan_folder_for_frames,
 )
 from astraios.core.stacking import RejectionMethod, StackingParams
+from astraios.ui.theme import BG_SECONDARY, BORDER, TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import form_label, param_help
 
 
 def _combo_ss() -> str:
     return (
-        "QComboBox { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
+        f"QComboBox {{ background: {BG_SECONDARY}; color: #e6edf3; border: 1px solid {BORDER};"
         " border-radius: 4px; padding: 4px 8px; min-height: 24px; }"
         " QComboBox:hover { border-color: #58a6ff; }"
         " QComboBox::drop-down { border: none; padding-right: 8px; }"
-        " QComboBox QAbstractItemView { background: #161b22; color: #e6edf3;"
-        " border: 1px solid #30363d; selection-background-color: #1f6feb; }"
+        f" QComboBox QAbstractItemView {{ background: {BG_SECONDARY}; color: #e6edf3;"
+        f" border: 1px solid {BORDER}; selection-background-color: #1f6feb; }}"
     )
 
 
@@ -178,7 +179,7 @@ class BatchPreprocessDialog(QDialog):
             "FITS headers (IMAGETYP) are also used for auto-detection."
         )
         desc.setWordWrap(True)
-        desc.setStyleSheet("color: #8b949e; margin-bottom: 8px;")
+        desc.setStyleSheet(f"color: {TEXT_SECONDARY}; margin-bottom: 8px;")
         layout.addWidget(desc)
 
         # Folder picker row
@@ -187,7 +188,7 @@ class BatchPreprocessDialog(QDialog):
         self._folder_path.setPlaceholderText("Choose a folder with calibration subfolders...")
         self._folder_path.setReadOnly(True)
         self._folder_path.setStyleSheet(
-            "QLineEdit { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
+            f"QLineEdit {{ background: {BG_SECONDARY}; color: #e6edf3; border: 1px solid {BORDER};"
             " border-radius: 4px; padding: 6px 8px; }"
         )
         folder_row.addWidget(self._folder_path)
@@ -200,7 +201,7 @@ class BatchPreprocessDialog(QDialog):
         # Or manual file selection
         manual_group = QGroupBox("Or select files manually")
         manual_group.setStyleSheet(
-            "QGroupBox { color: #8b949e; border: 1px solid #30363d; border-radius: 6px;"
+            f"QGroupBox {{ color: {TEXT_SECONDARY}; border: 1px solid {BORDER}; border-radius: 6px;"
             " margin-top: 12px; padding-top: 16px; }"
             " QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }"
         )
@@ -214,12 +215,13 @@ class BatchPreprocessDialog(QDialog):
             le = QLineEdit()
             le.setReadOnly(True)
             le.setStyleSheet(
-                "QLineEdit { background: #161b22; color: #8b949e; border: 1px solid #30363d;"
+                f"QLineEdit {{ background: {BG_SECONDARY}; color: {TEXT_SECONDARY};"
+                f" border: 1px solid {BORDER};"
                 " border-radius: 4px; padding: 4px 8px; }"
             )
             row.addWidget(le)
             count_label = QLabel("0 files")
-            count_label.setStyleSheet("color: #8b949e; min-width: 60px;")
+            count_label.setStyleSheet(f"color: {TEXT_SECONDARY}; min-width: 60px;")
             row.addWidget(count_label)
             btn = QPushButton("Add...")
             row.addWidget(btn)
@@ -242,7 +244,7 @@ class BatchPreprocessDialog(QDialog):
         # What was detected
         self._detection_summary = QLabel("")
         self._detection_summary.setWordWrap(True)
-        self._detection_summary.setStyleSheet("color: #8b949e; padding: 4px;")
+        self._detection_summary.setStyleSheet(f"color: {TEXT_SECONDARY}; padding: 4px;")
         layout.addWidget(self._detection_summary)
 
         return page
@@ -260,7 +262,7 @@ class BatchPreprocessDialog(QDialog):
         # Pipeline stages
         stage_group = QGroupBox("Pipeline Stages")
         stage_group.setStyleSheet(
-            "QGroupBox { color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;"
+            f"QGroupBox {{ color: #e6edf3; border: 1px solid {BORDER}; border-radius: 6px;"
             " margin-top: 12px; padding-top: 20px; }"
             " QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 4px; }"
         )
@@ -361,7 +363,7 @@ class BatchPreprocessDialog(QDialog):
         self._out_dir_le = QLineEdit()
         self._out_dir_le.setPlaceholderText("Output directory...")
         self._out_dir_le.setStyleSheet(
-            "QLineEdit { background: #161b22; color: #e6edf3; border: 1px solid #30363d;"
+            f"QLineEdit {{ background: {BG_SECONDARY}; color: #e6edf3; border: 1px solid {BORDER};"
             " border-radius: 4px; padding: 4px 8px; }"
         )
         out_dir_row.addWidget(self._out_dir_le)
@@ -398,20 +400,20 @@ class BatchPreprocessDialog(QDialog):
         self._progress_bar.setRange(0, 100)
         self._progress_bar.setValue(0)
         self._progress_bar.setStyleSheet(
-            "QProgressBar { background: #21262d; border: 1px solid #30363d;"
+            f"QProgressBar {{ background: #21262d; border: 1px solid {BORDER};"
             " border-radius: 4px; text-align: center; color: #e6edf3; }"
             " QProgressBar::chunk { background: #2ea043; border-radius: 4px; }"
         )
         layout.addWidget(self._progress_bar)
 
         self._progress_label = QLabel("Initializing...")
-        self._progress_label.setStyleSheet("color: #8b949e;")
+        self._progress_label.setStyleSheet(f"color: {TEXT_SECONDARY};")
         layout.addWidget(self._progress_label)
 
         self._log_output = QTextEdit()
         self._log_output.setReadOnly(True)
         self._log_output.setStyleSheet(
-            "QTextEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d;"
+            f"QTextEdit {{ background: #0d1117; color: #e6edf3; border: 1px solid {BORDER};"
             " border-radius: 4px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 11px; }"
         )
         self._log_output.setMinimumHeight(200)
@@ -431,7 +433,7 @@ class BatchPreprocessDialog(QDialog):
         self._result_summary = QTextEdit()
         self._result_summary.setReadOnly(True)
         self._result_summary.setStyleSheet(
-            "QTextEdit { background: #0d1117; color: #e6edf3; border: 1px solid #30363d;"
+            f"QTextEdit {{ background: #0d1117; color: #e6edf3; border: 1px solid {BORDER};"
             " border-radius: 4px; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 12px; }"
         )
         layout.addWidget(self._result_summary)

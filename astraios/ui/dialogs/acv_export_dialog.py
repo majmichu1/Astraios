@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
+from astraios.ui.theme import TEXT_SECONDARY
 from astraios.ui.widgets.ui_kit import help_dot
 
 log = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ class ACVExportDialog(QDialog):
             "dialog (or any tool that reads the standard .acv format)."
         )
         intro.setWordWrap(True)
-        intro.setStyleSheet("color: #8b949e;")
+        intro.setStyleSheet(f"color: {TEXT_SECONDARY};")
         intro_row.addWidget(intro, 1)
         intro_row.addWidget(help_dot(
             "The .acv format stores each channel's control points as "
