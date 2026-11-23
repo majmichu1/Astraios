@@ -10,6 +10,7 @@ is already optimized native code and GPU NLM would require custom kernels.
 
 from __future__ import annotations
 
+import functools
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -69,6 +70,22 @@ def _estimate_noise_sigma(wavelet_scales: list[np.ndarray]) -> float:
     finest = wavelet_scales[0]
     median_abs = float(np.median(np.abs(finest)))
     return median_abs / 0.6745 if median_abs > 0 else 1e-6
+
+
+@functools.lru_cache(maxsize=8)
+def _starlet_noise_factors(n_scales: int) -> tuple[float, ...]:
+    """Noise std of each starlet detail scale, relative to the image noise.
+
+    Measured once from seeded unit white noise through the same
+    ``wavelet_decompose`` the denoiser uses (about 0.89, 0.20, 0.086, 0.041,
+    ... for the B3 spline). Noise shrinks fast at coarser scales, so each
+    scale needs its own noise level; using the finest scale's everywhere
+    over-thresholds the coarse scales and eats stars.
+    """
+    rng = np.random.default_rng(0)
+    noise = rng.standard_normal((512, 512)).astype(np.float32)
+    scales = wavelet_decompose(noise, n_scales=n_scales)
+    return tuple(float(np.std(scales[j][32:-32, 32:-32])) for j in range(n_scales))
 
 
 def measure_noise(image: np.ndarray) -> tuple[float, float]:
@@ -148,6 +165,8 @@ def _wavelet_threshold_scale(
 ) -> np.ndarray:
     """Apply soft thresholding to wavelet scales on GPU and reconstruct."""
     dm = get_device_manager()
+    factors = _starlet_noise_factors(n_scales)
+    sigma_img = sigma_noise / factors[0]  # sigma_noise is measured on the finest scale
     denoised_scales = []
     for level in range(n_scales):
         # Every detail scale is thresholded; the finest (level 0) is the most
@@ -158,9 +177,10 @@ def _wavelet_threshold_scale(
         effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
 
         d = dm.from_numpy(scales[level])
+        sigma_j = sigma_img * factors[level]  # this scale's own noise level
         sigma_d = max(float(d.std().cpu()), 1e-10)
-        sigma_signal = max(float((max(sigma_d**2 - sigma_noise**2, 0)) ** 0.5), 1e-10)
-        thresh = float((sigma_noise**2 / sigma_signal) * threshold_scale * effective_factor)
+        sigma_signal = max(float((max(sigma_d**2 - sigma_j**2, 0)) ** 0.5), 1e-10)
+        thresh = float((sigma_j**2 / sigma_signal) * threshold_scale * effective_factor)
 
         denoised = torch.where(d.abs() > thresh, d.sign() * (d.abs() - thresh), torch.zeros_like(d))
         denoised_scales.append(dm.to_cpu(denoised))
@@ -248,7 +268,10 @@ def denoise(
     # read `image` directly — saving a full copy per call (per channel in the
     # smart processor).
     dm = get_device_manager()
-    use_gpu = dm.is_gpu and params.method == DenoiseMethod.WAVELET
+    # chrominance_only is handled by the per-channel path below, not the GPU one.
+    use_gpu = (
+        dm.is_gpu and params.method == DenoiseMethod.WAVELET and not params.chrominance_only
+    )
 
     if use_gpu:
         progress(0.1, "Denoising on GPU...")
@@ -309,8 +332,13 @@ def _denoise_wavelet_gpu_cpu(channel: np.ndarray, params: DenoiseParams) -> np.n
     threshold_scale = params.strength * 3.0
 
     denoised_coeffs = [coeffs[0]]
+    n_detail = len(coeffs) - 1
     for level_idx, detail in enumerate(coeffs[1:], 1):
-        level_factor = 1.0 - (level_idx - 1) / max(levels, 1)
+        # wavedec2 lists detail levels coarsest first. Count from the finest
+        # (0) so the finest, most noise-dominated level gets the strongest
+        # threshold, as on the GPU path.
+        fine_idx = n_detail - level_idx
+        level_factor = 1.0 - fine_idx / max(n_detail - 1, 1)
         effective_factor = level_factor * (1.0 - params.detail_preservation * 0.8)
         thresholded = []
         for d in detail:
