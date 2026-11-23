@@ -168,6 +168,9 @@ def richardson_lucy(
     dm = get_device_manager()
     # no copy: op never mutates the input; apply_mask reads image directly
     psf_np = _create_gaussian_psf(params.psf_fwhm)
+    if min(image.shape[-2:]) < psf_np.shape[0]:
+        log.warning("Image smaller than the %d px PSF; deconvolution skipped", psf_np.shape[0])
+        return np.array(image, dtype=np.float32)
 
     if image.ndim == 2:
         result = _rl_channel(image, psf_np, params, dm, progress, 0, 1)
@@ -219,6 +222,9 @@ def wiener_deconvolve(
         params = DeconvolutionParams()
     dm = get_device_manager()
     psf = _create_gaussian_psf(params.psf_fwhm)
+    if min(image.shape[-2:]) < psf.shape[0]:
+        log.warning("Image smaller than the %d px PSF; deconvolution skipped", psf.shape[0])
+        return np.array(image, dtype=np.float32)
     nsr = max(float(params.regularization), 1e-5)
     progress(0.0, "Wiener deconvolution…")
     if image.ndim == 2:

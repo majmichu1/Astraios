@@ -216,6 +216,9 @@ def tgv_denoise(
     """
     if params is None:
         params = TGVParams()
+    if min(data.shape[-2:]) < 2:
+        log.warning("Image too small for TGV denoise (needs 2x2 px); skipped")
+        return np.array(data, dtype=np.float32)
 
     dm = get_device_manager()
     device = dm.device

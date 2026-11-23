@@ -239,7 +239,9 @@ def reduce_halos(
     level_name = HALO_REDUCTION_LEVEL_NAMES[level]
     progress(0.0, f"Halo-B-Gon: computing suppression mask ({level_name})...")
     dm = get_device_manager()
-    if dm.is_gpu:
+    # The GPU blur pads by its kernel radius, which must be smaller than the
+    # image; the CPU path (OpenCV) handles tiny images, so use it for those.
+    if dm.is_gpu and min(data.shape[-2:]) > int(round(_UNSHARP_SIGMA * 8 + 1)) // 2:
         out = _reduce_halos_gpu(data, level, is_linear, dm)
     else:
         out = _reduce_halos_cpu(data, level, is_linear)

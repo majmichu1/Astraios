@@ -109,6 +109,9 @@ def chroma_denoise(image: np.ndarray, strength: float = 1.0) -> np.ndarray:
     ksize = 5 if strength >= 1.5 else 3
     # Median removes the spots, so the Gaussian only needs to gently smooth.
     sigma = max(1.0, 1.5 + 2.5 * float(strength))
+    # The Gaussian pads by its radius, which must be smaller than the image.
+    if min(image.shape[1:]) <= max(1, int(round(sigma * 3))):
+        return image.astype(np.float32, copy=False)
 
     out = t.clone()
     for c in range(3):
