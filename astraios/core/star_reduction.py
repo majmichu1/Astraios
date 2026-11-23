@@ -77,7 +77,11 @@ def create_star_mask(
     mask_data = np.zeros((h, w), dtype=np.float32)
 
     for star in sf.stars:
-        radius = max(star.fwhm * scale, 2.0)
+        # Size the blob from the visible footprint, not the PSF FWHM: the mask
+        # must cover the light the erosion is meant to shrink, and is softened
+        # by a sigma-5 blur below, which thins a FWHM-sized blob to ~15% at
+        # the core and leaves the star almost untouched.
+        radius = max(star.footprint_diameter * scale, 2.0)
         sigma = radius / 2.0
         # The Gaussian blob is negligible beyond ~6 sigma (exp(-18) ~ 1e-8, below
         # the mask's float32 precision and softened/clipped anyway), so build it

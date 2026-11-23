@@ -24,6 +24,16 @@ class Star:
     flux: float  # peak pixel value
     fwhm: float = 0.0  # full width at half maximum (pixels)
     roundness: float = 0.0  # 0 = perfect circle, 1 = elongated
+    # Area of the thresholded blob (pixels): how far the star's visible light
+    # reaches, which grows with brightness. fwhm measures the PSF core and
+    # does not; anything that must cover the whole star (masks, apertures)
+    # wants this. 0.0 when the detector did not measure it.
+    area: float = 0.0
+
+    @property
+    def footprint_diameter(self) -> float:
+        """Diameter of the star's visible footprint, falling back to the FWHM."""
+        return 2.0 * float(np.sqrt(self.area / np.pi)) if self.area > 0 else self.fwhm
 
 
 @dataclass
@@ -179,7 +189,9 @@ def detect_stars(
         else:
             roundness = 0.0
 
-        stars.append(Star(x=cx, y=cy, flux=flux, fwhm=fwhm, roundness=roundness))
+        stars.append(
+            Star(x=cx, y=cy, flux=flux, fwhm=fwhm, roundness=roundness, area=float(area))
+        )
 
     # Sort by brightness (brightest first) and take top N
     stars.sort(key=lambda s: -s.flux)
